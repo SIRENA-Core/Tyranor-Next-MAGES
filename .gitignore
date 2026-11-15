@@ -1,0 +1,19 @@
+build/
+.gradle/
+.kotlin/
+.idea/
+.vscode/
+*.iml
+local.properties
+.cxx/
+*.apk
+*.aab
+*.so
+*.log
+*.hprof
+# Signing keys never belong in the repository.
+*.jks
+*.keystore
+*.p12
+__pycache__/
+release-assets/
