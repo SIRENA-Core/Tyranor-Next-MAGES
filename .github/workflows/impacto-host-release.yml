@@ -99,7 +99,7 @@ jobs:
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;37.0.0" >/dev/null
-          ./gradlew -p engine/impacto/host-apk :app:testReleaseUnitTest :app:assembleRelease --no-daemon \
+          ./gradlew -p engine/impacto/host-apk :app:testDebugUnitTest :app:assembleRelease --no-daemon \
             "-PimpactoSource=${BUILD_ROOT}/source" "-PimpactoCandidate=${BUILD_ROOT}/candidate"
 
       - name: Verify the APK contents
