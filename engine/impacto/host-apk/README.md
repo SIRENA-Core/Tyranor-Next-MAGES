@@ -1,6 +1,6 @@
-# Impacto 宿主 APK
+# MAGES. 引擎宿主 APK（impacto）
 
-承载**未改动**的 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（固定提交见 `../source-lock.json`）。
+承载 MAGES. 引擎的开源重新实现 impacto（项目名，不是引擎名）——**未改动**的 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（固定提交见 `../source-lock.json`）。
 Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负责它的构建、发布与维护。
 
 ## 为什么是独立 APK

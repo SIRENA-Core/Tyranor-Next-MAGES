@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Impacto (Tyranor)</string>
+    <string name="app_name">MAGES. (impacto)</string>
     <string name="request_rejected">Launch request rejected.</string>
     <string name="need_all_files_access">Allow all files access for this app, then start the game again from Tyranor Next.</string>
     <string name="game_dir_missing">The game folder no longer exists.</string>

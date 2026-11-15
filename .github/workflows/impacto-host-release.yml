@@ -183,6 +183,6 @@ jobs:
           upstream=$(python3 -c "import json;print(json.load(open('engine/impacto/source-lock.json'))['impacto']['revision'])")
           gh release create "${TAG}" release-assets/* \
             --target "${GITHUB_SHA}" \
-            --title "Impacto host ${VERSION}" \
-            --notes "Standalone host for the unmodified upstream CommitteeOfZero/impacto at ${upstream}, built from commit ${GITHUB_SHA}. Install it, then start an Impacto game from Tyranor Next (the host has no desktop icon). candidate.json records the library SHA-256 and the pinned source lock; the licenses archive holds the texts listed in NOTICE.md." \
+            --title "MAGES. host (impacto) ${VERSION}" \
+            --notes "Standalone host for the MAGES. engine: the unmodified upstream CommitteeOfZero/impacto (an open-source reimplementation) at ${upstream}, built from commit ${GITHUB_SHA}. Install it, then start a MAGES. game from Tyranor Next (the host has no desktop icon). candidate.json records the library SHA-256 and the pinned source lock; the licenses archive holds the texts listed in NOTICE.md." \
             --latest

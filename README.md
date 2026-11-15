@@ -1,13 +1,14 @@
 # Tyranor-Next-Impacto
 
-[Tyranor Next](https://github.com/Weiss-UltimateSavior/Tyranor-Next) 的 Impacto 外置宿主 APK：把**未改动**的上游
+[Tyranor Next](https://github.com/Weiss-UltimateSavior/Tyranor-Next) 的 **MAGES. 引擎**外置宿主 APK。MAGES.（前 5pb.）的视觉小说引擎，
+**impacto** 是重新实现它的开源项目（本仓库名里的 Impacto 指这个项目，不是引擎名）：把**未改动**的上游
 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（固定提交见 [`source-lock.json`](engine/impacto/source-lock.json)）
 打成独立 APK，由 Tyranor Next 通过 Intent 启动。本仓库负责它的构建、发布与维护。
 
 ## 使用
 
 1. 在 Tyranor Next 的引擎页点 Impacto 即可跳转下载；也可以直接下载最新版：[`impacto-host.apk`](../../releases/latest/download/impacto-host.apk)，然后安装。
-2. 在 Tyranor Next 里点 Impacto 游戏即可启动。宿主**没有桌面图标**，首次启动时按提示开启「所有文件访问」。
+2. 在 Tyranor Next 里点 MAGES. 游戏即可启动。宿主**没有桌面图标**，首次启动时按提示开启「所有文件访问」。
 
 要求：arm64-v8a，Android 11 及以上。
 
@@ -37,5 +38,5 @@
 
 ## 许可
 
-自有代码 [GPL-2.0](LICENSE)；APK 内的上游 Impacto（ISC）、静态链接的 FFmpeg 与 libmspack（LGPL）等见 [`NOTICE.md`](NOTICE.md)，
+自有代码 [GPL-2.0](LICENSE)；APK 内的上游 impacto（ISC）、静态链接的 FFmpeg 与 libmspack（LGPL）等见 [`NOTICE.md`](NOTICE.md)，
 每个发布附带许可证文本包。

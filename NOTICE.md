@@ -5,14 +5,14 @@
 
 | 组件 | 许可 | 备注 |
 | --- | --- | --- |
-| Impacto 本体 | ISC | 上游 `LICENSE` |
+| impacto 本体（MAGES. 引擎的开源重新实现） | ISC | 上游 `LICENSE` |
 | FFmpeg（经 vcpkg） | LGPL-2.1 | 上游 Android 构建静态链接 FFmpeg；本构建未启用 GPL/nonfree 选项 |
 | libmspack | LGPL-2.1 或更高 | 上游随引擎一并编译 |
 | SDL3 | zlib | 构建时 Java 层（`org.libsdl.app`）来自上游检出，不复制、不修改 |
 | 其余 vcpkg 依赖 | 各自许可 | 随发布附带的许可证文本包逐项收录 |
 | 本仓库的宿主代码 | GPL-2.0 | 见 `LICENSE` |
 
-Impacto 自己的第三方清单见上游的 `THIRDPARTY.md`，也收录在许可证文本包里。
+impacto 自己的第三方清单见上游的 `THIRDPARTY.md`，也收录在许可证文本包里。
 
 ## 对应源码
 
