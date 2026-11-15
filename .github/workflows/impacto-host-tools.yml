@@ -37,8 +37,7 @@ jobs:
         run: |
           # The release workflow evals this script's stdout, so anything but export lines on stdout breaks it.
           out=$(bash tools/impacto/setup-linux-tools.sh)
-          [[ $(printf '%s
-' "${out}" | wc -l) == 2 ]] || { echo "::error::unexpected stdout: ${out}"; exit 1; }
+          [[ $(printf '%s\n' "${out}" | wc -l) == 2 ]] || { echo "::error::unexpected stdout: ${out}"; exit 1; }
           eval "${out}"
           test -f "${ANDROID_NDK_HOME}/source.properties"
           "${IMPACTO_CMAKE}" --version | head -1
