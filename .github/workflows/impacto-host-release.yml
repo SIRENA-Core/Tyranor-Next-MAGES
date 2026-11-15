@@ -1,9 +1,10 @@
 name: Impacto host release
 
 # Builds the unmodified upstream Impacto library from the pinned source, packages it into the standalone host APK,
-# signs it with this repository's release key and publishes it as a pre-release. Tyranor Next links to the release of
-# the host version it expects (ImpactoExternalEngineModule.installUrl), so that release must exist before an app change
-# that raises the expected version is merged. Run it by hand: it takes a long time (vcpkg builds SDL3, FFmpeg and more).
+# signs it with this repository's release key and publishes it as the latest release. Tyranor Next downloads
+# https://github.com/<repo>/releases/latest/download/impacto-host.apk (ImpactoExternalEngineModule.installUrl), so the
+# asset names below must stay fixed; the version lives in the tag and in the APK itself.
+# Run it by hand: it takes a long time (vcpkg builds SDL3, FFmpeg and more).
 on:
   workflow_dispatch:
 
@@ -150,7 +151,7 @@ jobs:
           print('APK holds the candidate library (build id matches, stripped)')
           PY
 
-      - name: Publish the pre-release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
@@ -159,8 +160,8 @@ jobs:
         run: |
           apk=$(ls engine/impacto/host-apk/app/build/outputs/apk/release/*.apk)
           mkdir -p release-assets
-          cp "${apk}" "release-assets/impacto-host-${VERSION}.apk"
-          cp "${BUILD_ROOT}/candidate/candidate.json" "release-assets/impacto-host-${VERSION}.candidate.json"
+          cp "${apk}" "release-assets/impacto-host.apk"
+          cp "${BUILD_ROOT}/candidate/candidate.json" "release-assets/impacto-host.candidate.json"
           # License texts for everything linked into libimpacto.so (see NOTICE.md).
           licenses="${RUNNER_TEMP}/licenses"
           mkdir -p "${licenses}"
@@ -175,11 +176,11 @@ jobs:
           cp "${BUILD_ROOT}/source/LICENSE" "${licenses}/impacto-LICENSE.txt"
           cp "${BUILD_ROOT}/source/THIRDPARTY.md" "${licenses}/impacto-THIRDPARTY.md"
           cp LICENSE NOTICE.md "${licenses}/"
-          tar -cJf "release-assets/impacto-host-${VERSION}.licenses.tar.xz" -C "${RUNNER_TEMP}" licenses
-          (cd release-assets && sha256sum "impacto-host-${VERSION}.apk" "impacto-host-${VERSION}.licenses.tar.xz" > "impacto-host-${VERSION}.sha256")
+          tar -cJf "release-assets/impacto-host.licenses.tar.xz" -C "${RUNNER_TEMP}" licenses
+          (cd release-assets && sha256sum impacto-host.apk impacto-host.licenses.tar.xz > impacto-host.sha256)
           upstream=$(python3 -c "import json;print(json.load(open('engine/impacto/source-lock.json'))['impacto']['revision'])")
           gh release create "${TAG}" release-assets/* \
             --target "${GITHUB_SHA}" \
             --title "Impacto host ${VERSION}" \
             --notes "Standalone host for the unmodified upstream CommitteeOfZero/impacto at ${upstream}, built from commit ${GITHUB_SHA}. Install it, then start an Impacto game from Tyranor Next (the host has no desktop icon). candidate.json records the library SHA-256 and the pinned source lock; the licenses archive holds the texts listed in NOTICE.md." \
-            --prerelease
+            --latest

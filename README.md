@@ -6,7 +6,7 @@
 
 ## 使用
 
-1. 到 [Releases](../../releases) 下载 `impacto-host-<版本>.apk` 并安装。
+1. 在 Tyranor Next 的引擎页点 Impacto 即可跳转下载；也可以直接下载最新版：[`impacto-host.apk`](../../releases/latest/download/impacto-host.apk)，然后安装。
 2. 在 Tyranor Next 里点 Impacto 游戏即可启动。宿主**没有桌面图标**，首次启动时按提示开启「所有文件访问」。
 
 要求：arm64-v8a，Android 11 及以上。
@@ -23,7 +23,7 @@
 | Extras | `com.tyranor.next.impacto.extra.` + `GAME_DIR`、`PROFILE`、`GAME_KEY`、`TITLE` |
 | profile | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`darling`、`dash`、`rne` |
 | `GAME_KEY` | `SHA-256(profile + NUL + 游戏目录)` 前 12 字节的小写十六进制；宿主会重算，不符即拒绝 |
-| 发布标签 | `impacto-host-<versionName>`；Tyranor Next 期望的版本不得高于已发布版本 |
+| 下载地址 | `releases/latest/download/impacto-host.apk`（资产名固定，版本在标签 `impacto-host-<versionName>` 与 APK 内）；Tyranor Next 期望的 `versionCode` 不得高于最新发布 |
 
 校验向量：目录 `/storage/emulated/0/Games/mo6tw` + profile `mo6tw` → `853382f8b09761cd5c6e475c`。
 
@@ -32,7 +32,7 @@
 - 本地构建见 [`engine/impacto/host-apk/README.md`](engine/impacto/host-apk/README.md)；上游库只能在 Linux/WSL 上构建（`tools/impacto/`）。
 - 发布：手动运行 [`impacto-host-release`](.github/workflows/impacto-host-release.yml)，需要 secrets
   `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
-  **必须始终用同一把密钥签名**，否则已安装的旧版无法更新；已存在同名发布时拒绝覆盖，升级须提高 `versionCode`/`versionName`。
+  **必须始终用同一把密钥签名**，否则已安装的旧版无法更新；已存在同名标签时拒绝覆盖，升级须提高 `versionCode`/`versionName`，发布后自动成为最新版。
 - 不修改上游任何源码、资源或 SDL。需要改引擎才能解决的问题，记录证据后停下，不在这里打补丁。
 
 ## 许可
