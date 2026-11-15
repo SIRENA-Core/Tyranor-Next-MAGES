@@ -42,7 +42,7 @@ PY
     if ! { [[ -f "$NDK_ZIP" ]] && echo "$NDK_SHA1  $NDK_ZIP" | sha1sum -c - >/dev/null 2>&1; }; then
         curl -fL --retry 3 -o "$NDK_ZIP" "https://dl.google.com/android/repository/$NDK_ZIP"
     fi
-    echo "$NDK_SHA1  $NDK_ZIP" | sha1sum -c -
+    echo "$NDK_SHA1  $NDK_ZIP" | sha1sum -c - >&2
     rm -rf "$TOOLS/ndk.tmp" "$NDK_DIR"
     mkdir -p "$TOOLS/ndk.tmp"
     unzip -q "$NDK_ZIP" -d "$TOOLS/ndk.tmp"
@@ -59,7 +59,7 @@ if [[ ! -x "$TOOLS/$CMAKE_NAME/bin/cmake" ]]; then
     BASE="https://github.com/Kitware/CMake/releases/download/v$CMAKE_VER"
     curl -fL --retry 3 -o "$CMAKE_NAME.tar.gz" "$BASE/$CMAKE_NAME.tar.gz"
     curl -fsSL --retry 3 -o "cmake-$CMAKE_VER-SHA-256.txt" "$BASE/cmake-$CMAKE_VER-SHA-256.txt"
-    grep " $CMAKE_NAME.tar.gz\$" "cmake-$CMAKE_VER-SHA-256.txt" | sha256sum -c -
+    grep " $CMAKE_NAME.tar.gz$" "cmake-$CMAKE_VER-SHA-256.txt" | sha256sum -c - >&2
     tar -xzf "$CMAKE_NAME.tar.gz" -C "$TOOLS"
     rm -f "$CMAKE_NAME.tar.gz"
 fi

@@ -35,23 +35,6 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 读取 extras 时任何运行时异常都按拒绝处理，不会让承载游戏的进程崩溃。校验通过且已授予「所有文件访问」后才启动不导出的游戏 Activity。
 游戏 Activity 运行在独立的 `:game` 进程，并关闭预测性返回（`SDLActivity` 依赖 `onBackPressed()`，targetSdk 36 默认会吞掉它）。
 
-## 获取与发布
-
-与 Ren'Py、Ruffle 等外置 APK 模块一致：**不内置进 Tyranor Next**，由本仓库的 CI 构建后发布到 GitHub Release，Tyranor Next 的
-`ImpactoExternalEngineModule.installUrl` 指向与期望版本对应的发布页（`impacto-host-<versionName>`），主 App 只检查是否已安装、
-版本是否足够并发 Intent。
-
-发布由手动触发的 [`impacto-host-release`](../../../.github/workflows/impacto-host-release.yml) 工作流完成：
-在 Linux 上用 `tools/impacto/setup-linux-tools.sh` 装固定版本的 NDK 与 CMake，用 `build-upstream.sh` 从固定提交编译上游库，
-再用本仓库 secrets 里的发布密钥（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`）
-签名打包，核对 APK 内确为该候选库、签名不是 debug 密钥、没有桌面入口后，以 `impacto-host-<versionName>` 为标签发布预发布版，
-附带 SHA-256、`candidate.json` 与许可证文本包。该工作流**从未在 GitHub 上运行过**，同一套步骤只在 WSL 里手工演练过。
-已存在同名发布时工作流会拒绝覆盖：升级宿主须同时提高 `versionCode`/`versionName`，并同步改 Tyranor Next 里的
-`ImpactoHostContract.VERSION_CODE`/`VERSION_NAME`（约定见仓库根 README）。
-
-**Tyranor Next 抬高期望宿主版本的改动合并前，必须先运行该工作流产出对应发布，否则主 App 里的下载链接是 404。**
-宿主必须始终用同一把密钥签名，否则已安装的旧版无法被更新；密钥丢失无法找回。
-
 ## 构建
 
 需要 Python 3（非 Windows 使用 `python3`）、Android SDK（compileSdk 36）、JDK 17，以及：
@@ -81,5 +64,4 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 - 仅 Android 11（API 30）及以上：需要「所有文件访问」才能经路径读取游戏目录。
 - 每个进程只跑一个游戏；游戏 Activity 结束时宿主结束进程，避免 SDL 的进程级状态残留。
 - 数据根与存档在宿主的内部私有目录内（`files/games/<gameKey>/`），主 App 无法管理或同步。外部存储（含 `Android/data`）是 FUSE，不允许建符号链接，已在真机上确认，所以数据根必须放在内部存储。
-- 首个发布（0.1.0）尚未产出；在它出现之前 Tyranor Next 里的下载链接指向的发布页还不存在。
-- **引擎本体未运行过，也未与真实游戏数据验证。** 宿主 Java 层（请求校验、授权流程、数据根与链接、`:game` 进程）已用诊断包在一台真机上验证。
+- 引擎本体未运行过，也未与真实游戏数据验证；只有宿主 Java 层用诊断包在一台真机上验证过。
