@@ -21,12 +21,30 @@
 | 项 | 值 |
 | --- | --- |
 | 包名 / Action | `com.tyranor.next.impacto` / `com.tyranor.next.impacto.action.RUN` |
-| Extras | `com.tyranor.next.impacto.extra.` + `GAME_DIR`、`PROFILE`、`GAME_KEY`、`TITLE` |
+| Extras | `com.tyranor.next.impacto.extra.` + `GAME_DIR`、`PROFILE`、`GAME_KEY`、`TITLE`、`SETTINGS`（0.1.2 起，扁平 JSON，见下） |
 | profile | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`darling`、`dash`、`rne` |
 | `GAME_KEY` | `SHA-256(profile + NUL + 游戏目录)` 前 12 字节的小写十六进制；宿主会重算，不符即拒绝 |
 | 下载地址 | `releases/latest/download/impacto-host.apk`（资产名固定，版本在标签 `impacto-host-<versionName>` 与 APK 内）；Tyranor Next 期望的 `versionCode` 不得高于最新发布 |
 
 校验向量：目录 `/storage/emulated/0/Games/mo6tw` + profile `mo6tw` → `853382f8b09761cd5c6e475c`。
+
+## 用户设置（`SETTINGS`）
+
+Tyranor Next 在每次启动请求里带上该游戏的生效设置，宿主在引擎启动前把它们合并进该游戏的 `userconfig.toml`（只改下表的键，文件里的其它内容与注释原样保留）。请求不可信：只接受已知字段的正确类型，其余忽略；字段缺失或非法时不改对应键。
+
+| 字段（JSON） | 类型 | `userconfig.toml` 键 |
+| --- | --- | --- |
+| `swapConfirmCancel` | bool | `[CommonSettings]` `SwapConfirmCancelButtons` |
+| `vsync` | bool | `[GameSettings.<profile>]` `UseVSync` |
+| `videoPlayback` | bool | `[AdvancedSettings]` `VideoPlayer`（`FFmpeg` / `None`） |
+| `subtitles` | `all`/`translation`/`karaoke` | `[EnhancementsSettings]` `SubtitleConfig`（写成引擎自己的标志格式 `"Karaoke\|Translation"` / `"Translation"` / `"Karaoke"`；没有“全部关闭”这一档，因为引擎读不回空的标志集） |
+| `closeBacklogAtEnd` | bool | `[EnhancementsSettings]` `CloseBacklogWhenReachedEnd` |
+| `delusionMouse` | bool | `[EnhancementsSettings.CHLCC]` / `.CCLCC` `DelusionMousePatch`（只对 `chlcc`、`cclcc`） |
+| `logLevel` | `off`/`fatal`/`error`/`warning`/`info`/`debug`/`trace` | `[CommonSettings]` `LogLvl` |
+
+写入方式：只改上表的键，文件里其它内容与注释原样保留。遇到宿主无法逐行安全编辑的布局（带引号的表头或键、点号键、多行字符串或数组、单独的 `\r` 换行等），或合并后会出现重复的表或键，就先把原文件备份为 `userconfig.toml.bak`，再写一份干净的文件（引擎读取 TOML 出错会直接无法启动，所以不冒险）。文件替换用原子重命名；游戏进程已在运行时不改文件（引擎自己在改写它）。
+
+不提供的上游选项：分辨率与显示模式（Android 上窗口固定全屏，实际像素由系统决定）、渲染器与音频后端（Android 构建只有 OpenGL 与 OpenAL）、补丁档案（补丁目录在宿主私有数据目录里，用户无法放入文件）、日志文件路径与频道。
 
 ## 构建与发布
 

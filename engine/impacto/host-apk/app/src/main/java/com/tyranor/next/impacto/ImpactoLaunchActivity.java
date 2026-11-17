@@ -1,6 +1,7 @@
 package com.tyranor.next.impacto;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
@@ -12,6 +13,7 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Exported entry point for the Tyranor Next app. It validates the request, makes sure this APK may read the game
@@ -34,6 +36,27 @@ public final class ImpactoLaunchActivity extends Activity {
         } finally {
             finish();
         }
+    }
+
+    /** The engine runs in the {@code :game} process (see the manifest); true while that process is alive. */
+    private boolean isGameProcessRunning() {
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            List<ActivityManager.RunningAppProcessInfo> processes =
+                    manager == null ? null : manager.getRunningAppProcesses();
+            if (processes == null) {
+                return false;
+            }
+            String gameProcess = getPackageName() + ":game";
+            for (ActivityManager.RunningAppProcessInfo info : processes) {
+                if (gameProcess.equals(info.processName)) {
+                    return true;
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not list running processes", e);
+        }
+        return false;
     }
 
     private void launch(Intent incoming) {
@@ -80,6 +103,21 @@ public final class ImpactoLaunchActivity extends Activity {
             return;
         }
         Log.i(TAG, "Game folder readable through the link: " + entries.length + " entries");
+
+        // Apply the user settings from Tyranor Next to this game's engine config before the engine reads it.
+        // A failure here must not stop the game from starting: the engine then simply uses its own values.
+        // While the game process is already running the engine owns the file (it rewrites it on its own schedule),
+        // so a second launch leaves it alone.
+        if (isGameProcessRunning()) {
+            Log.i(TAG, "The game is already running; not touching its user config");
+        } else {
+            try {
+                ImpactoUserConfig.apply(new File(root, ImpactoUserConfig.FILE_NAME),
+                        ImpactoIntents.readSettings(incoming), request.profile);
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "Could not apply the user settings", e);
+            }
+        }
 
         Intent game = new Intent()
                 .setComponent(new ComponentName(this, TyranorImpactoActivity.class))
