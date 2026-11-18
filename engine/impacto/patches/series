@@ -6,10 +6,10 @@
 0004-tyn-bounds-check-the-voice-lip-sync-table.patch
 0005-tyn-add-the-Game.VoiceTableLittleEndian-profile-swit.patch
 0006-tyn-add-the-Dialogue.NameInsideNametag-profile-switc.patch
-0007-tyn-add-the-SaveData.AllowMissingImplementation-prof.patch
-0008-tyn-add-the-MO6TWPC-instruction-set.patch
-0009-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch
-0010-tyn-map-the-PC-title-mode-numbering-in-the-MO8-title.patch
-0011-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch
+0007-tyn-add-the-MO6TWPC-instruction-set.patch
+0008-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch
+0009-tyn-map-the-PC-title-mode-numbering-in-the-MO8-title.patch
+0010-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch
+0011-tyn-run-save-file-tasks-one-at-a-time-and-snapshot-w.patch
 0012-tyn-add-the-MO6TWPC-save-system-and-save-menu.patch
 0013-tyn-use-the-MO6TWPC-save-system-and-save-menu-in-the.patch

@@ -32,28 +32,28 @@
         "sha256": "09eee480a2c05d44011653707e6f01eab1e52ffbef28c69efb68894c22287898"
       },
       {
-        "file": "0007-tyn-add-the-SaveData.AllowMissingImplementation-prof.patch",
-        "sha256": "a447041c50593ebe451c5d8a52ab3f25dc4e1c812a6b67a1722b99bfb607d11a"
-      },
-      {
-        "file": "0008-tyn-add-the-MO6TWPC-instruction-set.patch",
+        "file": "0007-tyn-add-the-MO6TWPC-instruction-set.patch",
         "sha256": "9ba6619413046d1ea737216a6eb72d63cbb78966f297242c9e2822af06146543"
       },
       {
-        "file": "0009-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch",
+        "file": "0008-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch",
         "sha256": "e43ec942a1d1350ac4c042eb917aaa7dbbff194283cb6737f87faddb85fc053d"
       },
       {
-        "file": "0010-tyn-map-the-PC-title-mode-numbering-in-the-MO8-title.patch",
+        "file": "0009-tyn-map-the-PC-title-mode-numbering-in-the-MO8-title.patch",
         "sha256": "fd2e87c5cb8bf7311d0ed486aaba1fab310ba1f96ee572886e4662cccfff6167"
       },
       {
-        "file": "0011-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch",
+        "file": "0010-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch",
         "sha256": "1e4d30a33510c10a09d9e284e0764e1a95dac6b52af8ff62081bd78430c84998"
       },
       {
+        "file": "0011-tyn-run-save-file-tasks-one-at-a-time-and-snapshot-w.patch",
+        "sha256": "4b489829ed7993e1fb4412f56347837459e033fec1738a4963f2d5bf82877ba5"
+      },
+      {
         "file": "0012-tyn-add-the-MO6TWPC-save-system-and-save-menu.patch",
-        "sha256": "587f1279beb022ca2d4b209be481c7156051bb41e0cde6f7c0f7328b1134cf5b"
+        "sha256": "274d05153c189c99ac886f25b95578b64beeedb313f49ede5bdc140918a11d86"
       },
       {
         "file": "0013-tyn-use-the-MO6TWPC-save-system-and-save-menu-in-the.patch",

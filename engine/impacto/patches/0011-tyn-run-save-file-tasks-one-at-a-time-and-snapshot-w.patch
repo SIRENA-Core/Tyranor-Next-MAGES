@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 05:27:30 -0800
+Subject: [PATCH] tyn: run save file tasks one at a time and snapshot writes on
+ the main thread
+
+Upstreamable generic engine fix.
+
+SaveSystem::ExecuteLoader() replaced the global loader with
+Loader.emplace<T>() before Loadable::LoadAsync() could refuse a loader that
+was still Loading. A task running on a worker thread was destroyed under it,
+and the old task's completion event could then mark the new task as finished.
+
+A request that arrives while a task is running is now queued and started by
+the new SaveSystem::Update(), called once per frame from the main loop, after
+the running task has finished. GetLoadStatus() reports Loading for as long as
+something is queued, so scripts that wait for their task still wait for it.
+A write that is already waiting covers a second request of the same kind.
+
+SaveSystemBase::PrepareSaveFileWrite() (default: nothing) is called on the
+main thread right before a write is started and never while another task
+runs, so an implementation can copy what the worker thread is going to write
+instead of reading live game state from the worker thread. Games that do not
+override it behave as before; with no overlapping requests the sequence of
+calls is unchanged.
+
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 7aedf9caf22920fb04e888191043eb81ef2e0c5c..0ac434ab1321b13237e4cb3b6d2e0f543e82feaf 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -8,7 +8,9 @@
+ #include <algorithm>
+ #include <cstdint>
+ #include <ctime>
++#include <deque>
+ #include <ranges>
++#include <type_traits>
+ 
+ namespace Impacto {
+ namespace SaveSystem {
+@@ -114,8 +116,33 @@ static std::variant<SaveFileLoader, SaveFileChecker, SaveFileWriter,
+                     QuickSaveFileWriter>
+     Loader;
+ 
++// A save file task runs on a worker thread through Loadable, which can neither
++// cancel a task nor survive being destroyed while the task runs. Replacing the
++// loader while one is still running would hand the worker a dangling object,
++// so a request that arrives in that state waits in this queue and is started
++// by Update() once the running task has finished. GetLoadStatus() reports
++// Loading for as long as a request is queued, so a script that waits for its
++// task keeps waiting for it.
++using StartTask = void (*)();
++static std::deque<StartTask> QueuedTasks;
++
++static LoadStatus RunningLoadStatus() {
++  return std::visit([](auto& loader) -> LoadStatus { return loader.Status; },
++                    Loader);
++}
++
+ template <typename TLoader>
+-void ExecuteLoader() {
++static constexpr bool WritesSaveFile =
++    std::is_same_v<TLoader, SaveFileWriter> ||
++    std::is_same_v<TLoader, QuickSaveFileWriter>;
++
++template <typename TLoader>
++void StartLoader() {
++  // The worker thread writes from a copy taken here, not from live state
++  if constexpr (WritesSaveFile<TLoader>) {
++    if (Implementation) Implementation->PrepareSaveFileWrite();
++  }
++
+   SaveError result = Loader.emplace<TLoader>().LoadAsync()
+                          ? SaveError::InProgress
+                          : SaveError::Failed;
+@@ -123,9 +150,30 @@ void ExecuteLoader() {
+   ScrWork[SW_SAVEERRORCODE] = (int)result;
+ }
+ 
++template <typename TLoader>
++void ExecuteLoader() {
++  if (RunningLoadStatus() == LoadStatus::Loading || !QueuedTasks.empty()) {
++    // A write persists everything as it is when it starts, so a write of the
++    // same kind that is already waiting covers this request too
++    const bool covered = WritesSaveFile<TLoader> && !QueuedTasks.empty() &&
++                         QueuedTasks.back() == &StartLoader<TLoader>;
++    if (!covered) QueuedTasks.push_back(&StartLoader<TLoader>);
++    ScrWork[SW_SAVEERRORCODE] = (int)SaveError::InProgress;
++    return;
++  }
++  StartLoader<TLoader>();
++}
++
++void Update() {
++  if (QueuedTasks.empty() || RunningLoadStatus() == LoadStatus::Loading) return;
++  const StartTask start = QueuedTasks.front();
++  QueuedTasks.pop_front();
++  start();
++}
++
+ LoadStatus GetLoadStatus() {
+-  return std::visit([](auto& loader) -> LoadStatus { return loader.Status; },
+-                    Loader);
++  if (!QueuedTasks.empty()) return LoadStatus::Loading;
++  return RunningLoadStatus();
+ }
+ 
+ void MountSaveFile() { ExecuteLoader<SaveFileLoader>(); }
+diff --git a/src/data/savesystem.h b/src/data/savesystem.h
+index 8de5b99c4a90ade662fb56785404332230e5d777..b315690be5cb2a236da81e36d486d664d65e7ca9 100644
+--- a/src/data/savesystem.h
++++ b/src/data/savesystem.h
+@@ -116,6 +116,11 @@ class SaveSystemBase {
+   virtual void InitializeSystemData() = 0;
+ 
+   virtual void SaveThumbnailData() = 0;
++  // Called on the main thread right before WriteSaveFile/WriteQuickSaveFile are
++  // started on a worker thread, and never while another save file task is
++  // running. An implementation that must not read live game state from the
++  // worker thread copies what it is going to write here.
++  virtual void PrepareSaveFileWrite() {}
+   virtual SaveError WriteSaveFile() = 0;
+   virtual SaveError WriteQuickSaveFile() { return SaveError::OK; };
+   virtual uint32_t GetSavePlayTime(SaveType type, int id) const = 0;
+@@ -184,6 +189,9 @@ inline SaveSystemBase* Implementation = nullptr;
+ void Init();
+ 
+ LoadStatus GetLoadStatus();
++// Starts the next queued save file task once the running one has finished.
++// Call it once per frame from the main thread.
++void Update();
+ void CheckSaveFile();
+ void MountSaveFile();
+ void SaveMemory();
+diff --git a/src/game.cpp b/src/game.cpp
+index a4d73572e1985e310e2ae37317bcfe834762beef..bca76f11910918c7b4db9c70215637ba1dff7e93 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -365,6 +365,7 @@ void UpdateSystem(float dt) {
+     }
+ 
+     UI::GameSpecific::NonGameplayUpdate(updateInterval);
++    SaveSystem::Update();
+     SaveIconDisplay::Update(updateInterval);
+     LoadingDisplay::Update(updateInterval);
+     DateDisplay::Update(updateInterval);

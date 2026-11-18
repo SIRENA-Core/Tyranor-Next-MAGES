@@ -51,10 +51,10 @@ index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696
      src/games/mo6tw/tipsmenu.h
      src/games/mo6tw/savesystem.h
 diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
-index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604ca87d074 100644
+index 0ac434ab1321b13237e4cb3b6d2e0f543e82feaf..5b478964d7b70ed22909e45e553a1b2ff85171fb 100644
 --- a/src/data/savesystem.cpp
 +++ b/src/data/savesystem.cpp
-@@ -18,6 +18,20 @@ using namespace Impacto::Profile::ScriptVars;
+@@ -20,6 +20,20 @@ using namespace Impacto::Profile::ScriptVars;
  
  void Init() { Impacto::Profile::SaveSystem::Configure(); }
  
@@ -75,7 +75,7 @@ index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604
  class SaveFileLoader : public Loadable<SaveFileLoader, SaveError> {
    friend Loadable<SaveFileLoader, SaveError>;
  
-@@ -36,9 +50,7 @@ class SaveFileLoader : public Loadable<SaveFileLoader, SaveError> {
+@@ -38,9 +52,7 @@ class SaveFileLoader : public Loadable<SaveFileLoader, SaveError> {
  
      QueuedTextures.clear();
  
@@ -86,7 +86,7 @@ index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604
        result = SaveError::OK;
      }
  
-@@ -59,9 +71,7 @@ class SaveFileChecker : public Loadable<SaveFileChecker, SaveError> {
+@@ -61,9 +73,7 @@ class SaveFileChecker : public Loadable<SaveFileChecker, SaveError> {
    }
  
    void MainThreadOnLoad(SaveError result) {
@@ -97,7 +97,7 @@ index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604
        result = SaveError::OK;
      }
  
-@@ -79,9 +89,7 @@ class SaveFileWriter : public Loadable<SaveFileWriter, SaveError> {
+@@ -81,9 +91,7 @@ class SaveFileWriter : public Loadable<SaveFileWriter, SaveError> {
    }
  
    void MainThreadOnLoad(SaveError result) {
@@ -108,7 +108,7 @@ index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604
        result = SaveError::OK;
      }
  
-@@ -100,9 +108,7 @@ class QuickSaveFileWriter : public Loadable<QuickSaveFileWriter, SaveError> {
+@@ -102,9 +110,7 @@ class QuickSaveFileWriter : public Loadable<QuickSaveFileWriter, SaveError> {
    }
  
    void MainThreadOnLoad(SaveError result) {
@@ -120,7 +120,7 @@ index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604
      }
  
 diff --git a/src/data/savesystem.h b/src/data/savesystem.h
-index 8de5b99c4a90ade662fb56785404332230e5d777..2808471f96be0c3187fc6595ac2281b53c8f1c10 100644
+index b315690be5cb2a236da81e36d486d664d65e7ca9..ec1f91afd3a2ff9a71dac50b9351f3232cfc7db2 100644
 --- a/src/data/savesystem.h
 +++ b/src/data/savesystem.h
 @@ -20,6 +20,7 @@ enum class SaveDataType : int {
@@ -133,10 +133,10 @@ index 8de5b99c4a90ade662fb56785404332230e5d777..2808471f96be0c3187fc6595ac2281b5
  
 diff --git a/src/games/mo6twpc/savemenu.cpp b/src/games/mo6twpc/savemenu.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402c9f9eb24
+index 0000000000000000000000000000000000000000..1f684e600935dc2b3c0eaa0646b00000293c1046
 --- /dev/null
 +++ b/src/games/mo6twpc/savemenu.cpp
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,343 @@
 +#include "savemenu.h"
 +
 +#include <algorithm>
@@ -261,11 +261,14 @@ index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402
 +
 +void SaveMenu::MenuButtonOnClick(Widgets::Button* target) {
 +  target->Hovered = false;
-+  EntryClicked = true;
 +  const SaveSystem::SaveType saveType = TypeOf(ActiveMenuType);
 +  const int slot = target->Id;
 +  const uint8_t status = SaveSystem::GetSaveStatus(saveType, slot);
++  // An empty slot cannot be loaded. It must not count as a handled click, or
++  // the OK press would still reach the script, which then confirms the slot
++  // that was selected last.
 +  if (status == 0 && ActiveMenuType != SaveMenuPageType::Save) return;
++  EntryClicked = true;
 +
 +  ScrWork[SW_SAVEFILENO] = slot;
 +  ScrWork[SW_SAVEFILETYPE] = static_cast<int>(saveType);
@@ -352,11 +355,11 @@ index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402
 +                          nullSprite, NextButtonPosition);
 +  prev->OnClickHandler = [this](auto* btn) {
 +    btn->Hovered = false;
-+    ChangePage(-1);
++    PendingPageDelta = -1;
 +  };
 +  next->OnClickHandler = [this](auto* btn) {
 +    btn->Hovered = false;
-+    ChangePage(1);
++    PendingPageDelta = 1;
 +  };
 +  MainItems->Add(prev);
 +  MainItems->Add(next);
@@ -378,6 +381,7 @@ index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402
 +void SaveMenu::Show() {
 +  if (State != Shown) {
 +    ActivePage = 0;
++    PendingPageDelta = 0;
 +    delete MainItems;
 +    MainItems = nullptr;
 +    CurrentlyFocusedElement = nullptr;
@@ -430,6 +434,14 @@ index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402
 +    MainItems->Update(dt);
 +    MainItems->UpdateInput(dt);
 +
++    // The widgets are done with this frame's input: now it is safe to replace
++    // them
++    if (PendingPageDelta != 0) {
++      const int delta = PendingPageDelta;
++      PendingPageDelta = 0;
++      ChangePage(delta);
++    }
++
 +    // The script confirms the selected slot on any OK press (ControlOnJump),
 +    // so a tap that is not on a slot entry (empty space, PREV/NEXT) must not
 +    // reach it: it would act on the slot that was selected last (same idea as
@@ -470,10 +482,10 @@ index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402
 +}  // namespace Impacto
 diff --git a/src/games/mo6twpc/savemenu.h b/src/games/mo6twpc/savemenu.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..ce6a5cd107c561e593bd6342474947eb38bb4973
+index 0000000000000000000000000000000000000000..d65083211a71eaefc6c661cc04ba985ac6b458d9
 --- /dev/null
 +++ b/src/games/mo6twpc/savemenu.h
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,44 @@
 +#pragma once
 +
 +#include "../../ui/menu.h"
@@ -505,8 +517,12 @@ index 0000000000000000000000000000000000000000..ce6a5cd107c561e593bd6342474947eb
 +  void ChangePage(int delta);
 +
 +  Widgets::Group* MainItems = nullptr;
-+  // A slot entry was clicked in this frame
++  // A slot entry that the script can act on was clicked in this frame
 +  bool EntryClicked = false;
++  // PREV/NEXT only record the page change: rebuilding the menu frees the
++  // widgets, including the one whose click handler is still running, so it is
++  // applied in Update() once the widgets have finished their input handling.
++  int PendingPageDelta = 0;
 +  Animation FadeAnimation;
 +  std::vector<ProcessedTextGlyph> PageText;
 +};
@@ -516,10 +532,10 @@ index 0000000000000000000000000000000000000000..ce6a5cd107c561e593bd6342474947eb
 +}  // namespace Impacto
 diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef718db736
+index 0000000000000000000000000000000000000000..f2e510b55a366c1bbf67fa6d50215b9b461178b2
 --- /dev/null
 +++ b/src/games/mo6twpc/savesystem.cpp
-@@ -0,0 +1,805 @@
+@@ -0,0 +1,848 @@
 +#include "savesystem.h"
 +
 +#include <algorithm>
@@ -715,8 +731,18 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  e.HasThumbnailData = true;
 +}
 +
-+bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
-+  std::ifstream f(std::filesystem::path(path), std::ios::binary);
++// SaveFilePath is UTF-8 (it comes from the profile). Building the path from
++// UTF-8 explicitly keeps non-ASCII directories working on Windows, where the
++// narrow std::string constructor would decode it with the ANSI code page.
++std::filesystem::path SavePath() {
++  return std::filesystem::path(std::u8string(
++      reinterpret_cast<const char8_t*>(SaveFilePath.data()),
++      SaveFilePath.size()));
++}
++
++bool ReadWholeFile(const std::filesystem::path& path,
++                   std::vector<uint8_t>& out) {
++  std::ifstream f(path, std::ios::binary);
 +  if (!f) return false;
 +  f.seekg(0, std::ios::end);
 +  const std::streamoff size = f.tellg();
@@ -729,10 +755,9 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +
 +// Write to <path>.tmp, flush it to disk and rename it over <path>: a kill
 +// mid-write leaves the previous file intact.
-+bool WriteFileAtomic(const std::string& path,
++bool WriteFileAtomic(const std::filesystem::path& target,
 +                     const std::vector<uint8_t>& data) {
 +  namespace fs = std::filesystem;
-+  const fs::path target(path);
 +  std::error_code ec;
 +  if (target.has_parent_path()) {
 +    fs::create_directories(target.parent_path(), ec);
@@ -740,7 +765,13 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  fs::path tmp = target;
 +  tmp += ".tmp";
 +
-+  FILE* f = std::fopen(tmp.string().c_str(), "wb");
++  // path::c_str() is the native encoding (wide on Windows), so nothing is
++  // lost in a narrow conversion
++#ifdef _WIN32
++  FILE* f = _wfopen(tmp.c_str(), L"wb");
++#else
++  FILE* f = std::fopen(tmp.c_str(), "wb");
++#endif
 +  if (!f) return false;
 +  bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
 +  ok = (std::fflush(f) == 0) && ok;
@@ -834,9 +865,15 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  if (SystemData.empty()) return SaveError::OK;
 +  Reader r(SystemData.data(), SystemData.size());
 +
-+  r.Raw(&FlagWork[SysFlagWorkSrc1], SysFlagWorkLen1);
-+  r.Raw(&FlagWork[SysFlagWorkSrc2], SysFlagWorkLen2);
-+  r.Raw(&ScrWork[SysScrWorkSrc], SysScrWorkLen * sizeof(int));
++  // Everything is parsed into locals and applied only once the whole blob has
++  // been read and checked: a truncated or corrupt blob must not leave part of
++  // the game state replaced.
++  std::array<uint8_t, SysFlagWorkLen1> flags1;
++  std::array<uint8_t, SysFlagWorkLen2> flags2;
++  std::array<int, SysScrWorkLen> scrWork;
++  r.Raw(flags1.data(), flags1.size());
++  r.Raw(flags2.data(), flags2.size());
++  r.Raw(scrWork.data(), scrWork.size() * sizeof(int));
 +
 +  const float textSpeed = r.Get<float>();
 +  const float autoSpeed = r.Get<float>();
@@ -859,23 +896,50 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  for (auto& v : muted) v = r.Get<uint8_t>();
 +  for (auto& v : volume) v = r.Get<float>();
 +
-+  r.Raw(QuickSaveRecentSortedId.data(), QuickSaveRecentSortedId.size());
-+  for (size_t i = 0; i < EVFlags.size(); i++) EVFlags[i] = r.Get<uint8_t>();
-+  r.Raw(BGMFlags.data(), BGMFlags.size());
-+  r.Raw(GameExtraData.data(), GameExtraData.size());
++  std::array<uint8_t, MaxSaveEntries> quickIds = QuickSaveRecentSortedId;
++  r.Raw(quickIds.data(), quickIds.size());
++  std::array<bool, 1200> evFlags{};
++  for (auto& v : evFlags) v = r.Get<uint8_t>() != 0;
++  std::array<uint8_t, 200> bgmFlags{};
++  r.Raw(bgmFlags.data(), bgmFlags.size());
++  std::array<uint8_t, 1024> extraData{};
++  r.Raw(extraData.data(), extraData.size());
 +
 +  const uint32_t lineCount = r.Get<uint32_t>();
-+  ReadLines.clear();
++  std::unordered_set<uint32_t> readLines;
 +  if (r.Ok && lineCount <= r.Remaining() / sizeof(uint32_t)) {
++    readLines.reserve(lineCount);
 +    for (uint32_t i = 0; i < lineCount; i++)
-+      ReadLines.insert(r.Get<uint32_t>());
++      readLines.insert(r.Get<uint32_t>());
 +  } else {
 +    r.Ok = false;
 +  }
 +
 +  if (!r.Ok) return SaveError::Corrupted;
 +
-+  // Settings are applied only if the whole blob parsed
++  // A corrupt permutation would break the quick slot lookup
++  std::array<bool, MaxSaveEntries> seen{};
++  bool validIds = true;
++  for (uint8_t id : quickIds) {
++    if (id >= MaxSaveEntries || seen[id]) {
++      validIds = false;
++    } else {
++      seen[id] = true;
++    }
++  }
++  if (!validIds) {
++    std::iota(quickIds.begin(), quickIds.end(), uint8_t{0});
++  }
++
++  // The whole blob parsed: apply it
++  std::ranges::copy(flags1, FlagWork.begin() + SysFlagWorkSrc1);
++  std::ranges::copy(flags2, FlagWork.begin() + SysFlagWorkSrc2);
++  std::ranges::copy(scrWork, ScrWork.begin() + SysScrWorkSrc);
++  QuickSaveRecentSortedId = quickIds;
++  EVFlags = evFlags;
++  BGMFlags = bgmFlags;
++  GameExtraData = extraData;
++  ReadLines = std::move(readLines);
 +  Cfg::TextSpeed = textSpeed;
 +  Cfg::AutoSpeed = autoSpeed;
 +  Cfg::SkipRead = skipRead;
@@ -889,28 +953,13 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  Audio::GroupVolumes = groupVolumes;
 +  Cfg::VoiceMuted = muted;
 +  Cfg::VoiceVolume = volume;
-+
-+  // A corrupt permutation would break the quick slot lookup
-+  std::array<bool, MaxSaveEntries> seen{};
-+  bool valid = true;
-+  for (uint8_t id : QuickSaveRecentSortedId) {
-+    if (id >= MaxSaveEntries || seen[id]) {
-+      valid = false;
-+    } else {
-+      seen[id] = true;
-+    }
-+  }
-+  if (!valid) {
-+    std::iota(QuickSaveRecentSortedId.begin(), QuickSaveRecentSortedId.end(),
-+              uint8_t{0});
-+  }
 +  return SaveError::OK;
 +}
 +
 +SaveError SaveSystem::CheckSaveFile() const {
 +  namespace fs = std::filesystem;
 +  std::error_code ec;
-+  const fs::path p(SaveFilePath);
++  const fs::path p = SavePath();
 +  const bool exists = fs::exists(p, ec);
 +  if (ec) return SaveError::Failed;
 +  if (!exists) return SaveError::NotFound;
@@ -928,10 +977,10 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
 +  namespace fs = std::filesystem;
 +  std::error_code ec;
-+  if (!fs::exists(fs::path(SaveFilePath), ec)) return SaveError::NotFound;
++  if (!fs::exists(SavePath(), ec)) return SaveError::NotFound;
 +
 +  std::vector<uint8_t> data;
-+  if (!ReadWholeFile(SaveFilePath, data)) return SaveError::Failed;
++  if (!ReadWholeFile(SavePath(), data)) return SaveError::Failed;
 +  if (data.size() < 16 || std::memcmp(data.data(), FileMagic, 4) != 0) {
 +    return SaveError::Corrupted;
 +  }
@@ -998,7 +1047,10 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +  return SaveError::OK;
 +}
 +
-+SaveError SaveSystem::WriteSaveFile() {
++// Runs on the main thread, when no other save file task is running. The slots
++// are serialised here so that the worker thread never reads them while the
++// game keeps flushing entries into them.
++void SaveSystem::PrepareSaveFileWrite() {
 +  Writer w;
 +  w.Raw(FileMagic, 4);
 +  w.Put<uint32_t>(FileVersion);
@@ -1017,8 +1069,15 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +    }
 +  }
 +  w.Put<uint32_t>(Crc32(w.Buf.data(), w.Buf.size()));
++  PendingFile = std::move(w.Buf);
++}
 +
-+  if (!WriteFileAtomic(SaveFilePath, w.Buf)) {
++// Runs on a worker thread and only touches PendingFile
++SaveError SaveSystem::WriteSaveFile() {
++  const bool ok =
++      !PendingFile.empty() && WriteFileAtomic(SavePath(), PendingFile);
++  std::vector<uint8_t>().swap(PendingFile);  // up to several MB, not kept
++  if (!ok) {
 +    ImpLog(LogLevel::Error, LogChannel::IO, "Failed to write save file {:s}\n",
 +           SaveFilePath);
 +    return SaveError::Failed;
@@ -1327,10 +1386,10 @@ index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef
 +}  // namespace Impacto
 diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..dabfee695e741ec1020fc08c6bfc9a52b5ac3641
+index 0000000000000000000000000000000000000000..877553abf6e9aaf2e3547deb7dde65e76e2c0c8b
 --- /dev/null
 +++ b/src/games/mo6twpc/savesystem.h
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,119 @@
 +#pragma once
 +
 +#include "../../data/savesystem.h"
@@ -1400,6 +1459,9 @@ index 0000000000000000000000000000000000000000..dabfee695e741ec1020fc08c6bfc9a52
 +  void LoadEntry(SaveType type, int id) override;
 +  void LoadMemoryNew(LoadProcess load) override;
 +  void FlushWorkingSaveEntry(SaveType type, int id, int autoSaveType) override;
++  // Serialises the save file on the main thread; WriteSaveFile() then only
++  // writes those bytes from the worker thread and never touches live state.
++  void PrepareSaveFileWrite() override;
 +  SaveError WriteSaveFile() override;
 +  SaveError WriteQuickSaveFile() override { return WriteSaveFile(); }
 +
@@ -1438,6 +1500,9 @@ index 0000000000000000000000000000000000000000..dabfee695e741ec1020fc08c6bfc9a52
 +  std::unordered_set<uint32_t> ReadLines;
 +  // Serialised system data, see SaveSystemData()
 +  std::vector<uint8_t> SystemData;
++  // The complete save file as PrepareSaveFileWrite() serialised it. Owned by
++  // the worker thread while a write runs.
++  std::vector<uint8_t> PendingFile;
 +
 +  std::unique_ptr<SaveFileEntry> WorkingSaveEntry;
 +};
@@ -1445,7 +1510,7 @@ index 0000000000000000000000000000000000000000..dabfee695e741ec1020fc08c6bfc9a52
 +}  // namespace MO6TWPC
 +}  // namespace Impacto
 diff --git a/src/profile/data/savesystem.cpp b/src/profile/data/savesystem.cpp
-index ff444187ea2efd5342df7cdf52c6ebb886b4d4a0..99c85c5a97aedbc742704f0fc1729758f3534990 100644
+index afd6bf98944fc40b6b28a326ddabe2f5499c51bc..35d5f6c140fa4670b48235dc2686bd1568fd2504 100644
 --- a/src/profile/data/savesystem.cpp
 +++ b/src/profile/data/savesystem.cpp
 @@ -8,6 +8,7 @@
@@ -1638,7 +1703,7 @@ index 8f7e70edc90445e06303c7832098a9028895ef02..6745afd76cd406b861506ef374aa01e9
  enum class SysMesBoxType : int {
    None,
 diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
-index 0b864a60bc72fea24f5d92121547ac4ca950293d..28ea7eec2cd374a1544aa0785673b8d994776f65 100644
+index 0b864a60bc72fea24f5d92121547ac4ca950293d..c522388cfe7b9ce2b956d3a959c74265f08f1fa7 100644
 --- a/src/vm/inst_system.cpp
 +++ b/src/vm/inst_system.cpp
 @@ -1278,6 +1278,15 @@ VmInstruction(InstAutoSave) {
@@ -1647,10 +1712,10 @@ index 0b864a60bc72fea24f5d92121547ac4ca950293d..28ea7eec2cd374a1544aa0785673b8d9
        SetFlag(SF_AUTOSAVEENABLE, 0);
 +      // The PC scripts never write the save file after a quick save (observed
 +      // on device: SYSTEM.DAT is unchanged), so a quick save would be lost if
-+      // the process is killed. Persist it right away.
++      // the process is killed. Persist it right away. If another save file
++      // task is still running the request is queued behind it, not dropped.
 +      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC &&
-+          quicksaveEntries.has_value() &&
-+          SaveSystem::GetLoadStatus() != LoadStatus::Loading) {
++          quicksaveEntries.has_value()) {
 +        SaveSystem::SaveSystemData();
 +        SaveSystem::WriteQuickSaveFile();
 +      }
