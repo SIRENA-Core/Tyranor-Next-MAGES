@@ -100,7 +100,7 @@ impacto_cmake_configure() {
 # from the process that really took the lock. Without /proc only the pid is recorded and checked.
 impacto_process_start() {
     local stat
-    stat=$(< "/proc/$1/stat") 2>/dev/null || return 1
+    stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
     stat=${stat##*) }            # drop "pid (comm) "; what is left starts at field 3 (state)
     # shellcheck disable=SC2086
     set -- $stat
@@ -114,7 +114,7 @@ impacto_process_start() {
 impacto_lock_acquire() {
     local lock=$1 pid=${2:-$$} owner owner_pid owner_start now_start age stale moved
     if ! mkdir "$lock" 2>/dev/null; then
-        owner=$(< "$lock/owner") 2>/dev/null || owner=
+        owner=$(cat "$lock/owner" 2>/dev/null) || owner=
         read -r owner_pid owner_start <<< "$owner" || true
         if [[ -z ${owner_pid:-} ]]; then
             age=$(( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || date +%s) ))
@@ -130,7 +130,7 @@ impacto_lock_acquire() {
         # Rename first: of several cleaners only one wins the atomic rename, and it can check what it took.
         stale="$lock.stale.$$"
         mv -- "$lock" "$stale" 2>/dev/null || return 1
-        moved=$(< "$stale/owner") 2>/dev/null || moved=
+        moved=$(cat "$stale/owner" 2>/dev/null) || moved=
         if [[ $moved != "$owner" ]]; then   # somebody re-created the lock in between: put it back
             mv -- "$stale" "$lock" 2>/dev/null || true
             return 1
