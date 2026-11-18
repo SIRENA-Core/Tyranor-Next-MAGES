@@ -25,7 +25,7 @@
 - Windows／Steam 版《秋之回忆6 T-Wave》（`mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht`，由补丁系列提供）：在一台真机（荣耀 PPG-AN00，Android 17）上，
   `mo6tw-pc-zhs` 能进到标题画面，选「New Game」进入第一段对话，背景、名牌、简体中文文字和语音播放都正常，存档→强制停止→重启→读档能回到同一句。
   除此之外都没有验证：其他 profile 与游戏、繁体／日文变体、非对话菜单（坐标为近似）、附加内容菜单（占位图集）、输入与性能。
-  存档代码审查发现的问题已修复，并在同一台真机上复测了翻页连点、强制停止后读回、快速存档连点；Windows 构建与非 ASCII 路径、其他游戏的回归没有验证。Tyranor Next 主应用也还不识别 PC 版目录布局（`game.exe` + `data/*.cpk`），目前只能由外部 Intent 指定 profile。
+  存档代码审查发现的问题已修复，并在同一台真机上复测了翻页连点、强制停止后读回、快速存档连点；Windows 构建与非 ASCII 路径、其他游戏的回归没有验证。Tyranor Next 主应用识别 PC 版目录布局（根目录 `game.exe` + `data/` 里的 `script.cpk`、`mes00.cpk`；见 [Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效）：添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。更早的主应用版本不识别，只能由外部 Intent 指定 profile。主应用一侧在真机上只验证了识别、变体选择与版本提示，「主应用启动宿主进入游戏」这一整段还没有验证。
 - 全部可启动 profile 的机器可读清单见 [`engine/impacto/profiles.json`](engine/impacto/profiles.json)。
 - 宿主 0.1.2 起支持接收 Tyranor Next 传来的引擎设置（见下文 `SETTINGS`）。
 
@@ -40,7 +40,7 @@
 | profile | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht`、`darling`、`dash`、`rne`（`mo6tw-pc*` 为 Windows／Steam 版 Memories Off 6 T-Wave，依次为日文、简体、繁体，profile 定义由补丁系列提供；清单见 `engine/impacto/profiles.json`） |
 | `GAME_KEY` | `SHA-256(profile + NUL + 游戏目录)` 前 12 字节的小写十六进制；宿主会重算，不符即拒绝 |
 | 下载地址 | `releases/latest/download/Tyranor-Next-MAGES.apk`（资产名固定，版本在标签与 APK 内）；Tyranor Next 期望的 `versionCode` 不得高于最新发布 |
-| 最低版本 | Tyranor Next 要求宿主 `versionCode` ≥ 3（0.1.2）；`mo6tw-pc*` 三个 profile 需要 `versionCode` ≥ 4（0.2.0），更早的宿主会拒绝这些 profile |
+| 最低版本 | Tyranor Next 要求宿主 `versionCode` ≥ 3（0.1.2）；`mo6tw-pc*` 三个 profile 需要 `versionCode` ≥ 4（0.2.0），更早的宿主会拒绝这些 profile；Tyranor Next 只对这三个 profile 按 ≥ 4 提示更新宿主，其余 profile 仍只要求 ≥ 3 |
 
 校验向量：目录 `/storage/emulated/0/Games/mo6tw` + profile `mo6tw` → `853382f8b09761cd5c6e475c`。
 

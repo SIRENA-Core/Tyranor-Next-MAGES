@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 文档：主 Tyranor Next 应用识别 PC 版目录布局（`game.exe` + `data/*.cpk`；[Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效），添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。README 里「主应用尚不识别 PC 版目录布局」的说明相应改写；0.2.0 条目里的同一句话是该版本发布时的状态，保持原样。无代码改动。
+
 ## 0.2.0（versionCode 4）
 
 - 来源策略从「只用未改动的上游」改为「固定上游提交 + 本仓库经审计的补丁系列」：补丁放在 `engine/impacto/patches/`（`NNNN-*.patch` + `series`），
