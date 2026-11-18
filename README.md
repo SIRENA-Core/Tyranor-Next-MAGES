@@ -8,7 +8,7 @@
 | | |
 | --- | --- |
 | 最新版本 | 见 [Releases](../../releases/latest)（标签 `impacto-host-<版本>`） |
-| 下载 | [`Tyranor-Next-MAGES.apk`](../../releases/latest/download/Tyranor-Next-MAGES.apk)（固定地址，Tyranor Next 直接用它；0.1.2 及更早的发布资产名为 `impacto-host.apk`） |
+| 下载 | [`Tyranor-Next-MAGES.apk`](../../releases/latest/download/Tyranor-Next-MAGES.apk)（固定地址，Tyranor Next 直接用它；0.1.2 及更早的发布资产名为 `impacto-host.apk`；0.2.0 另附一份同内容的 `impacto-host.apk` 兼容旧版 Tyranor Next，之后的版本不再附带） |
 | 系统要求 | arm64-v8a，Android 11 及以上 |
 | 引擎来源 | 上游固定提交 + 补丁系列，见 [`source-lock.json`](engine/impacto/source-lock.json) |
 
