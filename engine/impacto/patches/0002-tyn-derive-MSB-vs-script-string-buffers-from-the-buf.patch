@@ -1,0 +1,264 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:33:54 -0800
+Subject: [PATCH] tyn: derive MSB vs script string buffers from the buffer
+ context
+
+Upstreamable generic engine fix.
+
+Several string consumers (SystemMes box, selection menu, clear list, tips
+menu, tips list entries) set dummy.UseMSBBuffers from the global
+Profile::Vm::UseMsbStrings. That misreads every string that is not in an
+MSB buffer on a UseMsbStrings game, e.g. SystemMes modes without the 0x80
+bit and SelectionMenu types 1/2, which use ScriptGetStrAddress.
+
+The BufferOffsetContext already says which buffers the offset belongs to, so:
+ - InstSel and InstSystemMes now fill ctx.Buffers (MsbBuffers for the 0x80
+   forms, ScriptBuffers otherwise) instead of passing an empty span;
+ - the consumers call dummy.SetStringIp(ctx), which derives the flag from
+   the context (tips consumers build the context from
+   TipsSystem::GetTipsScriptBufferCtx(), which already selects the buffers);
+ - the PS3-style save entry and clear list play-time labels use
+   SetStringIp(ctx) as well so all of them share one definition.
+
+Behaviour for games without UseMsbStrings is unchanged (ScriptBuffers ->
+non-MSB, as before). For the UseMsbStrings games (MO8, CHN, CC/CHLCC Switch)
+the MSB forms are read exactly as before; the non-MSB forms of
+SystemMes/Sel on the MO6TW SysMesBox and SelectionMenu paths are now read
+from the script buffer instead of being misread as MSB. That is a
+correctness fix toward the data layout, not a regression, but it is not
+re-verified on those games' devices.
+
+diff --git a/src/games/mo6tw/clearlistmenu.cpp b/src/games/mo6tw/clearlistmenu.cpp
+index 8f85c70ef3dc57f400315d43b202ae96e5e684be..7f679596c0e14dfc81ca22ce71dabddffdceb09c 100644
+--- a/src/games/mo6tw/clearlistmenu.cpp
++++ b/src/games/mo6tw/clearlistmenu.cpp
+@@ -198,8 +198,7 @@ void ClearListMenu::InitMainPage() {
+ 
+   auto separator =
+       Vm::ScriptGetTextTableStrAddress(SeparatorTable, SeparatorEntry);
+-  dummy.IpOffset = separator.IpOffset;
+-  dummy.ScriptBufferId = separator.BufferId;
++  dummy.SetStringIp(separator);
+   SeparatorWidth =
+       TextGetPlainLineWidth(&dummy, *Profile::Dialogue::DialogueFont, FontSize);
+ 
+@@ -277,7 +276,7 @@ void ClearListMenu::InitMainPage() {
+   // Play time
+   auto secondsText = Vm::ScriptGetTextTableStrAddress(PlayTimeTextTable,
+                                                       PlayTimeSecondsTextEntry);
+-  dummy.SetIp(secondsText);
++  dummy.SetStringIp(secondsText);
+   SecondsTextWidth =
+       TextGetPlainLineWidth(&dummy, *Profile::Dialogue::DialogueFont, FontSize);
+   MainPage->Add(new Label(secondsText,
+@@ -289,7 +288,7 @@ void ClearListMenu::InitMainPage() {
+ 
+   auto minutesText = Vm::ScriptGetTextTableStrAddress(PlayTimeTextTable,
+                                                       PlayTimeMinutesTextEntry);
+-  dummy.SetIp(minutesText);
++  dummy.SetStringIp(minutesText);
+   MinutesTextWidth =
+       TextGetPlainLineWidth(&dummy, *Profile::Dialogue::DialogueFont, FontSize);
+   MainPage->Add(
+@@ -301,7 +300,7 @@ void ClearListMenu::InitMainPage() {
+ 
+   auto hoursText = Vm::ScriptGetTextTableStrAddress(PlayTimeTextTable,
+                                                     PlayTimeHoursTextEntry);
+-  dummy.SetIp(hoursText);
++  dummy.SetStringIp(hoursText);
+   HoursTextWidth =
+       TextGetPlainLineWidth(&dummy, *Profile::Dialogue::DialogueFont, FontSize);
+   HoursText = new Label(
+diff --git a/src/games/mo6tw/sysmesbox.cpp b/src/games/mo6tw/sysmesbox.cpp
+index 3bba0b9965a3cf75aa6597b19338da09a10191ac..13e22fcebb29ab1ffcada4e7ff948f00b021accb 100644
+--- a/src/games/mo6tw/sysmesbox.cpp
++++ b/src/games/mo6tw/sysmesbox.cpp
+@@ -172,8 +172,7 @@ void SysMesBox::Init() {
+ 
+ void SysMesBox::AddMessage(Vm::BufferOffsetContext ctx) {
+   Impacto::Vm::Sc3VmThread dummy;
+-  dummy.IpOffset = ctx.IpOffset;
+-  dummy.ScriptBufferId = ctx.BufferId;
++  dummy.SetStringIp(ctx);
+   Messages[MessageCount] =
+       TextLayoutPlainLine(&dummy, 255, *Profile::Dialogue::DialogueFont,
+                           TextFontSize, Profile::Dialogue::ColorTable[0], 1.0f,
+@@ -184,8 +183,7 @@ void SysMesBox::AddMessage(Vm::BufferOffsetContext ctx) {
+ 
+ void SysMesBox::AddChoice(Vm::BufferOffsetContext ctx) {
+   Impacto::Vm::Sc3VmThread dummy;
+-  dummy.IpOffset = ctx.IpOffset;
+-  dummy.ScriptBufferId = ctx.BufferId;
++  dummy.SetStringIp(ctx);
+   Choices[ChoiceCount] =
+       TextLayoutPlainLine(&dummy, 255, *Profile::Dialogue::DialogueFont,
+                           TextFontSize, Profile::Dialogue::ColorTable[0], 1.0f,
+diff --git a/src/games/mo6tw/tipsmenu.cpp b/src/games/mo6tw/tipsmenu.cpp
+index 6f25011eb649bd702582dade4285952c6e9d0b8f..4bf2a111aaea508752ee93e0a3e74d553875587f 100644
+--- a/src/games/mo6tw/tipsmenu.cpp
++++ b/src/games/mo6tw/tipsmenu.cpp
+@@ -249,9 +249,9 @@ void TipsMenu::SwitchToTipId(int id) {
+       RendererOutlineMode::Full, DefaultColorIndex);
+ 
+   Vm::Sc3VmThread dummy;
+-  dummy.IpOffset = tipRecord->StringAdr[2];
+-  dummy.ScriptBufferId = tipsScriptBufferId;
+-  dummy.UseMSBBuffers = Profile::Vm::UseMsbStrings;
++  dummy.SetStringIp(Vm::BufferOffsetContext{.Buffers = buffers,
++                                            .BufferId = tipsScriptBufferId,
++                                            .IpOffset = tipRecord->StringAdr[2]});
+   float categoryWidth = TextGetPlainLineWidth(
+       &dummy, *Profile::Dialogue::DialogueFont, CategoryFontSize);
+   Category->Bounds.X = CategoryEndX - categoryWidth;
+@@ -307,8 +307,11 @@ void TipsMenu::AdvanceTipPage(TipAdvanceMode mode) {
+ 
+   TextPage.Clear();
+   Vm::Sc3VmThread dummy;
+-  dummy.ScriptBufferId = TipsSystem::GetTipsScriptBufferCtx().BufferId;
+-  dummy.IpOffset = currentRecord->StringAdr[2 + CurrentTipPage];
++  auto [tipsBuffers, tipsBufferId] = TipsSystem::GetTipsScriptBufferCtx();
++  dummy.SetStringIp(Vm::BufferOffsetContext{
++      .Buffers = tipsBuffers,
++      .BufferId = tipsBufferId,
++      .IpOffset = currentRecord->StringAdr[2 + CurrentTipPage]});
+   TextPage.AddString(&dummy);
+   CurrentPage->SetText(fmt::to_string(CurrentTipPage),
+                        CurrentPageBounds.GetPos(), PageSeparatorFontSize,
+diff --git a/src/ui/selectionmenu.cpp b/src/ui/selectionmenu.cpp
+index 3ad9277862573f0add501d3e3d04a158ca6ef9ce..1aa09debf8fd9ff2a4b6383d0f7a1db542a7e1f0 100644
+--- a/src/ui/selectionmenu.cpp
++++ b/src/ui/selectionmenu.cpp
+@@ -32,8 +32,7 @@ void SelectionMenu::InitSelectionMenu(bool isPlain) {
+ 
+ void SelectionMenu::AddChoice(Vm::BufferOffsetContext ctx) {
+   Impacto::Vm::Sc3VmThread dummy;
+-  dummy.IpOffset = ctx.IpOffset;
+-  dummy.ScriptBufferId = ctx.BufferId;
++  dummy.SetStringIp(ctx);
+   Choices[ChoiceCount] = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont,
+       Profile::Dialogue::DefaultFontSize, Profile::Dialogue::ColorTable[0],
+diff --git a/src/ui/widgets/mo6tw/saveentrybutton.cpp b/src/ui/widgets/mo6tw/saveentrybutton.cpp
+index 3e27a151571aee353d64d0966d586f775325a76d..48a01dcc31c52a166eec761a2f376bd09aa2c563 100644
+--- a/src/ui/widgets/mo6tw/saveentrybutton.cpp
++++ b/src/ui/widgets/mo6tw/saveentrybutton.cpp
+@@ -42,7 +42,7 @@ void SaveEntryButton::Render() {
+ void SaveEntryButton::AddSceneTitleText(Vm::BufferOffsetContext strAdr,
+                                         float fontSize, bool outline) {
+   Vm::Sc3VmThread dummy;
+-  dummy.SetIp(strAdr);
++  dummy.SetStringIp(strAdr);
+   if (EntryActive) {
+     SceneTitle = TextLayoutPlainLine(
+         &dummy, 255, *Profile::Dialogue::DialogueFont, fontSize,
+@@ -59,7 +59,7 @@ void SaveEntryButton::AddSceneTitleText(Vm::BufferOffsetContext strAdr,
+ void SaveEntryButton::AddPlayTimeHintText(Vm::BufferOffsetContext strAdr,
+                                           float fontSize, bool outline) {
+   Vm::Sc3VmThread dummy;
+-  dummy.SetIp(strAdr);
++  dummy.SetStringIp(strAdr);
+   PlayTimeHint = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont, fontSize,
+       Profile::Dialogue::ColorTable[0], 1.0f,
+@@ -69,7 +69,7 @@ void SaveEntryButton::AddPlayTimeHintText(Vm::BufferOffsetContext strAdr,
+ void SaveEntryButton::AddPlayTimeText(Vm::BufferOffsetContext strAdr,
+                                       float fontSize, bool outline) {
+   Vm::Sc3VmThread dummy;
+-  dummy.SetIp(strAdr);
++  dummy.SetStringIp(strAdr);
+   PlayTime = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont, fontSize,
+       Profile::Dialogue::ColorTable[0], 1.0f,
+@@ -79,7 +79,7 @@ void SaveEntryButton::AddPlayTimeText(Vm::BufferOffsetContext strAdr,
+ void SaveEntryButton::AddSaveDateHintText(Vm::BufferOffsetContext strAdr,
+                                           float fontSize, bool outline) {
+   Vm::Sc3VmThread dummy;
+-  dummy.SetIp(strAdr);
++  dummy.SetStringIp(strAdr);
+   SaveDateHint = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont, fontSize,
+       Profile::Dialogue::ColorTable[0], 1.0f,
+@@ -89,7 +89,7 @@ void SaveEntryButton::AddSaveDateHintText(Vm::BufferOffsetContext strAdr,
+ void SaveEntryButton::AddSaveDateText(Vm::BufferOffsetContext strAdr,
+                                       float fontSize, bool outline) {
+   Vm::Sc3VmThread dummy;
+-  dummy.SetIp(strAdr);
++  dummy.SetStringIp(strAdr);
+   SaveDate = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont, fontSize,
+       Profile::Dialogue::ColorTable[0], 1.0f,
+diff --git a/src/ui/widgets/mo6tw/tipsentrybutton.cpp b/src/ui/widgets/mo6tw/tipsentrybutton.cpp
+index 08d0e762924fdc59508203677dcf62d047d22e32..5fed42ac66846865c828714b84f60d66d399dfa5 100644
+--- a/src/ui/widgets/mo6tw/tipsentrybutton.cpp
++++ b/src/ui/widgets/mo6tw/tipsentrybutton.cpp
+@@ -29,8 +29,11 @@ TipsEntryButton::TipsEntryButton(int id, TipsDataRecord* tipRecord,
+                         Profile::Dialogue::ColorTable[DefaultColorIndex], 1.0f,
+                         glm::vec2(Bounds.X, Bounds.Y), TextAlignment::Left);
+   Vm::Sc3VmThread dummy;
+-  dummy.IpOffset = tipRecord->StringAdr[0];
+-  dummy.ScriptBufferId = TipsSystem::GetTipsScriptBufferCtx().BufferId;
++  auto [tipsBuffers, tipsBufferId] = TipsSystem::GetTipsScriptBufferCtx();
++  dummy.SetStringIp(Vm::BufferOffsetContext{
++      .Buffers = tipsBuffers,
++      .BufferId = tipsBufferId,
++      .IpOffset = tipRecord->StringAdr[0]});
+   Text = TextLayoutPlainLine(
+       &dummy, 255, *Profile::Dialogue::DialogueFont, TipListEntryFontSize,
+       Profile::Dialogue::ColorTable[DefaultColorIndex], 1.0f,
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index 5585e5a872349afb6f23cc36973f8133c57ff277..cabef04ab30ff3e0361d528adecd9e02c8567e1c 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -972,21 +972,21 @@ VmInstruction(InstSel) {
+     case 1: {
+       PopUint16(selStrNum);
+       auto offset = ScriptGetStrAddress(thread->ScriptBufferId, selStrNum);
+-      UI::SelectionMenuPtr->AddChoice({.Buffers = {},
++      UI::SelectionMenuPtr->AddChoice({.Buffers = ScriptBuffers,
+                                        .BufferId = thread->ScriptBufferId,
+                                        .IpOffset = offset});
+       break;
+     }
+     case 0x81: {
+       PopMsbString(line);
+-      UI::SelectionMenuPtr->AddChoice({.Buffers = {},
++      UI::SelectionMenuPtr->AddChoice({.Buffers = MsbBuffers,
+                                        .BufferId = thread->ScriptBufferId,
+                                        .IpOffset = line});
+     } break;
+     case 2: {
+       PopUint16(selStrNum);
+       auto offset = ScriptGetStrAddress(thread->ScriptBufferId, selStrNum);
+-      UI::SelectionMenuPtr->AddChoice({.Buffers = {},
++      UI::SelectionMenuPtr->AddChoice({.Buffers = ScriptBuffers,
+                                        .BufferId = thread->ScriptBufferId,
+                                        .IpOffset = offset});
+       PopExpression(arg2);
+@@ -995,7 +995,7 @@ VmInstruction(InstSel) {
+     case 0x82: {
+       PopMsbString(line);
+       PopExpression(arg2);
+-      UI::SelectionMenuPtr->AddChoice({.Buffers = {},
++      UI::SelectionMenuPtr->AddChoice({.Buffers = MsbBuffers,
+                                        .BufferId = thread->ScriptBufferId,
+                                        .IpOffset = line});
+     } break;
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index 48d2b3f24ab2ee1aed7aeedd34e3f510ce60007e..65b04038330598f78d3415ac6964fe39e84a7e96 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -772,11 +772,11 @@ VmInstruction(InstSystemMes) {
+       UI::SysMesBox* box = activeBox();
+       if (!box) break;
+       if (type == 3) {
+-        box->AddMessage({.Buffers = {},
++        box->AddMessage({.Buffers = useMsb ? MsbBuffers : ScriptBuffers,
+                          .BufferId = thread->ScriptBufferId,
+                          .IpOffset = message});
+       } else {
+-        box->AddChoice({.Buffers = {},
++        box->AddChoice({.Buffers = useMsb ? MsbBuffers : ScriptBuffers,
+                         .BufferId = thread->ScriptBufferId,
+                         .IpOffset = message});
+       }

@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:11 -0800
+Subject: [PATCH] tyn: add the SaveData.AllowMissingImplementation profile
+ switch
+
+New generic profile switch, default off. Upstreamable.
+
+SaveSystem::LoadSystemData() returns SaveError::Failed when the profile has
+no save implementation (SaveData.Type = None), which sends startup scripts
+down their fatal error path. A profile can now set
+SaveData.AllowMissingImplementation = true to have it report SaveError::OK.
+
+What the script then sees is exactly: nothing was read and nothing was
+initialised (InitializeSystemData is also a no-op without an implementation),
+so all state that a real loader would populate stays at its power-on default
+of zero. This is a placeholder until a save implementation exists, not a
+valid fresh system save (the earlier hard-coded InstructionSet check and its
+"fresh, valid system save" wording are gone).
+
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 7aedf9caf22920fb04e888191043eb81ef2e0c5c..0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -142,7 +142,13 @@ void SaveSystemData() {
+ }
+ 
+ SaveError LoadSystemData() {
+-  return Implementation ? Implementation->LoadSystemData() : SaveError::Failed;
++  if (Implementation) return Implementation->LoadSystemData();
++  // Without an implementation nothing is read and nothing is initialised
++  // (InitializeSystemData is a no-op too), so the script sees system state at
++  // its power-on defaults: ScrWork and flags that a loader would populate stay
++  // zero. A profile may opt in to report this as success so that a startup
++  // script does not take its fatal error path.
++  return AllowMissingImplementation ? SaveError::OK : SaveError::Failed;
+ }
+ 
+ void SaveThumbnailData() {
+diff --git a/src/profile/data/savesystem.cpp b/src/profile/data/savesystem.cpp
+index afd6bf98944fc40b6b28a326ddabe2f5499c51bc..ff444187ea2efd5342df7cdf52c6ebb886b4d4a0 100644
+--- a/src/profile/data/savesystem.cpp
++++ b/src/profile/data/savesystem.cpp
+@@ -135,6 +135,9 @@ void Configure() {
+       break;
+   }
+ 
++  AllowMissingImplementation =
++      TryGetMember<bool>("AllowMissingImplementation").value_or(false);
++
+   SaveFilePath = EnsureGetMember<std::string>("SaveFilePath");
+ 
+   TryGetMember<std::vector<uint32_t>>("StoryScriptIDs", StoryScriptIDs);
+diff --git a/src/profile/data/savesystem.h b/src/profile/data/savesystem.h
+index be81b370fc3e160291d6bba499df08d1c8fec1fd..41efc001496c40fa6d55a3a3ded705f699dcc6e7 100644
+--- a/src/profile/data/savesystem.h
++++ b/src/profile/data/savesystem.h
+@@ -19,6 +19,10 @@ inline Impacto::SaveSystem::SaveDataType Type =
+ inline std::optional<std::string> SystemDataPath;
+ inline std::optional<std::string> QuickDataPath;
+ 
++// Profile opt-in: LoadSystemData() reports SaveError::OK even though no save
++// implementation exists (SaveData.Type = None).
++inline bool AllowMissingImplementation = false;
++
+ inline std::string SaveFilePath;
+ inline std::optional<std::string> ThumbnailFilePath;
+ inline std::vector<uint32_t> StoryScriptIDs;

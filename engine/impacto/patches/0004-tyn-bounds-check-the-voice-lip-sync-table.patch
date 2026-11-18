@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:02 -0800
+Subject: [PATCH] tyn: bounds-check the voice lip-sync table
+
+Upstreamable generic engine fix.
+
+VoiceTable::LoadSync trusted the entry count in the file: a count whose
+table of contents does not fit in the file read past the end of the stream,
+and the resize of the lip-sync data underflowed when the stream position was
+beyond the size. Validate 4 + 4 * count <= size before the loop and the
+position before the resize; a bad table now fails the load with an error
+log. GetVoiceData looks the id up with find() and bounds-checks the
+lip-sync index instead of default-inserting into the map and indexing blindly
+(both return 0 = mouth closed when the data is missing).
+
+diff --git a/src/voicetable.cpp b/src/voicetable.cpp
+index 80bc101a9b9ea618fa282e033afb4ce50c06e8ab..89c14de866ad39518d2b2892f539898caf131cab 100644
+--- a/src/voicetable.cpp
++++ b/src/voicetable.cpp
+@@ -13,6 +13,17 @@ bool VoiceTable::LoadSync(uint32_t id) {
+   VoiceFileCount = Io::ReadBE<uint16_t>(stream);
+   Io::ReadBE<uint16_t>(stream);
+ 
++  const int64_t tocEnd = 4 + 4 * static_cast<int64_t>(VoiceFileCount);
++  if (tocEnd > stream->Meta.Size) {
++    ImpLog(LogLevel::Error, LogChannel::IO,
++           "Voice table {:d} is truncated: {:d} entries do not fit in {:d} "
++           "bytes\n",
++           id, VoiceFileCount, stream->Meta.Size);
++    VoiceFileCount = 0;
++    delete stream;
++    return false;
++  }
++
+   for (size_t i = 0; i < VoiceFileCount; ++i) {
+     uint16_t dataIndex = Io::ReadBE<uint16_t>(stream);
+     uint16_t voiceLengthSecTimes6 = Io::ReadLE<uint16_t>(stream);
+@@ -23,6 +34,10 @@ bool VoiceTable::LoadSync(uint32_t id) {
+   [[maybe_unused]] const size_t endToc = 4 * VoiceFileCount + 4;
+   assert((size_t)stream->Position == endToc);
+ 
++  if (stream->Position > stream->Meta.Size) {
++    delete stream;
++    return false;
++  }
+   LipSyncData.resize(stream->Meta.Size - stream->Position);
+   stream->Read(LipSyncData.data(), LipSyncData.size());
+ 
+diff --git a/src/voicetable.h b/src/voicetable.h
+index 2d6b017b8a0448d70a4bf22a86a1b76c3dfd2009..e4c56680617ba7572b45355e42540c086c3d1210 100644
+--- a/src/voicetable.h
++++ b/src/voicetable.h
+@@ -18,7 +18,10 @@ class VoiceTable : public Loadable<VoiceTable, bool, uint32_t> {
+ 
+  public:
+   uint8_t GetVoiceData(uint32_t id, size_t index) {
+-    return LipSyncData[TableOfContents[id].DataIndex * 4 + index];
++    auto it = TableOfContents.find(id);
++    if (it == TableOfContents.end()) return 0;
++    size_t pos = it->second.DataIndex * 4 + index;
++    return pos < LipSyncData.size() ? LipSyncData[pos] : 0;
+   }
+ 
+  protected:

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:33:40 -0800
+Subject: [PATCH] tyn: fix the buffer check in
+ Sc3VmThread::SetStringIp(BufferOffsetContext)
+
+Upstreamable generic engine fix (the function had no callers upstream).
+
+The bounds assert used ScriptBufferId before it was assigned from the
+context, so it checked the wrong buffer. The MSB detection compared
+Buffers[id].data() with MsbBuffers[id].data(), which is also true when both
+spans are empty (nothing loaded, or a context that does not carry its
+buffers); such contexts are no longer treated as MSB, and a BufferId outside
+the context's span is handled instead of indexing out of range.
+
+diff --git a/src/vm/thread.cpp b/src/vm/thread.cpp
+index 7e8a0d8c4095874fa87f409cee7da6d4ffa1cf78..f43ee303a5464d241f6955d30f739343e21b07fd 100644
+--- a/src/vm/thread.cpp
++++ b/src/vm/thread.cpp
+@@ -71,10 +71,15 @@ void Sc3VmThread::SetStringIp(uint8_t* ptr) {
+ }
+ 
+ void Sc3VmThread::SetStringIp(BufferOffsetContext ctx) {
+-  UseMSBBuffers =
+-      ctx.Buffers[ctx.BufferId].data() == MsbBuffers[ctx.BufferId].data();
+-  assert(ctx.IpOffset < (UseMSBBuffers ? MsbBuffers[ScriptBufferId]
+-                                       : ScriptBuffers[ScriptBufferId])
++  // The string belongs to the MSB buffer when the context points into
++  // MsbBuffers. Missing or empty spans (nothing loaded, or a context that does
++  // not carry its buffers) compare equal by data() and must not count as MSB.
++  UseMSBBuffers = ctx.BufferId < ctx.Buffers.size() &&
++                  !ctx.Buffers[ctx.BufferId].empty() &&
++                  ctx.Buffers[ctx.BufferId].data() ==
++                      MsbBuffers[ctx.BufferId].data();
++  assert(ctx.IpOffset < (UseMSBBuffers ? MsbBuffers[ctx.BufferId]
++                                       : ScriptBuffers[ctx.BufferId])
+                             .size());
+   IpOffset = ctx.IpOffset;
+   ScriptBufferId = ctx.BufferId;

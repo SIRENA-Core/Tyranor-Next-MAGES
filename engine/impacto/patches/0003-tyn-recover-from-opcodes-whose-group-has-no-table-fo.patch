@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:33:54 -0800
+Subject: [PATCH] tyn: recover from opcodes whose group has no table for the
+ instruction set
+
+Upstreamable generic engine fix.
+
+OpcodeTableTitleOnly (group 0x20) and OpcodeTableGraph3D (group 0x02) are
+null for most instruction sets; a script reaching such an opcode called a
+null pointer. Treat the group as unknown instead and take the existing
+"Thread CRASH! Unknown opcode. Attempting recovery" path. Instruction sets
+that have the table are unaffected.
+
+diff --git a/src/vm/vm.cpp b/src/vm/vm.cpp
+index e0ec54450ff736c1655f6aebbb533dc4fb2201c8..ffdf59417576186b7e3af32b72cdc0f88a7a127e 100644
+--- a/src/vm/vm.cpp
++++ b/src/vm/vm.cpp
+@@ -505,11 +505,11 @@ void RunThread(Sc3VmThread* thread, float dt) {
+              "{:d}\n",
+              scriptIp, thread->Id, opcodeGrp1, opcode, thread->ScriptBufferId);
+ 
+-      if (opcodeGrp1 == 0x20) {
++      if (opcodeGrp1 == 0x20 && OpcodeTableTitleOnly) {
+         OpcodeTableTitleOnly[opcode](thread, dt);
+       } else if (opcodeGrp1 == 0x10) {
+         OpcodeTableUser1[opcode](thread, dt);
+-      } else if (opcodeGrp1 == 0x02) {
++      } else if (opcodeGrp1 == 0x02 && OpcodeTableGraph3D) {
+         OpcodeTableGraph3D[opcode](thread, dt);
+       } else if (opcodeGrp1 == 0x01) {
+         OpcodeTableGraph[opcode](thread, dt);

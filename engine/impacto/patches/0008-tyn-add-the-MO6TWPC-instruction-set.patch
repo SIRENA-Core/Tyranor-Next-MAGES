@@ -1,0 +1,1065 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:20 -0800
+Subject: [PATCH] tyn: add the MO6TWPC instruction set
+
+TYN-only: the Windows/Steam release of Memories Off 6 T-Wave uses the
+MO8/CHN generation SC3 dialect, not the PS3 MO6TW one. Add
+InstructionSet::MO6TWPC with its own opcode table (opcodetables_mo6twpc.h),
+copied from MO8 with these changes:
+  - 00:5A: InstUnk005APC, one u16 operand, stub. Evidence from the
+    disassembly of the PC scripts: _system label 1 contains
+    `00 5a 59 00` followed by `01 02 ...`; with a u16 operand (0x0059) the
+    stream continues at `01 02` and the label decodes cleanly through to its
+    Return. The meaning of the operand is unknown.
+  - 10:0F: InstUnk100FPC, a zero-operand stub (MO8 has InstDummy, which never
+    advances the IP and hangs the thread). The disassembler shows 10:0F is
+    followed directly by the next opcode (38 uses).
+  - 10:1A: InstHelp (u8), as in CC/LCCSwitch. 10:1B stays InstHelp (also
+    used by PC scripts).
+  - Every opcode that has no handler maps to InstDummyPC instead of InstDummy.
+    Semantics are the same (does nothing, does not advance the IP, so a
+    script that executes one hangs), but it logs an Error once per opcode
+    with group:op, script buffer and address, so such a hang is visible in
+    the log. InstDummy itself (used by the other sets) is untouched.
+  - Unpinned dummies 00:EC/58/F8/4C: at the failing sites the bytes are label
+    tables (u16/u32 label lists after Return/End) and data after a
+    JumpTable, not instructions, so no handler is mapped for them.
+
+Every existing GameInstructionSet == MO8 check also accepts MO6TWPC:
+  - inst_dialogue.cpp InstSel (SelInit savepoint id), InstNameID (name plate
+    label), InstTips (extra local label)
+  - inst_misc.cpp InstTitleMenuNew (the MO8 case), InstSetEVflag (extra u8)
+  - inst_sound.cpp InstSysSeload (extra u8)
+  - character2d.cpp base-size scale / rotation branch
+  - game.cpp movie priority render special case
+InstClistInit type 0x14 (PC only) takes one expression operand and is
+stubbed. (src/profile/games/mo8, src/games/mo8 and the UI enums are
+profile-type based, not instruction-set based, and are untouched.)
+
+Disassembler (modelled operand shapes) decodes 3830 label bodies with the
+new table, identical to the MO8 table + PC patches.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b141aa40f8324f3b0e4fe97a38394d0d9d8ea667..1d563ca6161eebafdc566ddcd6458894f468212c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -760,6 +760,7 @@ set(Impacto_Header
+     src/vm/opcodetables_mo6tw.h
+     src/vm/opcodetables_mo7.h
+     src/vm/opcodetables_mo8.h
++    src/vm/opcodetables_mo6twpc.h
+     src/vm/opcodetables_rne.h
+     src/vm/opcodetables_sgps3.h
+ 
+diff --git a/src/character2d.cpp b/src/character2d.cpp
+index 70f734d470439f0702c6f8e5aa15749ba97e5df5..979fab5f962d6400e24a4890103679c0690eed11 100644
+--- a/src/character2d.cpp
++++ b/src/character2d.cpp
+@@ -311,7 +311,8 @@ void Character2D::UpdateState(const int chaId) {
+                            ScrWork[SW_CHA1POSY_OFS + structOfsOffset]) *
+              resolutionScale;
+ 
+-  if (Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO8) {
++  if (Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO8 ||
++      Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO6TWPC) {
+     constexpr std::array<float, 7> BaseScaleValues = {
+         1.3f, 1.0f, 0.6f, 0.4f, 0.13f, 0.8f, 0.7f,
+     };
+diff --git a/src/game.cpp b/src/game.cpp
+index 2503c763a8e4bb8ed7ce3262572a45ddfbb15d00..a4d73572e1985e310e2ae37317bcfe834762beef 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -614,7 +614,8 @@ static void RenderMain() {
+   // actually have 4000 layers
+   if ((+Profile::Game::GameFeatures & +GameFeature::Video) &&
+       (!Profile::Game::UseMoviePriority ||
+-       (Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO8 &&
++       ((Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO8 ||
++         Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO6TWPC) &&
+         (ScrWork[SW_MOVIEPRI] == 3000 || ScrWork[SW_MOVIEPRI] == 4000)))) {
+     Video::VideoRender(ScrWork[SW_MOVIEALPHA] / 256.0f);
+   }
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index cabef04ab30ff3e0361d528adecd9e02c8567e1c..d25e6917eb5f2e5a9f4e9fdf84d21c606b74097b 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -951,7 +951,8 @@ VmInstruction(InstSel) {
+       if (Profile::Vm::GameInstructionSet == InstructionSet::Dash ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch ||
+-          Profile::Vm::GameInstructionSet == InstructionSet::MO8) {
++          Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++          Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC) {
+         PopUint16(savepointid);
+         // SF_MESSAVEPOINT_SSP + dialog page's field 5 in decompile?
+         // if (GetFlag(SF_MESSAVEPOINT_SSP + thread->DialoguePageId) == 0) {
+@@ -1135,6 +1136,7 @@ VmInstruction(InstNameID) {
+       if (Profile::Vm::GameInstructionSet == InstructionSet::CC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++          Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(namePlateDataBlock);
+         Sc3Stream namePlateData(
+@@ -1169,6 +1171,7 @@ VmInstruction(InstTips) {
+       uint32_t tipsDataAdr =
+           ScriptGetLabelAddress(thread->ScriptBufferId, tipsLabelNum);
+       if (Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++          Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(tipsDataAdr1);
+         (void)tipsDataAdr1;
+diff --git a/src/vm/inst_gamespecific.cpp b/src/vm/inst_gamespecific.cpp
+index d82e55bb00c1af54e560fa952849db9fdaaa20f1..c9a20baea0ca4a124111ca10e94e406acede0144 100644
+--- a/src/vm/inst_gamespecific.cpp
++++ b/src/vm/inst_gamespecific.cpp
+@@ -2,6 +2,8 @@
+ 
+ #include "inst_macros.inc"
+ 
++#include <bitset>
++
+ #include "expression.h"
+ #include "../log.h"
+ #include "../mem.h"
+@@ -408,6 +410,33 @@ VmInstruction(InstUnk100FMO6) {
+       "{:d})\n",
+       type, arg1, arg2, arg3);
+ }
++// Placeholder for opcodes of the MO6TWPC tables that are not implemented. Same
++// semantics as InstDummy (does nothing, does not advance the IP, so a script
++// that really executes one will hang), but logs an error once per opcode so
++// that the hang can be attributed.
++VmInstruction(InstDummyPC) {
++  static std::bitset<0x8000> reported;
++  const uint8_t* ip = thread->GetIp();
++  const size_t key = (static_cast<size_t>(ip[0] & 0x7F) << 8) | ip[1];
++  if (!reported.test(key)) {
++    reported.set(key);
++    ImpLog(LogLevel::Error, LogChannel::VM,
++           "Unimplemented MO6TWPC opcode {:02x}:{:02x} reached (script buffer "
++           "{:d}, address {:#0x}); the thread will not advance\n",
++           ip[0] & 0x7F, ip[1], thread->ScriptBufferId, thread->IpOffset);
++  }
++}
++VmInstruction(InstUnk100FPC) {
++  StartInstruction;
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
++             "STUB instruction Unk100FPC()\n");
++}
++VmInstruction(InstUnk005APC) {
++  StartInstruction;
++  PopUint16(arg);
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
++             "STUB instruction Unk005APC(arg: {:d})\n", arg);
++}
+ VmInstruction(InstUnk1010MO6) {
+   StartInstruction;
+   PopUint8(type);
+diff --git a/src/vm/inst_gamespecific.h b/src/vm/inst_gamespecific.h
+index d4a7146e42abf6bee9e582c7eedb0b644aa4d761..654e0faf6d141e0eef9f7afdef78d4555950cfc2 100644
+--- a/src/vm/inst_gamespecific.h
++++ b/src/vm/inst_gamespecific.h
+@@ -19,6 +19,9 @@ VmInstruction(InstAllClearChkCHLCC);
+ VmInstruction(InstChatMO8);
+ VmInstruction(InstGeotag);
+ VmInstruction(InstUnk100FMO6);
++VmInstruction(InstDummyPC);
++VmInstruction(InstUnk100FPC);
++VmInstruction(InstUnk005APC);
+ VmInstruction(InstUnk1010MO6);
+ VmInstruction(InstUnk1011MO6);
+ VmInstruction(InstUnk1037);
+diff --git a/src/vm/inst_misc.cpp b/src/vm/inst_misc.cpp
+index c50faf69f29737d4a35a94c1bf8b80641896d5a5..a9761a76aac6bf99b1b6534f2bdade0ff0ce1a0e 100644
+--- a/src/vm/inst_misc.cpp
++++ b/src/vm/inst_misc.cpp
+@@ -370,6 +370,13 @@ VmInstruction(InstClistInit) {
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction ClistInit(type: ProfSetXboxEvent)\n");
+       break;
++    case 0x14:  // PC release: takes one expression operand
++      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC) {
++        PopExpression(arg1);
++        ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
++                   "STUB instruction ClistInit(type: 20, arg1: {:d})\n", arg1);
++      }
++      break;
+   }
+ }
+ VmInstruction(InstSaveMenu) {
+@@ -584,7 +591,10 @@ VmInstruction(InstTitleMenuNew) {
+             }
+           }
+         } break;
+-        case InstructionSet::MO8: {
++        case InstructionSet::MO8:
++        case InstructionSet::MO6TWPC: {
++          // Modes 0-2 are numbered identically in MO8 and PC, so the raw
++          // read is fine (see GetTitleMode in games/mo8/titlemenu.cpp).
+           if (ScrWork[SW_TITLEMODE] == 1) {
+             ScrWork[SW_TITLEMOVIECT] += 1;
+             // Check "PRESS TO START" here
+@@ -644,6 +654,7 @@ VmInstruction(InstSetPlayMode) {
+ VmInstruction(InstSetEVflag) {
+   StartInstruction;
+   if (Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++      Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+       Profile::Vm::GameInstructionSet == InstructionSet::CHN ||
+       Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch) {
+     PopUint8(unk01);
+diff --git a/src/vm/inst_sound.cpp b/src/vm/inst_sound.cpp
+index d2109fb09770ed3220ca0c33b32b4ce28cb53478..4c39a2a136cd25b148250e7f75392996577bfceb 100644
+--- a/src/vm/inst_sound.cpp
++++ b/src/vm/inst_sound.cpp
+@@ -206,6 +206,7 @@ VmInstruction(InstSysVoicePlay) {
+ VmInstruction(InstSysSeload) {
+   StartInstruction;
+   if (Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++      Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+       Profile::Vm::GameInstructionSet == InstructionSet::CHN ||
+       Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch) {
+     PopUint8(arg1);
+diff --git a/src/vm/opcodetables_mo6twpc.h b/src/vm/opcodetables_mo6twpc.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..322c14f11e9bc16150c88a591d4692508a674753
+--- /dev/null
++++ b/src/vm/opcodetables_mo6twpc.h
+@@ -0,0 +1,798 @@
++#include "inst_system.h"
++#include "inst_controlflow.h"
++#include "inst_graphics2d.h"
++#include "inst_graphics3d.h"
++#include "inst_dialogue.h"
++#include "inst_sound.h"
++#include "inst_movie.h"
++#include "inst_gamespecific.h"
++#include "inst_misc.h"
++
++// clang-format off
++
++namespace Impacto {
++
++namespace Vm {
++
++InstructionProc inline constexpr OpcodeTableSystem_MO6TWPC[256] = {
++    InstEnd,                  // 00 00
++    InstCreateThread,         // 00 01
++    InstKillThread,           // 00 02
++    InstReset,                // 00 03
++    InstScriptLoad,           // 00 04
++    InstWait,                 // 00 05
++    InstHalt,                 // 00 06
++    InstJump,                 // 00 07
++    InstJumpTable,            // 00 08
++    InstGetLabelAdr,          // 00 09
++    InstIf,                   // 00 0A
++    InstCall,                 // 00 0B
++    InstJumpFar,              // 00 0C
++    InstCallFar,              // 00 0D
++    InstReturn,               // 00 0E
++    InstLoop,                 // 00 0F
++    InstFlagOnJump,           // 00 10
++    InstFlagOnWait,           // 00 11
++    InstSetFlag,              // 00 12
++    InstResetFlag,            // 00 13
++    InstCopyFlag,             // 00 14
++    InstKeyOnJump,            // 00 15
++    InstKeyWait,              // 00 16
++    InstKeyWaitTimer,         // 00 17
++    InstMemberWrite,          // 00 18
++    InstThreadControl,        // 00 19
++    InstGetSelfPointer,       // 00 1A
++    InstLoadJump,             // 00 1B
++    InstVsync,                // 00 1C
++    InstTest,                 // 00 1D
++    InstThreadControlStore,   // 00 1E
++    InstSwitch,               // 00 1F
++    InstCase,                 // 00 20
++    InstBGMplay,              // 00 21
++    InstBGMstop,              // 00 22
++    InstSEplay,               // 00 23
++    InstSEstop,               // 00 24
++    InstPadAct,               // 00 25
++    InstSSEplay,              // 00 26
++    InstSSEstop,              // 00 27
++    InstCopyThreadWork,       // 00 28
++    InstUPLmenuUI,            // 00 29
++    InstSave,                 // 00 2A
++    InstSaveIconLoad,         // 00 2B
++    InstBGMflag,              // 00 2C
++    InstUPLxTitle,            // 00 2D
++    InstPresence,             // 00 2E
++    InstSetAchievement,          // 00 2F
++    InstSetPlayer,            // 00 30
++    InstVoiceTableLoadMaybe,  // 00 31
++    InstSetPadCustom,         // 00 32
++    InstMwait,                // 00 33
++    InstTerminate,            // 00 34
++    InstSignIn,               // 00 35
++    InstAchievementIcon,      // 00 36
++    InstVoicePlay,            // 00 37
++    InstVoiceStopNew,         // 00 38
++    InstVoicePlayWait,        // 00 39
++    InstBGMduelPlay,          // 00 3A
++    InstSNDpause,             // 00 3B
++    InstSEplayWait,           // 00 3C
++    InstDebugPrint,           // 00 3D
++    InstResetSoundAll,        // 00 3E
++    InstSNDloadStop,          // 00 3F
++    InstBGMstopWait,          // 00 40
++    InstUnk0041,              // 00 41
++    InstSetX360SysMesPos,     // 00 42
++    InstSystemMes,            // 00 43
++    InstSystemMenu,           // 00 44
++    InstGetNowTime,           // 00 45
++    InstGetSystemStatus,      // 00 46
++    InstReboot,               // 00 47
++    InstReloadScript,         // 00 48
++    InstReloadScriptMenu,     // 00 49
++    InstDebugEditer,          // 00 4A
++    InstSysSeload,            // 00 4B
++    InstDummyPC,              // 00 4C
++    InstSysVoicePlay,         // 00 4D
++    InstPadActEx,             // 00 4E
++    InstDebugSetup,           // 00 4F
++    InstPressStartNew,        // 00 50
++    InstGlobalSystemMessage,  // 00 51
++    InstUnk0052,              // 00 52
++    InstControlOnJump,        // 00 53
++    InstKeyboardOnJump,       // 00 54
++    InstReturnIfFlag,         // 00 55
++    InstDummyPC,              // 00 56
++    InstDummyPC,              // 00 57
++    InstDummyPC,              // 00 58
++    InstDummyPC,              // 00 59
++    InstUnk005APC,           // 00 5A
++    InstDummyPC,              // 00 5B
++    InstDummyPC,              // 00 5C
++    InstDummyPC,              // 00 5D
++    InstDummyPC,              // 00 5E
++    InstAddContents,          // 00 5F
++    InstDummyPC,              // 00 60
++    InstDummyPC,              // 00 61
++    InstDummyPC,              // 00 62
++    InstDummyPC,              // 00 63
++    InstDummyPC,              // 00 64
++    InstDummyPC,              // 00 65
++    InstDummyPC,              // 00 66
++    InstDummyPC,              // 00 67
++    InstDummyPC,              // 00 68
++    InstDummyPC,              // 00 69
++    InstDummyPC,              // 00 6A
++    InstDummyPC,              // 00 6B
++    InstDummyPC,              // 00 6C
++    InstDummyPC,              // 00 6D
++    InstDummyPC,              // 00 6E
++    InstDummyPC,              // 00 6F
++    InstDummyPC,              // 00 70
++    InstDummyPC,              // 00 71
++    InstDummyPC,              // 00 72
++    InstDummyPC,              // 00 73
++    InstDummyPC,              // 00 74
++    InstDummyPC,              // 00 75
++    InstDummyPC,              // 00 76
++    InstDummyPC,              // 00 77
++    InstDummyPC,              // 00 78
++    InstDummyPC,              // 00 79
++    InstDummyPC,              // 00 7A
++    InstDummyPC,              // 00 7B
++    InstDummyPC,              // 00 7C
++    InstDummyPC,              // 00 7D
++    InstDummyPC,              // 00 7E
++    InstDummyPC,              // 00 7F
++    InstDummyPC,              // 00 80
++    InstDummyPC,              // 00 81
++    InstDummyPC,              // 00 82
++    InstDummyPC,              // 00 83
++    InstDummyPC,              // 00 84
++    InstDummyPC,              // 00 85
++    InstDummyPC,              // 00 86
++    InstDummyPC,              // 00 87
++    InstDummyPC,              // 00 88
++    InstDummyPC,              // 00 89
++    InstDummyPC,              // 00 8A
++    InstDummyPC,              // 00 8B
++    InstDummyPC,              // 00 8C
++    InstDummyPC,              // 00 8D
++    InstDummyPC,              // 00 8E
++    InstDummyPC,              // 00 8F
++    InstDummyPC,              // 00 90
++    InstDummyPC,              // 00 91
++    InstDummyPC,              // 00 92
++    InstDummyPC,              // 00 93
++    InstDummyPC,              // 00 94
++    InstDummyPC,              // 00 95
++    InstDummyPC,              // 00 96
++    InstDummyPC,              // 00 97
++    InstDummyPC,              // 00 98
++    InstDummyPC,              // 00 99
++    InstDummyPC,              // 00 9A
++    InstDummyPC,              // 00 9B
++    InstDummyPC,              // 00 9C
++    InstDummyPC,              // 00 9D
++    InstDummyPC,              // 00 9E
++    InstDummyPC,              // 00 9F
++    InstDummyPC,              // 00 A0
++    InstDummyPC,              // 00 A1
++    InstDummyPC,              // 00 A2
++    InstDummyPC,              // 00 A3
++    InstDummyPC,              // 00 A4
++    InstDummyPC,              // 00 A5
++    InstDummyPC,              // 00 A6
++    InstDummyPC,              // 00 A7
++    InstDummyPC,              // 00 A8
++    InstDummyPC,              // 00 A9
++    InstDummyPC,              // 00 AA
++    InstDummyPC,              // 00 AB
++    InstDummyPC,              // 00 AC
++    InstDummyPC,              // 00 AD
++    InstDummyPC,              // 00 AE
++    InstDummyPC,              // 00 AF
++    InstDummyPC,              // 00 B0
++    InstDummyPC,              // 00 B1
++    InstDummyPC,              // 00 B2
++    InstDummyPC,              // 00 B3
++    InstDummyPC,              // 00 B4
++    InstDummyPC,              // 00 B5
++    InstDummyPC,              // 00 B6
++    InstDummyPC,              // 00 B7
++    InstDummyPC,              // 00 B8
++    InstDummyPC,              // 00 B9
++    InstDummyPC,              // 00 BA
++    InstDummyPC,              // 00 BB
++    InstDummyPC,              // 00 BC
++    InstDummyPC,              // 00 BD
++    InstDummyPC,              // 00 BE
++    InstDummyPC,              // 00 BF
++    InstDummyPC,              // 00 C0
++    InstDummyPC,              // 00 C1
++    InstDummyPC,              // 00 C2
++    InstDummyPC,              // 00 C3
++    InstDummyPC,              // 00 C4
++    InstDummyPC,              // 00 C5
++    InstDummyPC,              // 00 C6
++    InstDummyPC,              // 00 C7
++    InstDummyPC,              // 00 C8
++    InstDummyPC,              // 00 C9
++    InstDummyPC,              // 00 CA
++    InstDummyPC,              // 00 CB
++    InstDummyPC,              // 00 CC
++    InstDummyPC,              // 00 CD
++    InstDummyPC,              // 00 CE
++    InstDummyPC,              // 00 CF
++    InstDummyPC,              // 00 D0
++    InstDummyPC,              // 00 D1
++    InstDummyPC,              // 00 D2
++    InstDummyPC,              // 00 D3
++    InstDummyPC,              // 00 D4
++    InstDummyPC,              // 00 D5
++    InstDummyPC,              // 00 D6
++    InstDummyPC,              // 00 D7
++    InstDummyPC,              // 00 D8
++    InstDummyPC,              // 00 D9
++    InstDummyPC,              // 00 DA
++    InstDummyPC,              // 00 DB
++    InstDummyPC,              // 00 DC
++    InstDummyPC,              // 00 DD
++    InstDummyPC,              // 00 DE
++    InstDummyPC,              // 00 DF
++    InstDummyPC,              // 00 E0
++    InstDummyPC,              // 00 E1
++    InstDummyPC,              // 00 E2
++    InstDummyPC,              // 00 E3
++    InstDummyPC,              // 00 E4
++    InstDummyPC,              // 00 E5
++    InstDummyPC,              // 00 E6
++    InstDummyPC,              // 00 E7
++    InstDummyPC,              // 00 E8
++    InstDummyPC,              // 00 E9
++    InstDummyPC,              // 00 EA
++    InstDummyPC,              // 00 EB
++    InstDummyPC,              // 00 EC
++    InstDummyPC,              // 00 ED
++    InstDummyPC,              // 00 EE
++    InstDummyPC,              // 00 EF
++    InstDummyPC,              // 00 F0
++    InstDummyPC,              // 00 F1
++    InstDummyPC,              // 00 F2
++    InstDummyPC,              // 00 F3
++    InstDummyPC,              // 00 F4
++    InstDummyPC,              // 00 F5
++    InstDummyPC,              // 00 F6
++    InstDummyPC,              // 00 F7
++    InstDummyPC,              // 00 F8
++    InstDummyPC,              // 00 F9
++    InstDummyPC,              // 00 FA
++    InstDummyPC,              // 00 FB
++    InstDummyPC,              // 00 FC
++    InstDummyPC,              // 00 FD
++    InstDummyPC,              // 00 FE
++    InstDummyPC               // 00 FF
++};
++
++InstructionProc inline constexpr OpcodeTableGraph_MO6TWPC[256] = {
++    InstCreateSurf,        // 01 00
++    InstReleaseSurf,       // 01 01
++    InstLoadPic,           // 01 02
++    InstReleaseSurf,       // 01 03
++    InstSurfFill,          // 01 04
++    InstCalc,              // 01 05
++    InstMesViewFlag,       // 01 06
++    InstSetMesWinPri,      // 01 07
++    InstMesSync,           // 01 08
++    InstMesSetID,          // 01 09
++    InstMesCls,            // 01 0A
++    InstMesVoiceWait,      // 01 0B
++    InstMes,               // 01 0C
++    InstMesMain,           // 01 0D
++    InstSetMesModeFormat,  // 01 0E
++    InstSetNGmoji,         // 01 0F
++    InstMesRev,            // 01 10
++    InstMessWindow,        // 01 11
++    InstSel,               // 01 12
++    InstSelect,            // 01 13
++    InstSysSel,            // 01 14
++    InstSysSelect,         // 01 15
++    InstDummyPC,           // 01 16
++    InstDummyPC,           // 01 17
++    InstDummyPC,           // 01 18
++    InstDummyPC,           // 01 19
++    InstDummyPC,           // 01 1A
++    InstDummyPC,           // 01 1B
++    InstDummyPC,           // 01 1C
++    InstDummyPC,           // 01 1D
++    InstDummyPC,           // 01 1E
++    InstLoadFontWidths,    // 01 1F
++    InstSCcapture,         // 01 20
++    InstSetTextTable,      // 01 21
++    InstPlayMovie,         // 01 22
++    InstMovieMain,         // 01 23
++    InstLoadMovie,         // 01 24
++    InstSetRevMes,         // 01 25
++    InstPlayMovieMemory,   // 01 26
++    InstMovie,             // 01 27
++    InstMovieMain,         // 01 28
++    InstLoadMovie,         // 01 29
++    InstPlayMovieMemory,   // 01 2A
++    InstSFDpause,          // 01 2B
++    InstRINNS,             // 01 2C
++    InstRINNSMain,         // 01 2D
++    InstDummyPC,           // 01 2E
++    InstChatMO8,           // 01 2F
++    InstDummyPC,           // 01 30
++    InstDummyPC,           // 01 31
++    InstDummyPC,           // 01 32
++    InstDummyPC,           // 01 33
++    InstDummyPC,           // 01 34
++    InstDummyPC,           // 01 35
++    InstDummyPC,           // 01 36
++    InstDummyPC,           // 01 37
++    InstDummyPC,           // 01 38
++    InstDummyPC,           // 01 39
++    InstDummyPC,           // 01 3A
++    InstDummyPC,           // 01 3B
++    InstDummyPC,           // 01 3C
++    InstDummyPC,           // 01 3D
++    InstDummyPC,           // 01 3E
++    InstDummyPC,           // 01 3F
++    InstDummyPC,           // 01 40
++    InstDummyPC,           // 01 41
++    InstDummyPC,           // 01 42
++    InstDummyPC,           // 01 43
++    InstDummyPC,           // 01 44
++    InstDummyPC,           // 01 45
++    InstDummyPC,           // 01 46
++    InstDummyPC,           // 01 47
++    InstDummyPC,           // 01 48
++    InstDummyPC,           // 01 49
++    InstDummyPC,           // 01 4A
++    InstDummyPC,           // 01 4B
++    InstDummyPC,           // 01 4C
++    InstDummyPC,           // 01 4D
++    InstDummyPC,           // 01 4E
++    InstDummyPC,           // 01 4F
++    InstDummyPC,           // 01 50
++    InstDummyPC,           // 01 51
++    InstDummyPC,           // 01 52
++    InstDummyPC,           // 01 53
++    InstDummyPC,           // 01 54
++    InstDummyPC,           // 01 55
++    InstDummyPC,           // 01 56
++    InstDummyPC,           // 01 57
++    InstDummyPC,           // 01 58
++    InstDummyPC,           // 01 59
++    InstDummyPC,           // 01 5A
++    InstDummyPC,           // 01 5B
++    InstDummyPC,           // 01 5C
++    InstDummyPC,           // 01 5D
++    InstDummyPC,           // 01 5E
++    InstDummyPC,           // 01 5F
++    InstDummyPC,           // 01 60
++    InstDummyPC,           // 01 61
++    InstDummyPC,           // 01 62
++    InstDummyPC,           // 01 63
++    InstDummyPC,           // 01 64
++    InstDummyPC,           // 01 65
++    InstDummyPC,           // 01 66
++    InstDummyPC,           // 01 67
++    InstDummyPC,           // 01 68
++    InstDummyPC,           // 01 69
++    InstDummyPC,           // 01 6A
++    InstDummyPC,           // 01 6B
++    InstDummyPC,           // 01 6C
++    InstDummyPC,           // 01 6D
++    InstDummyPC,           // 01 6E
++    InstDummyPC,           // 01 6F
++    InstDummyPC,           // 01 70
++    InstDummyPC,           // 01 71
++    InstDummyPC,           // 01 72
++    InstDummyPC,           // 01 73
++    InstDummyPC,           // 01 74
++    InstDummyPC,           // 01 75
++    InstDummyPC,           // 01 76
++    InstDummyPC,           // 01 77
++    InstDummyPC,           // 01 78
++    InstDummyPC,           // 01 79
++    InstDummyPC,           // 01 7A
++    InstDummyPC,           // 01 7B
++    InstDummyPC,           // 01 7C
++    InstDummyPC,           // 01 7D
++    InstDummyPC,           // 01 7E
++    InstDummyPC,           // 01 7F
++    InstDummyPC,           // 01 80
++    InstDummyPC,           // 01 81
++    InstDummyPC,           // 01 82
++    InstDummyPC,           // 01 83
++    InstDummyPC,           // 01 84
++    InstDummyPC,           // 01 85
++    InstDummyPC,           // 01 86
++    InstDummyPC,           // 01 87
++    InstDummyPC,           // 01 88
++    InstDummyPC,           // 01 89
++    InstDummyPC,           // 01 8A
++    InstDummyPC,           // 01 8B
++    InstDummyPC,           // 01 8C
++    InstDummyPC,           // 01 8D
++    InstDummyPC,           // 01 8E
++    InstDummyPC,           // 01 8F
++    InstDummyPC,           // 01 90
++    InstDummyPC,           // 01 91
++    InstDummyPC,           // 01 92
++    InstDummyPC,           // 01 93
++    InstDummyPC,           // 01 94
++    InstDummyPC,           // 01 95
++    InstDummyPC,           // 01 96
++    InstDummyPC,           // 01 97
++    InstDummyPC,           // 01 98
++    InstDummyPC,           // 01 99
++    InstDummyPC,           // 01 9A
++    InstDummyPC,           // 01 9B
++    InstDummyPC,           // 01 9C
++    InstDummyPC,           // 01 9D
++    InstDummyPC,           // 01 9E
++    InstDummyPC,           // 01 9F
++    InstDummyPC,           // 01 A0
++    InstDummyPC,           // 01 A1
++    InstDummyPC,           // 01 A2
++    InstDummyPC,           // 01 A3
++    InstDummyPC,           // 01 A4
++    InstDummyPC,           // 01 A5
++    InstDummyPC,           // 01 A6
++    InstDummyPC,           // 01 A7
++    InstDummyPC,           // 01 A8
++    InstDummyPC,           // 01 A9
++    InstDummyPC,           // 01 AA
++    InstDummyPC,           // 01 AB
++    InstDummyPC,           // 01 AC
++    InstDummyPC,           // 01 AD
++    InstDummyPC,           // 01 AE
++    InstDummyPC,           // 01 AF
++    InstDummyPC,           // 01 B0
++    InstDummyPC,           // 01 B1
++    InstDummyPC,           // 01 B2
++    InstDummyPC,           // 01 B3
++    InstDummyPC,           // 01 B4
++    InstDummyPC,           // 01 B5
++    InstDummyPC,           // 01 B6
++    InstDummyPC,           // 01 B7
++    InstDummyPC,           // 01 B8
++    InstDummyPC,           // 01 B9
++    InstDummyPC,           // 01 BA
++    InstDummyPC,           // 01 BB
++    InstDummyPC,           // 01 BC
++    InstDummyPC,           // 01 BD
++    InstDummyPC,           // 01 BE
++    InstDummyPC,           // 01 BF
++    InstDummyPC,           // 01 C0
++    InstDummyPC,           // 01 C1
++    InstDummyPC,           // 01 C2
++    InstDummyPC,           // 01 C3
++    InstDummyPC,           // 01 C4
++    InstDummyPC,           // 01 C5
++    InstDummyPC,           // 01 C6
++    InstDummyPC,           // 01 C7
++    InstDummyPC,           // 01 C8
++    InstDummyPC,           // 01 C9
++    InstDummyPC,           // 01 CA
++    InstDummyPC,           // 01 CB
++    InstDummyPC,           // 01 CC
++    InstDummyPC,           // 01 CD
++    InstDummyPC,           // 01 CE
++    InstDummyPC,           // 01 CF
++    InstDummyPC,           // 01 D0
++    InstDummyPC,           // 01 D1
++    InstDummyPC,           // 01 D2
++    InstDummyPC,           // 01 D3
++    InstDummyPC,           // 01 D4
++    InstDummyPC,           // 01 D5
++    InstDummyPC,           // 01 D6
++    InstDummyPC,           // 01 D7
++    InstDummyPC,           // 01 D8
++    InstDummyPC,           // 01 D9
++    InstDummyPC,           // 01 DA
++    InstDummyPC,           // 01 DB
++    InstDummyPC,           // 01 DC
++    InstDummyPC,           // 01 DD
++    InstDummyPC,           // 01 DE
++    InstDummyPC,           // 01 DF
++    InstDummyPC,           // 01 E0
++    InstDummyPC,           // 01 E1
++    InstDummyPC,           // 01 E2
++    InstDummyPC,           // 01 E3
++    InstDummyPC,           // 01 E4
++    InstDummyPC,           // 01 E5
++    InstDummyPC,           // 01 E6
++    InstDummyPC,           // 01 E7
++    InstDummyPC,           // 01 E8
++    InstDummyPC,           // 01 E9
++    InstDummyPC,           // 01 EA
++    InstDummyPC,           // 01 EB
++    InstDummyPC,           // 01 EC
++    InstDummyPC,           // 01 ED
++    InstDummyPC,           // 01 EE
++    InstDummyPC,           // 01 EF
++    InstDummyPC,           // 01 F0
++    InstDummyPC,           // 01 F1
++    InstDummyPC,           // 01 F2
++    InstDummyPC,           // 01 F3
++    InstDummyPC,           // 01 F4
++    InstDummyPC,           // 01 F5
++    InstDummyPC,           // 01 F6
++    InstDummyPC,           // 01 F7
++    InstDummyPC,           // 01 F8
++    InstDummyPC,           // 01 F9
++    InstDummyPC,           // 01 FA
++    InstDummyPC,           // 01 FB
++    InstDummyPC,           // 01 FC
++    InstDummyPC,           // 01 FD
++    InstDummyPC,           // 01 FE
++    InstDummyPC            // 01 FF
++};
++
++InstructionProc inline constexpr OpcodeTableUser1_MO6TWPC[256] = {
++    InstMSinit,            // 10 00
++    InstBGload,            // 10 01
++    InstBGswap,            // 10 02
++    InstBGsetColor,        // 10 03
++    InstBGsetLink,         // 10 04
++    InstCHAload,           // 10 05
++    InstCHAswap,           // 10 06
++    InstBGcopy,            // 10 07
++    InstCHAcopy,           // 10 08
++    InstSaveSlot,          // 10 09
++    InstSystemMain,        // 10 0A
++    InstCharaLayerLoad,    // 10 0B
++    InstGameInfoInit,      // 10 0C
++    InstCHAmove,           // 10 0D
++    InstBGloadEx,          // 10 0E
++    InstUnk100FPC,         // 10 0F
++    InstBGrelease,         // 10 10
++    InstCHArelease,        // 10 11
++    InstClearFlagChk,      // 10 12
++    InstOption,            // 10 13
++    InstSystemDataReset,   // 10 14
++    InstDebugData,         // 10 15
++    InstGetCharaPause,     // 10 16
++    InstBGfadeExpInit,     // 10 17
++    InstDummyPC,           // 10 18
++    InstDummyPC,           // 10 19
++    InstHelp,              // 10 1A
++    InstHelp,              // 10 1B
++    InstAchievementMenu,   // 10 1C
++    InstSoundMenu,         // 10 1D
++    InstAllClear,          // 10 1E
++    InstAlbum,             // 10 1F
++    InstMovieMode,         // 10 20
++    InstClistInit,         // 10 21
++    InstAutoSave,          // 10 22
++    InstSaveMenu,          // 10 23
++    InstLoadData,          // 10 24
++    InstDummyPC,           // 10 25
++    InstDummyPC,           // 10 26
++    InstSetDic,            // 10 27
++    InstSetPlayMode,       // 10 28
++    InstSetEVflag,         // 10 29
++    InstSetCutin,          // 10 2A
++    InstDummyPC,           // 10 2B
++    InstDummyPC,           // 10 2C
++    InstAchChkTitle,       // 10 2D
++    InstSetSceneViewFlag,  // 10 2E
++    InstChkClearFlag,      // 10 2F
++    InstBGeffectWave,      // 10 30
++    InstGeotag,            // 10 31
++    InstNameID,            // 10 32
++    InstTips,              // 10 33
++    InstTitleMenuNew,      // 10 34
++    InstDummyPC,           // 10 35
++    InstBGeffect,          // 10 36
++    InstMapSystem,         // 10 37
++    InstMail,              // 10 38
++    InstTwipo_Dash,        // 10 39
++    InstUnk103A,           // 10 3A
++    InstDummyPC,           // 10 3B
++    InstFACEload,          // 10 3C
++    InstFACErelease,       // 10 3D
++    InstDummyPC,           // 10 3E
++    InstSysSeload,         // 10 3F
++    InstDummyPC,           // 10 40
++    InstDummyPC,           // 10 41
++    InstDummyPC,           // 10 42
++    InstDummyPC,           // 10 43
++    InstDummyPC,           // 10 44
++    InstDummyPC,           // 10 45
++    InstDummyPC,           // 10 46
++    InstDummyPC,           // 10 47
++    InstDummyPC,           // 10 48
++    InstDummyPC,           // 10 49
++    InstDummyPC,           // 10 4A
++    InstDummyPC,           // 10 4B
++    InstDummyPC,           // 10 4C
++    InstDummyPC,           // 10 4D
++    InstDummyPC,           // 10 4E
++    InstDummyPC,           // 10 4F
++    InstDummyPC,           // 10 50
++    InstDummyPC,           // 10 51
++    InstDummyPC,           // 10 52
++    InstDummyPC,           // 10 53
++    InstDummyPC,           // 10 54
++    InstDummyPC,           // 10 55
++    InstDummyPC,           // 10 56
++    InstDummyPC,           // 10 57
++    InstDummyPC,           // 10 58
++    InstDummyPC,           // 10 59
++    InstDummyPC,           // 10 5A
++    InstDummyPC,           // 10 5B
++    InstDummyPC,           // 10 5C
++    InstDummyPC,           // 10 5D
++    InstDummyPC,           // 10 5E
++    InstDummyPC,           // 10 5F
++    InstDummyPC,           // 10 60
++    InstDummyPC,           // 10 61
++    InstDummyPC,           // 10 62
++    InstDummyPC,           // 10 63
++    InstDummyPC,           // 10 64
++    InstDummyPC,           // 10 65
++    InstDummyPC,           // 10 66
++    InstDummyPC,           // 10 67
++    InstDummyPC,           // 10 68
++    InstDummyPC,           // 10 69
++    InstDummyPC,           // 10 6A
++    InstDummyPC,           // 10 6B
++    InstDummyPC,           // 10 6C
++    InstDummyPC,           // 10 6D
++    InstDummyPC,           // 10 6E
++    InstDummyPC,           // 10 6F
++    InstDummyPC,           // 10 70
++    InstDummyPC,           // 10 71
++    InstDummyPC,           // 10 72
++    InstDummyPC,           // 10 73
++    InstDummyPC,           // 10 74
++    InstDummyPC,           // 10 75
++    InstDummyPC,           // 10 76
++    InstDummyPC,           // 10 77
++    InstDummyPC,           // 10 78
++    InstDummyPC,           // 10 79
++    InstDummyPC,           // 10 7A
++    InstDummyPC,           // 10 7B
++    InstDummyPC,           // 10 7C
++    InstDummyPC,           // 10 7D
++    InstDummyPC,           // 10 7E
++    InstDummyPC,           // 10 7F
++    InstDummyPC,           // 10 80
++    InstDummyPC,           // 10 81
++    InstDummyPC,           // 10 82
++    InstDummyPC,           // 10 83
++    InstDummyPC,           // 10 84
++    InstDummyPC,           // 10 85
++    InstDummyPC,           // 10 86
++    InstDummyPC,           // 10 87
++    InstDummyPC,           // 10 88
++    InstDummyPC,           // 10 89
++    InstDummyPC,           // 10 8A
++    InstDummyPC,           // 10 8B
++    InstDummyPC,           // 10 8C
++    InstDummyPC,           // 10 8D
++    InstDummyPC,           // 10 8E
++    InstDummyPC,           // 10 8F
++    InstDummyPC,           // 10 90
++    InstDummyPC,           // 10 91
++    InstDummyPC,           // 10 92
++    InstDummyPC,           // 10 93
++    InstDummyPC,           // 10 94
++    InstDummyPC,           // 10 95
++    InstDummyPC,           // 10 96
++    InstDummyPC,           // 10 97
++    InstDummyPC,           // 10 98
++    InstDummyPC,           // 10 99
++    InstDummyPC,           // 10 9A
++    InstDummyPC,           // 10 9B
++    InstDummyPC,           // 10 9C
++    InstDummyPC,           // 10 9D
++    InstDummyPC,           // 10 9E
++    InstDummyPC,           // 10 9F
++    InstDummyPC,           // 10 A0
++    InstDummyPC,           // 10 A1
++    InstDummyPC,           // 10 A2
++    InstDummyPC,           // 10 A3
++    InstDummyPC,           // 10 A4
++    InstDummyPC,           // 10 A5
++    InstDummyPC,           // 10 A6
++    InstDummyPC,           // 10 A7
++    InstDummyPC,           // 10 A8
++    InstDummyPC,           // 10 A9
++    InstDummyPC,           // 10 AA
++    InstDummyPC,           // 10 AB
++    InstDummyPC,           // 10 AC
++    InstDummyPC,           // 10 AD
++    InstDummyPC,           // 10 AE
++    InstDummyPC,           // 10 AF
++    InstDummyPC,           // 10 B0
++    InstDummyPC,           // 10 B1
++    InstDummyPC,           // 10 B2
++    InstDummyPC,           // 10 B3
++    InstDummyPC,           // 10 B4
++    InstDummyPC,           // 10 B5
++    InstDummyPC,           // 10 B6
++    InstDummyPC,           // 10 B7
++    InstDummyPC,           // 10 B8
++    InstDummyPC,           // 10 B9
++    InstDummyPC,           // 10 BA
++    InstDummyPC,           // 10 BB
++    InstDummyPC,           // 10 BC
++    InstDummyPC,           // 10 BD
++    InstDummyPC,           // 10 BE
++    InstDummyPC,           // 10 BF
++    InstDummyPC,           // 10 C0
++    InstDummyPC,           // 10 C1
++    InstDummyPC,           // 10 C2
++    InstDummyPC,           // 10 C3
++    InstDummyPC,           // 10 C4
++    InstDummyPC,           // 10 C5
++    InstDummyPC,           // 10 C6
++    InstDummyPC,           // 10 C7
++    InstDummyPC,           // 10 C8
++    InstDummyPC,           // 10 C9
++    InstDummyPC,           // 10 CA
++    InstDummyPC,           // 10 CB
++    InstDummyPC,           // 10 CC
++    InstDummyPC,           // 10 CD
++    InstDummyPC,           // 10 CE
++    InstDummyPC,           // 10 CF
++    InstDummyPC,           // 10 D0
++    InstDummyPC,           // 10 D1
++    InstDummyPC,           // 10 D2
++    InstDummyPC,           // 10 D3
++    InstDummyPC,           // 10 D4
++    InstDummyPC,           // 10 D5
++    InstDummyPC,           // 10 D6
++    InstDummyPC,           // 10 D7
++    InstDummyPC,           // 10 D8
++    InstDummyPC,           // 10 D9
++    InstDummyPC,           // 10 DA
++    InstDummyPC,           // 10 DB
++    InstDummyPC,           // 10 DC
++    InstDummyPC,           // 10 DD
++    InstDummyPC,           // 10 DE
++    InstDummyPC,           // 10 DF
++    InstDummyPC,           // 10 E0
++    InstDummyPC,           // 10 E1
++    InstDummyPC,           // 10 E2
++    InstDummyPC,           // 10 E3
++    InstDummyPC,           // 10 E4
++    InstDummyPC,           // 10 E5
++    InstDummyPC,           // 10 E6
++    InstDummyPC,           // 10 E7
++    InstDummyPC,           // 10 E8
++    InstDummyPC,           // 10 E9
++    InstDummyPC,           // 10 EA
++    InstDummyPC,           // 10 EB
++    InstDummyPC,           // 10 EC
++    InstDummyPC,           // 10 ED
++    InstDummyPC,           // 10 EE
++    InstDummyPC,           // 10 EF
++    InstDummyPC,           // 10 F0
++    InstDummyPC,           // 10 F1
++    InstDummyPC,           // 10 F2
++    InstDummyPC,           // 10 F3
++    InstDummyPC,           // 10 F4
++    InstDummyPC,           // 10 F5
++    InstDummyPC,           // 10 F6
++    InstDummyPC,           // 10 F7
++    InstDummyPC,           // 10 F8
++    InstDummyPC,           // 10 F9
++    InstDummyPC,           // 10 FA
++    InstDummyPC,           // 10 FB
++    InstDummyPC,           // 10 FC
++    InstDummyPC,           // 10 FD
++    InstDummyPC,           // 10 FE
++    InstDummyPC            // 10 FF
++};
++
++}
++
++}
++
++// clang-format on
+\ No newline at end of file
+diff --git a/src/vm/vm.cpp b/src/vm/vm.cpp
+index ffdf59417576186b7e3af32b72cdc0f88a7a127e..8d2b49121422e542d9bea9a23ba14e589213faa9 100644
+--- a/src/vm/vm.cpp
++++ b/src/vm/vm.cpp
+@@ -14,6 +14,7 @@
+ #include "opcodetables_mo6tw.h"
+ #include "opcodetables_mo7.h"
+ #include "opcodetables_mo8.h"
++#include "opcodetables_mo6twpc.h"
+ #include "opcodetables_dash.h"
+ #include "opcodetables_cc.h"
+ #include "opcodetables_sgps3.h"
+@@ -129,6 +130,12 @@ void Init() {
+       OpcodeTableUser1 = OpcodeTableUser1_MO8;
+       break;
+     }
++    case InstructionSet::MO6TWPC: {
++      OpcodeTableSystem = OpcodeTableSystem_MO6TWPC;
++      OpcodeTableGraph = OpcodeTableGraph_MO6TWPC;
++      OpcodeTableUser1 = OpcodeTableUser1_MO6TWPC;
++      break;
++    }
+     case InstructionSet::CHN: {
+       OpcodeTableSystem = OpcodeTableSystem_CHN;
+       OpcodeTableGraph = OpcodeTableGraph_CHN;
+diff --git a/src/vm/vm.h b/src/vm/vm.h
+index 14010451fa46135ee0a7b4e94c0f78655b4c170b..442a6fd5eb16de6fc4ac480d9a63b1e806d4e0f0 100644
+--- a/src/vm/vm.h
++++ b/src/vm/vm.h
+@@ -22,6 +22,7 @@ enum class InstructionSet : int {
+   MO8,
+   CHN,
+   LCCSwitch,
++  MO6TWPC,
+ };
+ using InstructionProc = auto (*)(Sc3VmThread* thread, float dt) -> void;
+ 

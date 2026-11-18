@@ -27,9 +27,13 @@ final class ImpactoRequest {
     static final String EXTRA_GAME_KEY = "com.tyranor.next.impacto.extra.GAME_KEY";
     static final String EXTRA_TITLE = "com.tyranor.next.impacto.extra.TITLE";
 
-    /** Upstream game profiles the app can detect (see the app's ImpactoGameCatalog); viewers are not games. */
+    /**
+     * Game profiles the app can detect (see the app's ImpactoGameCatalog); viewers are not games. Some come from
+     * upstream, the {@code mo6tw-pc*} ones from the patch series; engine/impacto/profiles.json lists them all and a
+     * unit test keeps the two in step.
+     */
     static final Set<String> PROFILES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "chlcc", "cclcc", "cclcc-switch", "mo6tw", "darling", "dash", "rne")));
+            "chlcc", "cclcc", "cclcc-switch", "mo6tw", "mo6tw-pc", "mo6tw-pc-zhs", "mo6tw-pc-zht", "darling", "dash", "rne")));
 
     private static final Pattern GAME_KEY = Pattern.compile("[0-9a-f]{24}");
     private static final int MAX_TITLE = 200;
@@ -119,7 +123,7 @@ final class ImpactoRequest {
     }
 
     /**
-     * Creates {@code <root>/gamedata/<profile>} as a symbolic link to the game folder, so the unmodified engine finds
+     * Creates {@code <root>/gamedata/<profile>} as a symbolic link to the game folder, so the engine finds
      * {@code RootGamedataDir/<profile>/<archive>} without copying game data. An existing link is repointed; anything
      * else at that path (a real directory or file) is refused rather than deleted.
      */

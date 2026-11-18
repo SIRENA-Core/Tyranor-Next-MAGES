@@ -1,0 +1,1659 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Tue, 17 Nov 2026 06:58:33 -0800
+Subject: [PATCH] tyn: add the MO6TWPC save system and save menu
+
+TYN-only (new files, new SaveDataType/SaveMenuType values; other games are
+untouched). Shared files touched, all gated on InstructionSet::MO6TWPC:
+src/data/savesystem.cpp (the loaders report the real error code to
+SW_SAVEERRORCODE, as they already do for CC/CHLCC) and src/vm/inst_system.cpp
+(AutoSave(3) persists the quick save, the PC scripts never write it).
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696d09272d5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -167,6 +167,7 @@ set(Impacto_Src
+     src/profile/games/mo6tw/systemmenu.cpp
+     src/profile/games/mo6tw/titlemenu.cpp
+     src/profile/games/mo6tw/savemenu.cpp
++    src/profile/games/mo6twpc/savemenu.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -241,9 +242,11 @@ set(Impacto_Src
+     src/games/mo6tw/systemmenu.cpp
+     src/games/mo6tw/titlemenu.cpp
+     src/games/mo6tw/savemenu.cpp
++    src/games/mo6twpc/savemenu.cpp
+     src/games/mo6tw/optionsmenu.cpp
+     src/games/mo6tw/tipsmenu.cpp
+     src/games/mo6tw/savesystem.cpp
++    src/games/mo6twpc/savesystem.cpp
+     src/games/mo6tw/tipssystem.cpp
+     src/games/mo6tw/clearlistmenu.cpp
+     src/games/mo6tw/moviemenu.cpp
+@@ -544,6 +547,7 @@ set(Impacto_Header
+     src/profile/games/mo6tw/systemmenu.h
+     src/profile/games/mo6tw/titlemenu.h
+     src/profile/games/mo6tw/savemenu.h
++    src/profile/games/mo6twpc/savemenu.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -610,6 +614,8 @@ set(Impacto_Header
+     src/games/mo6tw/systemmenu.h
+     src/games/mo6tw/titlemenu.h
+     src/games/mo6tw/savemenu.h
++    src/games/mo6twpc/savemenu.h
++    src/games/mo6twpc/savesystem.h
+     src/games/mo6tw/optionsmenu.h
+     src/games/mo6tw/tipsmenu.h
+     src/games/mo6tw/savesystem.h
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 0ab1fb43b9502c719b96db1a699f9eb3e88bcbe4..492fba7858671ab4b9ac2e1205d30604ca87d074 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -18,6 +18,20 @@ using namespace Impacto::Profile::ScriptVars;
+ 
+ void Init() { Impacto::Profile::SaveSystem::Configure(); }
+ 
++// Let's not report errors until we finalize the implementation. The PC release
++// of MO6TW has a complete implementation and its scripts rely on the error
++// codes (not found -> create the save file).
++static bool ReportsSaveErrors() {
++  switch (Profile::Vm::GameInstructionSet) {
++    case Vm::InstructionSet::CC:
++    case Vm::InstructionSet::CHLCC:
++    case Vm::InstructionSet::MO6TWPC:
++      return true;
++    default:
++      return false;
++  }
++}
++
+ class SaveFileLoader : public Loadable<SaveFileLoader, SaveError> {
+   friend Loadable<SaveFileLoader, SaveError>;
+ 
+@@ -36,9 +50,7 @@ class SaveFileLoader : public Loadable<SaveFileLoader, SaveError> {
+ 
+     QueuedTextures.clear();
+ 
+-    // Let's not report errors until we finalize the implementation
+-    if (Profile::Vm::GameInstructionSet != Vm::InstructionSet::CC &&
+-        Profile::Vm::GameInstructionSet != Vm::InstructionSet::CHLCC) {
++    if (!ReportsSaveErrors()) {
+       result = SaveError::OK;
+     }
+ 
+@@ -59,9 +71,7 @@ class SaveFileChecker : public Loadable<SaveFileChecker, SaveError> {
+   }
+ 
+   void MainThreadOnLoad(SaveError result) {
+-    // Let's not report errors until we finalize the implementation
+-    if (Profile::Vm::GameInstructionSet != Vm::InstructionSet::CC &&
+-        Profile::Vm::GameInstructionSet != Vm::InstructionSet::CHLCC) {
++    if (!ReportsSaveErrors()) {
+       result = SaveError::OK;
+     }
+ 
+@@ -79,9 +89,7 @@ class SaveFileWriter : public Loadable<SaveFileWriter, SaveError> {
+   }
+ 
+   void MainThreadOnLoad(SaveError result) {
+-    // Let's not report errors until we finalize the implementation
+-    if (Profile::Vm::GameInstructionSet != Vm::InstructionSet::CC &&
+-        Profile::Vm::GameInstructionSet != Vm::InstructionSet::CHLCC) {
++    if (!ReportsSaveErrors()) {
+       result = SaveError::OK;
+     }
+ 
+@@ -100,9 +108,7 @@ class QuickSaveFileWriter : public Loadable<QuickSaveFileWriter, SaveError> {
+   }
+ 
+   void MainThreadOnLoad(SaveError result) {
+-    // Let's not report errors until we finalize the implementation
+-    if (Profile::Vm::GameInstructionSet != Vm::InstructionSet::CC &&
+-        Profile::Vm::GameInstructionSet != Vm::InstructionSet::CHLCC) {
++    if (!ReportsSaveErrors()) {
+       result = SaveError::OK;
+     }
+ 
+diff --git a/src/data/savesystem.h b/src/data/savesystem.h
+index 8de5b99c4a90ade662fb56785404332230e5d777..2808471f96be0c3187fc6595ac2281b53c8f1c10 100644
+--- a/src/data/savesystem.h
++++ b/src/data/savesystem.h
+@@ -20,6 +20,7 @@ enum class SaveDataType : int {
+   CCLCC_PS4,
+   CCLCC_SWITCH,
+   MO6TW,
++  MO6TWPC,
+ };
+ enum SaveFlagsMode { WriteProtect = 1 };
+ 
+diff --git a/src/games/mo6twpc/savemenu.cpp b/src/games/mo6twpc/savemenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b5bc36abe55bb83a05b147e24040402c9f9eb24
+--- /dev/null
++++ b/src/games/mo6twpc/savemenu.cpp
+@@ -0,0 +1,331 @@
++#include "savemenu.h"
++
++#include <algorithm>
++#include <fmt/format.h>
++
++#include "../../profile/ui/savemenu.h"
++#include "../../profile/games/mo6twpc/savemenu.h"
++#include "../../profile/dialogue.h"
++#include "../../renderer/renderer.h"
++#include "../../mem.h"
++#include "../../profile/scriptvars.h"
++#include "../../inputsystem.h"
++#include "../../data/savesystem.h"
++#include "../../vm/vm.h"
++#include "../../vm/interface/input.h"
++
++namespace Impacto {
++namespace UI {
++namespace MO6TWPC {
++
++using namespace Impacto::Profile::SaveMenu;
++using namespace Impacto::Profile::MO6TWPC::SaveMenu;
++using namespace Impacto::Profile::ScriptVars;
++
++namespace {
++
++int constexpr MaxPages = SaveSystem::MaxSaveEntries / EntriesPerPage;
++
++std::vector<ProcessedTextGlyph> LayoutText(const std::string& str,
++                                           glm::vec2 pos, float size,
++                                           TextAlignment alignment) {
++  return TextLayoutPlainString(str, *Profile::Dialogue::DialogueFont, size,
++                               Profile::Dialogue::ColorTable[0], 1.0f, pos,
++                               alignment);
++}
++
++class SaveEntryButton : public Widgets::Button {
++ public:
++  SaveEntryButton(int id, Sprite const& norm, Sprite const& focused,
++                  glm::vec2 pos)
++      : Widgets::Button(id, norm, focused, Sprite(), pos) {
++    DisabledSprite = norm;
++  }
++
++  void Render() override {
++    Renderer->DrawSprite(HasFocus ? FocusedSprite : NormalSprite,
++                         glm::vec2(Bounds.X, Bounds.Y), Tint);
++    if (Active) {
++      Renderer->DrawSprite(
++          *Thumbnail,
++          RectF(Bounds.X + ThumbnailOffset.x, Bounds.Y + ThumbnailOffset.y,
++                ThumbnailSize.x, ThumbnailSize.y),
++          Tint);
++      if (Locked) {
++        Renderer->DrawSprite(
++            LockIconSprite,
++            glm::vec2(Bounds.X + LockIconOffset.x, Bounds.Y + LockIconOffset.y),
++            Tint);
++      }
++      Profile::Dialogue::DialogueFont->DrawProcessedText(
++          PlayTime, Tint.a, Fonts::RendererOutlineMode::Full);
++      Profile::Dialogue::DialogueFont->DrawProcessedText(
++          Date, Tint.a, Fonts::RendererOutlineMode::Full);
++    }
++    Profile::Dialogue::DialogueFont->DrawProcessedText(
++        Number, Tint.a, Fonts::RendererOutlineMode::Full);
++  }
++
++  void Describe(SaveSystem::SaveType type, int id) {
++    glm::vec2 origin(Bounds.X, Bounds.Y);
++    Active = SaveSystem::GetSaveStatus(type, id) != 0;
++    if (!Active) {
++      Number = LayoutText(fmt::format("No.{:02d}  NO DATA", id + 1),
++                          origin + NumberTextOffset, EntryFontSize,
++                          TextAlignment::Left);
++      return;
++    }
++    Number = LayoutText(fmt::format("No.{:02d}", id + 1),
++                        origin + NumberTextOffset, EntryFontSize,
++                        TextAlignment::Left);
++    Thumbnail = &SaveSystem::GetSaveThumbnail(type, id);
++    Locked = SaveSystem::GetSaveFlags(type, id) & SaveSystem::WriteProtect;
++    const uint32_t t = SaveSystem::GetSavePlayTime(type, id);
++    PlayTime = LayoutText(
++        fmt::format("{:02d}:{:02d}:{:02d}", t / 3600, t / 60 % 60, t % 60),
++        origin + PlayTimeTextOffset, EntryFontSize, TextAlignment::Left);
++    const tm& d = SaveSystem::GetSaveDate(type, id);
++    Date = LayoutText(fmt::format("{:04d}/{:02d}/{:02d} {:02d}:{:02d}",
++                                  d.tm_year + 1900, d.tm_mon + 1, d.tm_mday,
++                                  d.tm_hour, d.tm_min),
++                      origin + DateTextOffset, EntryFontSize,
++                      TextAlignment::Left);
++  }
++
++ private:
++  bool Active = false;
++  bool Locked = false;
++  Sprite* Thumbnail = nullptr;
++  std::vector<ProcessedTextGlyph> Number;
++  std::vector<ProcessedTextGlyph> PlayTime;
++  std::vector<ProcessedTextGlyph> Date;
++};
++
++// The menu is opened by two script flows: the title menu (Load / Continue /
++// Quick Load) fades it in through SW_FILEALPHA, the in-game system menu
++// through the CC style submenu variables (SW_SYSSUBMENUNO 0 = quick load,
++// 3 = save, 4 = load; SW_SYSSUBMENUALPHA ramps 0 -> 256, see _startup.scx
++// labels 299 and 339).
++int MenuAlpha() {
++  if (ScrWork[SW_FILEALPHA] != 0) return ScrWork[SW_FILEALPHA];
++  const int no = ScrWork[SW_SYSSUBMENUNO];
++  if (no == 0 || no == 3 || no == 4) return ScrWork[SW_SYSSUBMENUALPHA];
++  return 0;
++}
++
++SaveSystem::SaveType TypeOf(std::optional<SaveMenuPageType> page) {
++  return page == SaveMenuPageType::QuickLoad ? SaveSystem::SaveType::Quick
++                                             : SaveSystem::SaveType::Full;
++}
++
++}  // namespace
++
++void SaveMenu::MenuButtonOnClick(Widgets::Button* target) {
++  target->Hovered = false;
++  EntryClicked = true;
++  const SaveSystem::SaveType saveType = TypeOf(ActiveMenuType);
++  const int slot = target->Id;
++  const uint8_t status = SaveSystem::GetSaveStatus(saveType, slot);
++  if (status == 0 && ActiveMenuType != SaveMenuPageType::Save) return;
++
++  ScrWork[SW_SAVEFILENO] = slot;
++  ScrWork[SW_SAVEFILETYPE] = static_cast<int>(saveType);
++  // 0 = empty, 1 = used, 2 = write protected (the script shows a message)
++  const bool protectedSlot =
++      (SaveSystem::GetSaveFlags(saveType, slot) & SaveSystem::WriteProtect) &&
++      ActiveMenuType == SaveMenuPageType::Save;
++  ScrWork[SW_SAVEFILESTATUS] = protectedSlot ? 2 : status;
++  ChoiceMade = true;
++}
++
++SaveMenu::SaveMenu() : UI::SaveMenu() {
++  FadeAnimation.Direction = AnimationDirection::In;
++  FadeAnimation.LoopMode = AnimationLoopMode::Stop;
++  FadeAnimation.DurationIn = FadeInDuration;
++  FadeAnimation.DurationOut = FadeOutDuration;
++}
++
++void SaveMenu::ChangePage(int delta) {
++  const int page =
++      std::clamp(static_cast<int>(ActivePage) + delta, 0, MaxPages - 1);
++  if (page == ActivePage) return;
++  ActivePage = static_cast<uint8_t>(page);
++  Rebuild();
++}
++
++void SaveMenu::Rebuild() {
++  if (!ActiveMenuType) return;
++  Widgets::Group* old = MainItems;
++
++  const SaveSystem::SaveType saveType = TypeOf(ActiveMenuType);
++  Sprite entrySprite, entryHSprite;
++  switch (*ActiveMenuType) {
++    case SaveMenuPageType::QuickLoad:
++      entrySprite = QuickLoadEntrySprite;
++      entryHSprite = QuickLoadEntryHighlightedSprite;
++      break;
++    case SaveMenuPageType::Save:
++      entrySprite = SaveEntrySprite;
++      entryHSprite = SaveEntryHighlightedSprite;
++      break;
++    case SaveMenuPageType::Load:
++      entrySprite = LoadEntrySprite;
++      entryHSprite = LoadEntryHighlightedSprite;
++      break;
++  }
++
++  MainItems = new Widgets::Group(this);
++  MainItems->WrapFocus = false;
++  auto onClick = [this](auto* btn) { return MenuButtonOnClick(btn); };
++
++  SaveEntryButton* grid[RowsPerPage][EntriesPerRow];
++  for (int i = 0; i < RowsPerPage; i++) {
++    for (int j = 0; j < EntriesPerRow; j++) {
++      const int slot = ActivePage * EntriesPerPage + i * EntriesPerRow + j;
++      auto* button = new SaveEntryButton(
++          slot, entrySprite, entryHSprite,
++          glm::vec2(EntryStartX + j * EntryXPadding,
++                    EntryStartY + i * EntryYPadding));
++      button->OnClickHandler = onClick;
++      button->Describe(saveType, slot);
++      if (j == EntriesPerRow - 1) {
++        MainItems->Add(button, FDIR_RIGHT);
++      } else {
++        MainItems->Add(button);
++      }
++      grid[i][j] = button;
++    }
++  }
++  for (int j = 0; j < EntriesPerRow; j++) {
++    for (int i = 0; i < RowsPerPage - 1; i++) {
++      grid[i][j]->SetFocus(grid[i + 1][j], FDIR_DOWN);
++      grid[i + 1][j]->SetFocus(grid[i][j], FDIR_UP);
++    }
++  }
++
++  Sprite nullSprite;
++  nullSprite.Bounds = RectF(0.0f, 0.0f, 0.0f, 0.0f);
++  auto* prev =
++      new Widgets::Button(-1, PrevButtonSprite, PrevButtonHighlightedSprite,
++                          nullSprite, PrevButtonPosition);
++  auto* next =
++      new Widgets::Button(-2, NextButtonSprite, NextButtonHighlightedSprite,
++                          nullSprite, NextButtonPosition);
++  prev->OnClickHandler = [this](auto* btn) {
++    btn->Hovered = false;
++    ChangePage(-1);
++  };
++  next->OnClickHandler = [this](auto* btn) {
++    btn->Hovered = false;
++    ChangePage(1);
++  };
++  MainItems->Add(prev);
++  MainItems->Add(next);
++
++  // Centred by hand: TextAlignment::Center does not centre on the position
++  const std::string pageStr = fmt::format("{} / {}", ActivePage + 1, MaxPages);
++  PageText = LayoutText(pageStr, glm::vec2(0.0f), EntryFontSize + 4,
++                        TextAlignment::Left);
++  PageText = LayoutText(
++      pageStr, PageTextCentre - glm::vec2(GetTextWidth(PageText) / 2.0f, 0.0f),
++      EntryFontSize + 4, TextAlignment::Left);
++
++  MainItems->Show();
++  CurrentlyFocusedElement = grid[0][0];
++  grid[0][0]->HasFocus = true;
++  delete old;
++}
++
++void SaveMenu::Show() {
++  if (State != Shown) {
++    ActivePage = 0;
++    delete MainItems;
++    MainItems = nullptr;
++    CurrentlyFocusedElement = nullptr;
++    Rebuild();
++
++    State = Showing;
++    FadeAnimation.StartIn();
++    if (UI::FocusedMenu != 0) {
++      LastFocusedMenu = UI::FocusedMenu;
++      LastFocusedMenu->IsFocused = false;
++    }
++    IsFocused = true;
++    UI::FocusedMenu = this;
++  }
++}
++
++void SaveMenu::Hide() {
++  if (State != Hidden) {
++    State = Hiding;
++    FadeAnimation.StartOut();
++    if (MainItems) MainItems->Hide();
++    if (LastFocusedMenu != 0) {
++      UI::FocusedMenu = LastFocusedMenu;
++      LastFocusedMenu->IsFocused = true;
++    } else {
++      UI::FocusedMenu = 0;
++    }
++    IsFocused = false;
++  }
++}
++
++void SaveMenu::Update(float dt) {
++  UpdateInput(dt);
++
++  FadeAnimation.Update(dt);
++  const int alpha = MenuAlpha();
++  if (alpha < 256 && State == Shown) {
++    Hide();
++  } else if (alpha == 256 && State == Hidden) {
++    Show();
++  }
++
++  if (alpha == 256 && FadeAnimation.IsIn())
++    State = Shown;
++  else if (alpha == 0 && FadeAnimation.IsOut())
++    State = Hidden;
++
++  EntryClicked = false;
++  if (State == Shown && IsFocused && MainItems) {
++    MainItems->Update(dt);
++    MainItems->UpdateInput(dt);
++
++    // The script confirms the selected slot on any OK press (ControlOnJump),
++    // so a tap that is not on a slot entry (empty space, PREV/NEXT) must not
++    // reach it: it would act on the slot that was selected last (same idea as
++    // the guard in the CC system menu).
++    using namespace Impacto::Vm::Interface;
++    if ((Input::CurrentInputDevice == Input::Device::Mouse ||
++         Input::CurrentInputDevice == Input::Device::Touch) &&
++        (PADinputMouseWentDown & PAD1A) && !EntryClicked) {
++      PADinputMouseWentDown &= ~PAD1A;
++      PADinputButtonWentDown &= ~PAD1A;
++    }
++  }
++}
++
++void SaveMenu::Render() {
++  if (State == Hidden || !ActiveMenuType || !MainItems) return;
++  glm::vec4 col(1.0f, 1.0f, 1.0f, FadeAnimation.Progress);
++  Renderer->DrawSprite(SaveMenuBackgroundSprite, glm::vec2(0.0f), col);
++  switch (*ActiveMenuType) {
++    case SaveMenuPageType::QuickLoad:
++      Renderer->DrawSprite(QuickLoadTextSprite, MenuTitleTextPos, col);
++      break;
++    case SaveMenuPageType::Save:
++      Renderer->DrawSprite(SaveTextSprite, MenuTitleTextPos, col);
++      break;
++    case SaveMenuPageType::Load:
++      Renderer->DrawSprite(LoadTextSprite, MenuTitleTextPos, col);
++      break;
++  }
++  MainItems->Tint = col;
++  MainItems->Render();
++  Profile::Dialogue::DialogueFont->DrawProcessedText(
++      PageText, col.a, Fonts::RendererOutlineMode::Full);
++}
++
++}  // namespace MO6TWPC
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/mo6twpc/savemenu.h b/src/games/mo6twpc/savemenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce6a5cd107c561e593bd6342474947eb38bb4973
+--- /dev/null
++++ b/src/games/mo6twpc/savemenu.h
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include "../../ui/menu.h"
++#include "../../ui/savemenu.h"
++#include "../../ui/widgets/group.h"
++#include "../../ui/widgets/button.h"
++
++namespace Impacto {
++namespace UI {
++namespace MO6TWPC {
++
++// Save/load/quick load menu of the PC release of Memories Off 6 T-Wave: six
++// entries per page (2 x 3), PREV/NEXT buttons, thumbnails and dates.
++class SaveMenu : public UI::SaveMenu {
++ public:
++  SaveMenu();
++
++  void Show();
++  void Hide();
++  void Update(float dt);
++  void Render();
++
++  void RefreshCurrentEntryInfo() { Rebuild(); }
++
++  void MenuButtonOnClick(Widgets::Button* target);
++
++ private:
++  void Rebuild();
++  void ChangePage(int delta);
++
++  Widgets::Group* MainItems = nullptr;
++  // A slot entry was clicked in this frame
++  bool EntryClicked = false;
++  Animation FadeAnimation;
++  std::vector<ProcessedTextGlyph> PageText;
++};
++
++}  // namespace MO6TWPC
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..c11614506ac817332f641555cd2a80ef718db736
+--- /dev/null
++++ b/src/games/mo6twpc/savesystem.cpp
+@@ -0,0 +1,805 @@
++#include "savesystem.h"
++
++#include <algorithm>
++#include <cstdio>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <numeric>
++#include <ranges>
++
++#ifndef _WIN32
++#include <unistd.h>
++#endif
++
++#include "../../mem.h"
++#include "../../util.h"
++#include "../../vm/vm.h"
++#include "../../profile/data/savesystem.h"
++#include "../../profile/scriptvars.h"
++#include "../../profile/vm.h"
++#include "../../profile/configsystem.h"
++#include "../../audio/audiosystem.h"
++#include "../../renderer/renderer.h"
++
++// Save system of the PC release of Memories Off 6 T-Wave.
++//
++// Derivation of the persisted ranges. All 196 PC scripts were disassembled and
++// every ScrWork/flag index they touch was collected. The usage follows the CC
++// (PS4) layout, which is what this implementation is modelled on
++// (CCLCC::SaveSystem):
++//  * flags 400-799 (bytes 50-99) and 2400-3199 (bytes 300-399): story flags
++//    and the BG/CHA display flags (SF_BG1DISP = 2400, ...) -> saved per entry;
++//  * flags 800-1199 (bytes 100-149; SF_CLR_* 800-814, unlocks 840-910) and
++//    bytes 460-499 -> system data. Flags 1200-2399 (menu/engine run time flags
++//    such as 1370, 1805, 1883, 2354-2366) are scratch and are never saved;
++//  * ScrWork 0-1599 (story variables: 600-631 are the per-heroine counters
++//    that macrosys.scx copies around, 1000-1029/1400-1411/1500-1503 are
++//    script variables, 1-420 are script temporaries) -> saved per entry;
++//  * ScrWork 1600-2099 (1600, SW_TOTALPLAYTIME 2001, 2003) -> system data;
++//  * ScrWork 2100-4299 (menus, SW_MAINTHDP 3304, SW_SAVEERRORCODE 3333,
++//    SW_MENUCT 3503, SW_FILEALPHA 3505, SW_SV* 3601-3634, ...) are run time
++//    state of the engine and the save menu and are never saved;
++//  * ScrWork 4300-7299 (SW_TITLE 4300, SW_PLAYTIME 4304, BG/CHA/mask/effect
++//    structs with stride 40, movie 6330+) -> saved per entry.
++// The SV variables 3601-3634 are not saved: LoadScrWork() recreates them from
++// the restored BG/CHA/BGM/SE/script numbers exactly like CCLCC does, and the
++// script reloads the scene from them after LoadData(0).
++//
++// Slot counts: 48 full and 48 quick slots (MaxSaveEntries, the same as CC and
++// the PS3 release); the save menu shows six per page, i.e. eight pages
++// (the PC savemenu sheet has one entry sprite size and PREV/NEXT buttons).
++//
++// File format (little endian, own format, written atomically via temp file +
++// rename):
++//   "MO6S" u32 version(1)
++//   u32 systemSize, system blob (see SaveSystemData)
++//   u32 fullCount (48), u32 quickCount (48)
++//   per slot (full then quick, physical order): u8 status; if status != 0 the
++//   entry fields, see WriteEntry
++//   u32 CRC32 of all preceding bytes
++
++namespace Impacto {
++namespace MO6TWPC {
++
++using namespace Impacto::Vm;
++using namespace Impacto::Profile::SaveSystem;
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Profile::Vm;
++namespace Cfg = Impacto::Profile::ConfigSystem;
++
++namespace {
++
++constexpr uint32_t FileVersion = 1;
++constexpr char FileMagic[4] = {'M', 'O', '6', 'S'};
++
++uint32_t Crc32(const uint8_t* data, size_t size) {
++  static const std::array<uint32_t, 256> table = [] {
++    std::array<uint32_t, 256> t{};
++    for (uint32_t i = 0; i < 256; i++) {
++      uint32_t c = i;
++      for (int k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
++      t[i] = c;
++    }
++    return t;
++  }();
++  uint32_t crc = 0xFFFFFFFFu;
++  for (size_t i = 0; i < size; i++) {
++    crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
++  }
++  return crc ^ 0xFFFFFFFFu;
++}
++
++class Writer {
++ public:
++  std::vector<uint8_t> Buf;
++  void Raw(const void* p, size_t n) {
++    const auto* b = static_cast<const uint8_t*>(p);
++    Buf.insert(Buf.end(), b, b + n);
++  }
++  template <typename T>
++  void Put(T v) {
++    static_assert(std::is_trivially_copyable_v<T>);
++    Raw(&v, sizeof(T));
++  }
++};
++
++class Reader {
++ public:
++  Reader(const uint8_t* d, size_t n) : Data(d), Size(n) {}
++  bool Ok = true;
++  void Raw(void* p, size_t n) {
++    if (!Ok || n > Size - Pos) {
++      Ok = false;
++      std::memset(p, 0, n);
++      return;
++    }
++    std::memcpy(p, Data + Pos, n);
++    Pos += n;
++  }
++  template <typename T>
++  T Get() {
++    T v{};
++    Raw(&v, sizeof(T));
++    return v;
++  }
++  size_t Remaining() const { return Size - Pos; }
++
++ private:
++  const uint8_t* Data;
++  size_t Size;
++  size_t Pos = 0;
++};
++
++void WriteEntry(Writer& w, const SaveFileEntry& e) {
++  w.Put<uint8_t>(e.Status);
++  w.Put<uint8_t>(e.Flags);
++  w.Put<uint32_t>(e.SaveType);
++  w.Put<int32_t>(e.SaveDate.tm_year);
++  w.Put<int32_t>(e.SaveDate.tm_mon);
++  w.Put<int32_t>(e.SaveDate.tm_mday);
++  w.Put<int32_t>(e.SaveDate.tm_hour);
++  w.Put<int32_t>(e.SaveDate.tm_min);
++  w.Put<int32_t>(e.SaveDate.tm_sec);
++  w.Put<uint32_t>(e.PlayTime);
++  w.Put<uint32_t>(e.SwTitle);
++  w.Raw(e.FlagWorkScript1.data(), e.FlagWorkScript1.size());
++  w.Raw(e.FlagWorkScript2.data(), e.FlagWorkScript2.size());
++  w.Raw(e.ScrWorkScript1.data(), e.ScrWorkScript1.size() * sizeof(int));
++  w.Raw(e.ScrWorkScript2.data(), e.ScrWorkScript2.size() * sizeof(int));
++  w.Put<uint32_t>(e.MainThreadExecPriority);
++  w.Put<uint32_t>(e.MainThreadGroupId);
++  w.Put<uint32_t>(e.MainThreadWaitCounter);
++  w.Put<uint32_t>(e.MainThreadScriptParam);
++  w.Put<uint32_t>(e.MainThreadIp);
++  w.Put<uint32_t>(e.MainThreadCallStackDepth);
++  for (int i = 0; i < 8; i++) w.Put<uint32_t>(e.MainThreadReturnIds[i]);
++  for (int i = 0; i < 8; i++) w.Put<uint32_t>(e.MainThreadReturnBufIds[i]);
++  w.Put<uint32_t>(e.MainThreadScriptBufferId);
++  for (int i = 0; i < 16; i++) w.Put<int32_t>(e.MainThreadVariables[i]);
++  w.Put<uint32_t>(e.MainThreadDialoguePageId);
++  w.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
++}
++
++void ReadEntry(Reader& r, SaveFileEntry& e) {
++  e.Status = 1;
++  e.Flags = r.Get<uint8_t>();
++  e.SaveType = r.Get<uint32_t>();
++  e.SaveDate = {};
++  e.SaveDate.tm_year = r.Get<int32_t>();
++  e.SaveDate.tm_mon = r.Get<int32_t>();
++  e.SaveDate.tm_mday = r.Get<int32_t>();
++  e.SaveDate.tm_hour = r.Get<int32_t>();
++  e.SaveDate.tm_min = r.Get<int32_t>();
++  e.SaveDate.tm_sec = r.Get<int32_t>();
++  e.PlayTime = r.Get<uint32_t>();
++  e.SwTitle = r.Get<uint32_t>();
++  r.Raw(e.FlagWorkScript1.data(), e.FlagWorkScript1.size());
++  r.Raw(e.FlagWorkScript2.data(), e.FlagWorkScript2.size());
++  r.Raw(e.ScrWorkScript1.data(), e.ScrWorkScript1.size() * sizeof(int));
++  r.Raw(e.ScrWorkScript2.data(), e.ScrWorkScript2.size() * sizeof(int));
++  e.MainThreadExecPriority = r.Get<uint32_t>();
++  e.MainThreadGroupId = r.Get<uint32_t>();
++  e.MainThreadWaitCounter = r.Get<uint32_t>();
++  e.MainThreadScriptParam = r.Get<uint32_t>();
++  e.MainThreadIp = r.Get<uint32_t>();
++  e.MainThreadCallStackDepth = r.Get<uint32_t>();
++  for (int i = 0; i < 8; i++) e.MainThreadReturnIds[i] = r.Get<uint32_t>();
++  for (int i = 0; i < 8; i++) e.MainThreadReturnBufIds[i] = r.Get<uint32_t>();
++  e.MainThreadScriptBufferId = r.Get<uint32_t>();
++  for (int i = 0; i < 16; i++) e.MainThreadVariables[i] = r.Get<int32_t>();
++  e.MainThreadDialoguePageId = r.Get<uint32_t>();
++  r.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
++  e.HasThumbnailData = true;
++}
++
++bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
++  std::ifstream f(std::filesystem::path(path), std::ios::binary);
++  if (!f) return false;
++  f.seekg(0, std::ios::end);
++  const std::streamoff size = f.tellg();
++  if (size < 0) return false;
++  f.seekg(0, std::ios::beg);
++  out.resize(static_cast<size_t>(size));
++  if (size > 0) f.read(reinterpret_cast<char*>(out.data()), size);
++  return static_cast<bool>(f);
++}
++
++// Write to <path>.tmp, flush it to disk and rename it over <path>: a kill
++// mid-write leaves the previous file intact.
++bool WriteFileAtomic(const std::string& path,
++                     const std::vector<uint8_t>& data) {
++  namespace fs = std::filesystem;
++  const fs::path target(path);
++  std::error_code ec;
++  if (target.has_parent_path()) {
++    fs::create_directories(target.parent_path(), ec);
++  }
++  fs::path tmp = target;
++  tmp += ".tmp";
++
++  FILE* f = std::fopen(tmp.string().c_str(), "wb");
++  if (!f) return false;
++  bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
++  ok = (std::fflush(f) == 0) && ok;
++#ifndef _WIN32
++  if (ok) ok = (fsync(fileno(f)) == 0);
++#endif
++  ok = (std::fclose(f) == 0) && ok;
++  if (!ok) {
++    fs::remove(tmp, ec);
++    return false;
++  }
++  fs::rename(tmp, target, ec);
++  if (ec) {
++    fs::remove(tmp, ec);
++    return false;
++  }
++  return true;
++}
++
++uint16_t Rgb565(uint8_t r, uint8_t g, uint8_t b) {
++  return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) |
++                               (b >> 3));
++}
++
++}  // namespace
++
++void SaveSystem::InitSaveSlots() {
++  for (auto* arr : {FullSaveEntries, QuickSaveEntries}) {
++    for (int i = 0; i < MaxSaveEntries; i++) {
++      delete static_cast<SaveFileEntry*>(arr[i]);
++      arr[i] = new SaveFileEntry();
++    }
++  }
++  WorkingSaveEntry = std::make_unique<SaveFileEntry>();
++  LockedQuickSaveCount = 0;
++  QuickSavedOnCurrentLine = false;
++}
++
++void SaveSystem::InitializeSystemData() {
++  InitSaveSlots();
++
++  const RectF viewport = Window->GetViewport();
++  WorkingSaveThumbnail.Sheet = SpriteSheet(viewport.Width, viewport.Height);
++  WorkingSaveThumbnail.Bounds.SetSize(viewport.GetSize());
++
++  Texture workingSaveTexture = Texture();
++  workingSaveTexture.LoadSolidColor(
++      static_cast<int>(WorkingSaveThumbnail.Bounds.Width),
++      static_cast<int>(WorkingSaveThumbnail.Bounds.Height), 0x000000);
++  WorkingSaveThumbnail.Sheet.Texture = workingSaveTexture.Submit();
++
++  SaveSystemData();
++}
++
++void SaveSystem::SaveSystemData() {
++  Writer w;
++  w.Raw(&FlagWork[SysFlagWorkSrc1], SysFlagWorkLen1);
++  w.Raw(&FlagWork[SysFlagWorkSrc2], SysFlagWorkLen2);
++  w.Raw(&ScrWork[SysScrWorkSrc], SysScrWorkLen * sizeof(int));
++
++  // Settings (floats rather than CC's scaled bytes: no clipping of values)
++  w.Put<float>(Cfg::TextSpeed);
++  w.Put<float>(Cfg::AutoSpeed);
++  w.Put<uint8_t>(Cfg::SkipRead);
++  w.Put<uint8_t>(Cfg::SyncVoice);
++  w.Put<uint8_t>(Cfg::SkipVoice);
++  w.Put<uint8_t>(Cfg::ShowTipsNotification);
++  w.Put<uint8_t>(Cfg::AutoQuickSave);
++  w.Put<uint8_t>(Cfg::AdvanceTextOnDirectionalInput);
++  w.Put<uint8_t>(Cfg::DirectionalInputForTrigger);
++  w.Put<uint8_t>(Cfg::TriggerStopSkip);
++  w.Put<uint32_t>(static_cast<uint32_t>(Audio::GroupVolumes.size()));
++  for (float v : Audio::GroupVolumes) w.Put<float>(v);
++  for (bool v : Cfg::VoiceMuted) w.Put<uint8_t>(v);
++  for (float v : Cfg::VoiceVolume) w.Put<float>(v);
++
++  w.Raw(QuickSaveRecentSortedId.data(), QuickSaveRecentSortedId.size());
++  for (bool v : EVFlags) w.Put<uint8_t>(v);
++  w.Raw(BGMFlags.data(), BGMFlags.size());
++  w.Raw(GameExtraData.data(), GameExtraData.size());
++
++  std::vector<uint32_t> lines(ReadLines.begin(), ReadLines.end());
++  std::ranges::sort(lines);
++  w.Put<uint32_t>(static_cast<uint32_t>(lines.size()));
++  w.Raw(lines.data(), lines.size() * sizeof(uint32_t));
++
++  SystemData = std::move(w.Buf);
++}
++
++SaveError SaveSystem::LoadSystemData() {
++  if (SystemData.empty()) return SaveError::OK;
++  Reader r(SystemData.data(), SystemData.size());
++
++  r.Raw(&FlagWork[SysFlagWorkSrc1], SysFlagWorkLen1);
++  r.Raw(&FlagWork[SysFlagWorkSrc2], SysFlagWorkLen2);
++  r.Raw(&ScrWork[SysScrWorkSrc], SysScrWorkLen * sizeof(int));
++
++  const float textSpeed = r.Get<float>();
++  const float autoSpeed = r.Get<float>();
++  const bool skipRead = r.Get<uint8_t>();
++  const bool syncVoice = r.Get<uint8_t>();
++  const bool skipVoice = r.Get<uint8_t>();
++  const bool showTips = r.Get<uint8_t>();
++  const uint8_t autoQuick = r.Get<uint8_t>();
++  const bool advDir = r.Get<uint8_t>();
++  const bool dirTrig = r.Get<uint8_t>();
++  const bool trigStop = r.Get<uint8_t>();
++  const uint32_t groupCount = r.Get<uint32_t>();
++  std::array<float, Audio::ACG_Count> groupVolumes = Audio::GroupVolumes;
++  for (uint32_t i = 0; i < groupCount && r.Ok; i++) {
++    float v = r.Get<float>();
++    if (i < groupVolumes.size()) groupVolumes[i] = v;
++  }
++  std::array<bool, Cfg::VoiceCount> muted = Cfg::VoiceMuted;
++  std::array<float, Cfg::VoiceCount> volume = Cfg::VoiceVolume;
++  for (auto& v : muted) v = r.Get<uint8_t>();
++  for (auto& v : volume) v = r.Get<float>();
++
++  r.Raw(QuickSaveRecentSortedId.data(), QuickSaveRecentSortedId.size());
++  for (size_t i = 0; i < EVFlags.size(); i++) EVFlags[i] = r.Get<uint8_t>();
++  r.Raw(BGMFlags.data(), BGMFlags.size());
++  r.Raw(GameExtraData.data(), GameExtraData.size());
++
++  const uint32_t lineCount = r.Get<uint32_t>();
++  ReadLines.clear();
++  if (r.Ok && lineCount <= r.Remaining() / sizeof(uint32_t)) {
++    for (uint32_t i = 0; i < lineCount; i++)
++      ReadLines.insert(r.Get<uint32_t>());
++  } else {
++    r.Ok = false;
++  }
++
++  if (!r.Ok) return SaveError::Corrupted;
++
++  // Settings are applied only if the whole blob parsed
++  Cfg::TextSpeed = textSpeed;
++  Cfg::AutoSpeed = autoSpeed;
++  Cfg::SkipRead = skipRead;
++  Cfg::SyncVoice = syncVoice;
++  Cfg::SkipVoice = skipVoice;
++  Cfg::ShowTipsNotification = showTips;
++  Cfg::AutoQuickSave = autoQuick;
++  Cfg::AdvanceTextOnDirectionalInput = advDir;
++  Cfg::DirectionalInputForTrigger = dirTrig;
++  Cfg::TriggerStopSkip = trigStop;
++  Audio::GroupVolumes = groupVolumes;
++  Cfg::VoiceMuted = muted;
++  Cfg::VoiceVolume = volume;
++
++  // A corrupt permutation would break the quick slot lookup
++  std::array<bool, MaxSaveEntries> seen{};
++  bool valid = true;
++  for (uint8_t id : QuickSaveRecentSortedId) {
++    if (id >= MaxSaveEntries || seen[id]) {
++      valid = false;
++    } else {
++      seen[id] = true;
++    }
++  }
++  if (!valid) {
++    std::iota(QuickSaveRecentSortedId.begin(), QuickSaveRecentSortedId.end(),
++              uint8_t{0});
++  }
++  return SaveError::OK;
++}
++
++SaveError SaveSystem::CheckSaveFile() const {
++  namespace fs = std::filesystem;
++  std::error_code ec;
++  const fs::path p(SaveFilePath);
++  const bool exists = fs::exists(p, ec);
++  if (ec) return SaveError::Failed;
++  if (!exists) return SaveError::NotFound;
++  const auto size = fs::file_size(p, ec);
++  if (ec) return SaveError::Failed;
++  if (size < 16) return SaveError::Corrupted;
++  std::ifstream f(p, std::ios::binary);
++  if (!f) return SaveError::WrongUser;
++  char magic[4];
++  f.read(magic, 4);
++  if (!f || std::memcmp(magic, FileMagic, 4) != 0) return SaveError::Corrupted;
++  return SaveError::OK;
++}
++
++SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
++  namespace fs = std::filesystem;
++  std::error_code ec;
++  if (!fs::exists(fs::path(SaveFilePath), ec)) return SaveError::NotFound;
++
++  std::vector<uint8_t> data;
++  if (!ReadWholeFile(SaveFilePath, data)) return SaveError::Failed;
++  if (data.size() < 16 || std::memcmp(data.data(), FileMagic, 4) != 0) {
++    return SaveError::Corrupted;
++  }
++  uint32_t storedCrc;
++  std::memcpy(&storedCrc, data.data() + data.size() - 4, 4);
++  if (Crc32(data.data(), data.size() - 4) != storedCrc) {
++    ImpLog(LogLevel::Error, LogChannel::IO,
++           "Save file checksum mismatch, treating it as corrupted\n");
++    return SaveError::Corrupted;
++  }
++
++  Reader r(data.data(), data.size() - 4);
++  char magic[4];
++  r.Raw(magic, 4);
++  const uint32_t version = r.Get<uint32_t>();
++  if (version != FileVersion) return SaveError::Corrupted;
++  const uint32_t systemSize = r.Get<uint32_t>();
++  if (systemSize > r.Remaining()) return SaveError::Corrupted;
++  std::vector<uint8_t> system(systemSize);
++  r.Raw(system.data(), systemSize);
++  const uint32_t fullCount = r.Get<uint32_t>();
++  const uint32_t quickCount = r.Get<uint32_t>();
++  if (!r.Ok || fullCount != MaxSaveEntries || quickCount != MaxSaveEntries) {
++    return SaveError::Corrupted;
++  }
++
++  std::vector<std::unique_ptr<SaveFileEntry>> parsed;
++  parsed.reserve(fullCount + quickCount);
++  for (uint32_t i = 0; i < fullCount + quickCount; i++) {
++    auto entry = std::make_unique<SaveFileEntry>();
++    const uint8_t status = r.Get<uint8_t>();
++    if (status != 0) ReadEntry(r, *entry);
++    if (!r.Ok) return SaveError::Corrupted;
++    parsed.push_back(std::move(entry));
++  }
++
++  // Parsed completely: now replace the in-memory state. The entry objects
++  // stay in place (the queued textures reference their sprites).
++  SystemData = std::move(system);
++  int locked = 0;
++  for (uint32_t i = 0; i < parsed.size(); i++) {
++    const bool quick = i >= fullCount;
++    auto* slot = static_cast<SaveFileEntry*>(
++        quick ? QuickSaveEntries[i - fullCount] : FullSaveEntries[i]);
++    *slot = std::move(*parsed[i]);
++    if (quick && (slot->Flags & WriteProtect)) locked++;
++    if (slot->Status == 0) continue;
++
++    const float w = ThumbnailWidth, h = ThumbnailHeight;
++    slot->SaveThumbnail.Sheet = SpriteSheet(w, h);
++    slot->SaveThumbnail.Bounds = RectF(0.0f, 0.0f, w, h);
++    QueuedTexture tex{.Id = std::ref(slot->SaveThumbnail.Sheet.Texture)};
++    tex.Tex.Init(TexFmt_RGB, ThumbnailWidth, ThumbnailHeight);
++    for (size_t p = 0; p < ThumbnailBytes / 2; p++) {
++      const uint16_t px = static_cast<uint16_t>(
++          slot->ThumbnailData[p * 2] | (slot->ThumbnailData[p * 2 + 1] << 8));
++      tex.Tex.Buffer[3 * p] = (px & 0xF800) >> 8;
++      tex.Tex.Buffer[3 * p + 1] = (px & 0x07E0) >> 3;
++      tex.Tex.Buffer[3 * p + 2] = (px & 0x001F) << 3;
++    }
++    textures.push_back(std::move(tex));
++  }
++  LockedQuickSaveCount = locked;
++  return SaveError::OK;
++}
++
++SaveError SaveSystem::WriteSaveFile() {
++  Writer w;
++  w.Raw(FileMagic, 4);
++  w.Put<uint32_t>(FileVersion);
++  w.Put<uint32_t>(static_cast<uint32_t>(SystemData.size()));
++  w.Raw(SystemData.data(), SystemData.size());
++  w.Put<uint32_t>(MaxSaveEntries);
++  w.Put<uint32_t>(MaxSaveEntries);
++  for (auto* arr : {FullSaveEntries, QuickSaveEntries}) {
++    for (int i = 0; i < MaxSaveEntries; i++) {
++      const auto* e = static_cast<const SaveFileEntry*>(arr[i]);
++      if (e == nullptr || e->Status == 0) {
++        w.Put<uint8_t>(0);
++      } else {
++        WriteEntry(w, *e);
++      }
++    }
++  }
++  w.Put<uint32_t>(Crc32(w.Buf.data(), w.Buf.size()));
++
++  if (!WriteFileAtomic(SaveFilePath, w.Buf)) {
++    ImpLog(LogLevel::Error, LogChannel::IO, "Failed to write save file {:s}\n",
++           SaveFilePath);
++    return SaveError::Failed;
++  }
++  return SaveError::OK;
++}
++
++void SaveSystem::FlushWorkingSaveEntry(SaveType type, int id,
++                                       int autoSaveType) {
++  auto* entry = GetSaveEntry<SaveFileEntry>(type, id);
++  if (entry == nullptr || (entry->Flags & WriteProtect)) return;
++
++  Renderer->FreeTexture(entry->SaveThumbnail.Sheet.Texture);
++  const uint8_t savedFlags = entry->Flags;
++  *entry = *WorkingSaveEntry;
++  entry->Flags = savedFlags;
++  if (type == SaveType::Quick) {
++    entry->SaveType = autoSaveType;
++    UpdateQuickSaveRecentSortedId(id);
++  }
++  entry->SaveDate = CurrentDateTime();
++  entry->Status = 1;
++
++  // Thumbnail: the frame captured at the end of the last render
++  const float w = ThumbnailWidth, h = ThumbnailHeight;
++  auto captureBuffer =
++      Renderer->GetSpriteSheetImage(WorkingSaveThumbnail.Sheet);
++  Texture tex;
++  tex.Init(TexFmt_RGBA, ThumbnailWidth, ThumbnailHeight);
++  entry->SaveThumbnail.Sheet = SpriteSheet(w, h);
++  entry->SaveThumbnail.Bounds = RectF(0.0f, 0.0f, w, h);
++  if (ResizeImage(WorkingSaveThumbnail.Bounds, entry->SaveThumbnail.Bounds,
++                  captureBuffer, tex.Buffer) < 0) {
++    ImpLog(LogLevel::Error, LogChannel::General,
++           "Failed to resize save thumbnail\n");
++  }
++  for (size_t p = 0; p < ThumbnailBytes / 2; p++) {
++    const uint16_t px =
++        Rgb565(tex.Buffer[4 * p], tex.Buffer[4 * p + 1], tex.Buffer[4 * p + 2]);
++    entry->ThumbnailData[p * 2] = px & 0xFF;
++    entry->ThumbnailData[p * 2 + 1] = px >> 8;
++  }
++  entry->HasThumbnailData = true;
++  entry->SaveThumbnail.Sheet.Texture = tex.Submit();
++}
++
++void SaveSystem::SaveMemory() {
++  if (!WorkingSaveEntry) return;
++  WorkingSaveEntry->Status = 1;
++  WorkingSaveEntry->SaveDate = CurrentDateTime();
++  WorkingSaveEntry->PlayTime = ScrWork[SW_PLAYTIME];
++  WorkingSaveEntry->SwTitle = ScrWork[SW_TITLE];
++
++  std::copy_n(FlagWork.begin() + FlagWorkScript1Src, FlagWorkScript1Len,
++              WorkingSaveEntry->FlagWorkScript1.begin());
++  std::copy_n(FlagWork.begin() + FlagWorkScript2Src, FlagWorkScript2Len,
++              WorkingSaveEntry->FlagWorkScript2.begin());
++  std::copy_n(ScrWork.begin() + ScrWorkScript1Src, ScrWorkScript1Len,
++              WorkingSaveEntry->ScrWorkScript1.begin());
++  std::copy_n(ScrWork.begin() + ScrWorkScript2Src, ScrWorkScript2Len,
++              WorkingSaveEntry->ScrWorkScript2.begin());
++
++  const int threadId = ScrWork[SW_MAINTHDP];
++  Sc3VmThread* thd = &ThreadPool[threadId & 0x7FFFFFFF];
++  if (thd->GroupId - 5 < 3) {
++    WorkingSaveEntry->MainThreadExecPriority = thd->ExecPriority;
++    WorkingSaveEntry->MainThreadWaitCounter = thd->WaitCounter;
++    WorkingSaveEntry->MainThreadScriptParam = thd->ScriptParam;
++    WorkingSaveEntry->MainThreadGroupId = thd->GroupId;
++    WorkingSaveEntry->MainThreadScriptBufferId = thd->ScriptBufferId;
++    // The checkpoint id (MainThreadIp) is set by AutoSave(10) through
++    // SetCheckpointId
++    const size_t depth = std::min<size_t>(thd->CallStackDepth, 8);
++    WorkingSaveEntry->MainThreadCallStackDepth = static_cast<uint32_t>(depth);
++    for (size_t i = 0; i < depth; i++) {
++      WorkingSaveEntry->MainThreadReturnBufIds[i] =
++          thd->ReturnScriptBufferIds[i];
++      WorkingSaveEntry->MainThreadReturnIds[i] = thd->ReturnIds[i];
++    }
++    std::memcpy(WorkingSaveEntry->MainThreadVariables.data(), thd->Variables,
++                16 * sizeof(int));
++    WorkingSaveEntry->MainThreadDialoguePageId = thd->DialoguePageId;
++  }
++}
++
++void SaveSystem::SetCheckpointId(int id) {
++  if (WorkingSaveEntry) WorkingSaveEntry->MainThreadIp = id;
++}
++
++void SaveSystem::LoadEntry(SaveType type, int id) {
++  if (!WorkingSaveEntry) {
++    ImpLog(LogLevel::Error, LogChannel::IO,
++           "Failed to load save entry: no working save\n");
++    return;
++  }
++  if (id < 0 || id >= MaxSaveEntries) {
++    ImpLog(LogLevel::Error, LogChannel::IO, "Save slot {:d} out of range\n",
++           id);
++    return;
++  }
++  const auto* entry = GetSaveEntry<SaveFileEntry>(type, id);
++  if (entry == nullptr || entry->Status == 0) {
++    ImpLog(LogLevel::Error, LogChannel::IO, "Failed to load empty save slot\n");
++    return;
++  }
++  // The sprite is only a view of a GPU texture owned by the slot
++  Sprite thumb = WorkingSaveEntry->SaveThumbnail;
++  *WorkingSaveEntry = *entry;
++  WorkingSaveEntry->SaveThumbnail = thumb;
++}
++
++void SaveSystem::LoadMemoryNew(LoadProcess load) {
++  if (!WorkingSaveEntry || WorkingSaveEntry->Status == 0) {
++    ImpLog(LogLevel::Error, LogChannel::IO,
++           "Failed to load entry: save is empty\n");
++    return;
++  }
++  if (load == LoadProcess::Vars) {
++    ScrWork[SW_PLAYTIME] = WorkingSaveEntry->PlayTime;
++    ScrWork[SW_TITLE] = WorkingSaveEntry->SwTitle;
++    ScrWork[SW_AUTOSAVERESTART] = WorkingSaveEntry->SaveType;
++
++    std::ranges::copy(WorkingSaveEntry->FlagWorkScript1,
++                      FlagWork.begin() + FlagWorkScript1Src);
++    std::ranges::copy(WorkingSaveEntry->FlagWorkScript2,
++                      FlagWork.begin() + FlagWorkScript2Src);
++    std::ranges::copy(WorkingSaveEntry->ScrWorkScript1,
++                      ScrWork.begin() + ScrWorkScript1Src);
++    std::ranges::copy(WorkingSaveEntry->ScrWorkScript2,
++                      ScrWork.begin() + ScrWorkScript2Src);
++    LoadScrWork();
++  } else if (load == LoadProcess::Thread && ScrWork[SW_MAINTHDP] != 0) {
++    const int threadId = ScrWork[SW_MAINTHDP];
++    Sc3VmThread* thd = &ThreadPool[threadId & 0x7FFFFFFF];
++    if (thd->GroupId - 5 < 3) {
++      thd->ExecPriority = WorkingSaveEntry->MainThreadExecPriority;
++      thd->WaitCounter = WorkingSaveEntry->MainThreadWaitCounter;
++      thd->ScriptParam = WorkingSaveEntry->MainThreadScriptParam;
++      thd->GroupId = WorkingSaveEntry->MainThreadGroupId;
++      thd->ScriptBufferId = WorkingSaveEntry->MainThreadScriptBufferId;
++      thd->IpOffset =
++          ScriptGetRetAddress(WorkingSaveEntry->MainThreadScriptBufferId,
++                              WorkingSaveEntry->MainThreadIp);
++      thd->CallStackDepth =
++          std::min<uint32_t>(WorkingSaveEntry->MainThreadCallStackDepth, 8);
++      for (size_t i = 0; i < thd->CallStackDepth; i++) {
++        thd->ReturnScriptBufferIds[i] =
++            WorkingSaveEntry->MainThreadReturnBufIds[i];
++        thd->ReturnIds[i] = (uint16_t)WorkingSaveEntry->MainThreadReturnIds[i];
++      }
++      std::memcpy(thd->Variables, WorkingSaveEntry->MainThreadVariables.data(),
++                  16 * sizeof(int));
++      thd->DialoguePageId = WorkingSaveEntry->MainThreadDialoguePageId;
++    }
++  }
++}
++
++// The script restores sound, scripts, BGs and characters from the SV
++// variables (SW_SVSENO 3601, SW_SVBGMNO 3605, SW_SVSCRNO1 3606, SW_SVBGNO1
++// 3610 x8, SW_SVCHANO1 3618 x16, SW_SVBGM2NO 3634; see _startup.scx labels
++// 242-270), which mirror the live ScrWork of the saved state.
++void SaveSystem::LoadScrWork() {
++  ScrWork[SW_SVSENO] = ScrWork[SW_SEREQNO];
++  ScrWork[SW_SVSENO + 1] = ScrWork[SW_SEREQNO + 1];
++  ScrWork[SW_SVSENO + 2] = ScrWork[SW_SEREQNO + 2];
++  ScrWork[SW_SVBGMNO] = ScrWork[SW_BGMREQNO];
++  ScrWork[SW_SVBGM2NO] = ScrWork[SW_BGMREQNO2];
++  ScrWork[SW_SVSCRNO1] = ScrWork[SW_SCRIPTNO2];
++  ScrWork[SW_SVSCRNO2] = ScrWork[SW_SCRIPTNO3];
++  ScrWork[SW_SVSCRNO3] = ScrWork[SW_SCRIPTNO4];
++  ScrWork[SW_SVSCRNO4] = ScrWork[SW_SCRIPTNO5];
++  for (int i = 0; i < 8; i++) {
++    ScrWork[SW_SVBGNO1 + i] = ScrWork[SW_BG1NO + i * ScrWorkBgStructSize];
++  }
++  for (int i = 0; i < 16; i++) {
++    ScrWork[SW_SVCHANO1 + i] = ScrWork[SW_CHA1NO + i * ScrWorkChaStructSize];
++  }
++}
++
++uint32_t SaveSystem::GetSavePlayTime(SaveType type, int id) const {
++  return GetSaveEntry<SaveFileEntry>(type, id)->PlayTime;
++}
++
++uint8_t SaveSystem::GetSaveFlags(SaveType type, int id) const {
++  return GetSaveEntry<SaveFileEntry>(type, id)->Flags;
++}
++
++void SaveSystem::SetSaveFlags(SaveType type, int id, uint8_t flags) {
++  auto* entry = GetSaveEntry<SaveFileEntry>(type, id);
++  if (type == SaveType::Quick) {
++    if ((entry->Flags ^ flags) & WriteProtect) {
++      LockedQuickSaveCount += (flags & WriteProtect) ? 1 : -1;
++      SetFlag(SF_SAVEALLPROTECTED, LockedQuickSaveCount == MaxSaveEntries);
++    }
++  }
++  entry->Flags = flags;
++}
++
++tm const& SaveSystem::GetSaveDate(SaveType type, int id) const {
++  return GetSaveEntry<SaveFileEntry>(type, id)->SaveDate;
++}
++
++uint8_t SaveSystem::GetSaveStatus(SaveType type, int id) const {
++  return GetSaveEntry<SaveFileEntry>(type, id)->Status;
++}
++
++int SaveSystem::GetSaveTitle(SaveType type, int id) const {
++  return GetSaveEntry<SaveFileEntry>(type, id)->SwTitle;
++}
++
++uint32_t SaveSystem::GetTipStatus(size_t tipId) const {
++  tipId *= 3;
++  uint8_t lockStatus = (GameExtraData[tipId >> 3] & Flbit[tipId & 7]) != 0;
++  uint8_t newStatus =
++      (GameExtraData[(tipId + 1) >> 3] & Flbit[(tipId + 1) & 7]) != 0;
++  uint8_t unreadStatus =
++      (GameExtraData[(tipId + 2) >> 3] & Flbit[(tipId + 2) & 7]) != 0;
++  return (lockStatus | (unreadStatus << 1)) | (newStatus << 2);
++}
++
++void SaveSystem::SetTipStatus(size_t tipId, bool isLocked, bool isUnread,
++                              bool isNew) {
++  tipId *= 3;
++  if (isLocked) {
++    GameExtraData[tipId >> 3] &= ~(Flbit[tipId & 7]);
++  } else {
++    GameExtraData[tipId >> 3] |= Flbit[tipId & 7];
++  }
++  if (isUnread) {
++    GameExtraData[(tipId + 2) >> 3] &= ~(Flbit[(tipId + 2) & 7]);
++  } else {
++    GameExtraData[(tipId + 2) >> 3] |= Flbit[(tipId + 2) & 7];
++  }
++  if (isNew) {
++    GameExtraData[(tipId + 1) >> 3] &= ~(Flbit[(tipId + 1) & 7]);
++  } else {
++    GameExtraData[(tipId + 1) >> 3] |= Flbit[(tipId + 1) & 7];
++  }
++}
++
++// Read lines are tracked in a set keyed by (script, line): the PC profile has
++// no per-script line count table (ScriptMessageData) that the bit field of the
++// other games needs.
++void SaveSystem::SetLineRead(const size_t scriptId, const size_t lineId) {
++  if (scriptId > 0xFFFF || lineId > 0xFFFF) return;
++  ReadLines.insert(static_cast<uint32_t>((scriptId << 16) | lineId));
++}
++
++bool SaveSystem::IsLineRead(const size_t scriptId, const size_t lineId) const {
++  if (scriptId > 0xFFFF || lineId > 0xFFFF) return false;
++  return ReadLines.contains(static_cast<uint32_t>((scriptId << 16) | lineId));
++}
++
++void SaveSystem::GetReadMessagesCount(int* totalMessageCount,
++                                      int* readMessageCount) const {
++  // The total number of lines is not known (no line count table)
++  *readMessageCount = static_cast<int>(ReadLines.size());
++  *totalMessageCount = std::max(*readMessageCount, 1);
++}
++
++void SaveSystem::GetViewedEVsCount(int* totalEVCount,
++                                   int* viewedEVCount) const {
++  for (int i = 0; i < MaxAlbumEntries; i++) {
++    if (AlbumEvData[i][0] == 0xFFFF) break;
++    for (int j = 0; j < MaxAlbumSubEntries; j++) {
++      if (AlbumEvData[i][j] == 0xFFFF) break;
++      *totalEVCount += 1;
++      *viewedEVCount += EVFlags[AlbumEvData[i][j]];
++    }
++  }
++}
++
++void SaveSystem::GetEVStatus(int evId, int* totalVariations,
++                             int* viewedVariations) const {
++  *totalVariations = 0;
++  *viewedVariations = 0;
++  for (int i = 0; i < MaxAlbumSubEntries; i++) {
++    if (AlbumEvData[evId][i] == 0xFFFF) break;
++    *totalVariations += 1;
++    *viewedVariations += EVFlags[AlbumEvData[evId][i]];
++  }
++}
++
++void SaveSystem::SetEVStatus(int id) {
++  if (id >= 0 && id < static_cast<int>(EVFlags.size())) EVFlags[id] = true;
++}
++
++bool SaveSystem::GetEVVariationIsUnlocked(size_t evId,
++                                          size_t variationIdx) const {
++  if (AlbumEvData[evId][variationIdx] == 0xFFFF) return false;
++  return EVFlags[AlbumEvData[evId][variationIdx]];
++}
++
++bool SaveSystem::GetBgmFlag(int id) const {
++  return id >= 0 && id < static_cast<int>(BGMFlags.size()) && BGMFlags[id];
++}
++void SaveSystem::SetBgmFlag(int id, bool flag) {
++  if (id >= 0 && id < static_cast<int>(BGMFlags.size())) BGMFlags[id] = flag;
++}
++
++Sprite& SaveSystem::GetSaveThumbnail(SaveType type, int id) {
++  return GetSaveEntry<SaveFileEntry>(type, id)->SaveThumbnail;
++}
++
++}  // namespace MO6TWPC
++}  // namespace Impacto
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..dabfee695e741ec1020fc08c6bfc9a52b5ac3641
+--- /dev/null
++++ b/src/games/mo6twpc/savesystem.h
+@@ -0,0 +1,113 @@
++#pragma once
++
++#include "../../data/savesystem.h"
++
++#include <array>
++#include <cstdint>
++#include <memory>
++#include <unordered_set>
++#include <vector>
++
++namespace Impacto {
++namespace MO6TWPC {
++
++using namespace Impacto::SaveSystem;
++
++// Save system of the Windows/Steam release of Memories Off 6 T-Wave.
++//
++// The PC scripts use the CC (PS4) style ScrWork/flag layout and the CC style
++// SaveSystem protocol (Save 70/71 mount, 4 load system data, 0 save system
++// data, 16 flush, 60/61 write, 80/81 check, AutoSave 0xff/10/5, LoadData
++// 0/1), so this implementation follows CCLCC::SaveSystem. The on-disk format
++// is our own (compatibility with the Steam save files is a non-goal) and is
++// documented in savesystem.cpp.
++constexpr int ThumbnailWidth = 240;
++constexpr int ThumbnailHeight = 135;
++constexpr size_t ThumbnailBytes = ThumbnailWidth * ThumbnailHeight * 2;  // RGB565
++
++// Ranges that are persisted per save entry (derived from the PC scripts, see
++// the comment in savesystem.cpp).
++constexpr size_t FlagWorkScript1Src = 50;    // bytes, 50 long (flags 400-799)
++constexpr size_t FlagWorkScript1Len = 50;
++constexpr size_t FlagWorkScript2Src = 300;   // bytes, 100 long (flags 2400-3199)
++constexpr size_t FlagWorkScript2Len = 100;
++constexpr size_t ScrWorkScript1Src = 0;      // ScrWork[0, 1600)
++constexpr size_t ScrWorkScript1Len = 1600;
++constexpr size_t ScrWorkScript2Src = 4300;   // ScrWork[4300, 7300)
++constexpr size_t ScrWorkScript2Len = 3000;
++
++// Ranges that are persisted in the system data
++constexpr size_t SysFlagWorkSrc1 = 100;  // bytes, 50 long (flags 800-1199)
++constexpr size_t SysFlagWorkLen1 = 50;
++constexpr size_t SysFlagWorkSrc2 = 460;  // bytes, 40 long
++constexpr size_t SysFlagWorkLen2 = 40;
++constexpr size_t SysScrWorkSrc = 1600;  // ScrWork[1600, 2100)
++constexpr size_t SysScrWorkLen = 500;
++
++struct SaveFileEntry : SaveFileEntryBase {
++  std::array<uint8_t, FlagWorkScript1Len> FlagWorkScript1{};
++  std::array<uint8_t, FlagWorkScript2Len> FlagWorkScript2{};
++  std::array<int, ScrWorkScript1Len> ScrWorkScript1{};
++  std::array<int, ScrWorkScript2Len> ScrWorkScript2{};
++  std::array<uint8_t, ThumbnailBytes> ThumbnailData{};
++  bool HasThumbnailData = false;
++};
++
++class SaveSystem final : public SaveSystemBase {
++ public:
++  SaveError CheckSaveFile() const override;
++  SaveError MountSaveFile(std::vector<QueuedTexture>& textures) override;
++
++  SaveError LoadSystemData() override;
++  void SaveSystemData() override;
++  void InitializeSystemData() override;
++
++  void SaveThumbnailData() override {}  // thumbnails are captured on flush
++  void SaveMemory() override;
++  void LoadEntry(SaveType type, int id) override;
++  void LoadMemoryNew(LoadProcess load) override;
++  void FlushWorkingSaveEntry(SaveType type, int id, int autoSaveType) override;
++  SaveError WriteSaveFile() override;
++  SaveError WriteQuickSaveFile() override { return WriteSaveFile(); }
++
++  uint32_t GetSavePlayTime(SaveType type, int id) const override;
++  uint8_t GetSaveFlags(SaveType type, int id) const override;
++  void SetSaveFlags(SaveType type, int id, uint8_t flags) override;
++  tm const& GetSaveDate(SaveType type, int id) const override;
++  uint8_t GetSaveStatus(SaveType type, int id) const override;
++  int GetSaveTitle(SaveType type, int id) const override;
++  uint32_t GetTipStatus(size_t tipId) const override;
++  void SetTipStatus(size_t tipId, bool isLocked, bool isUnread,
++                    bool isNew) override;
++  void SetLineRead(size_t scriptId, size_t lineId) override;
++  bool IsLineRead(size_t scriptId, size_t lineId) const override;
++  void GetReadMessagesCount(int* totalMessageCount,
++                            int* readMessageCount) const override;
++  void GetViewedEVsCount(int* totalEVCount, int* viewedEVCount) const override;
++  void GetEVStatus(int evId, int* totalVariations,
++                   int* viewedVariations) const override;
++  void SetEVStatus(int evId) override;
++  bool GetEVVariationIsUnlocked(size_t evId,
++                                size_t variationIdx) const override;
++  bool GetBgmFlag(int id) const override;
++  void SetBgmFlag(int id, bool flag) override;
++  void SetCheckpointId(int id) override;
++  Sprite& GetSaveThumbnail(SaveType type, int id) override;
++
++ private:
++  void LoadScrWork();
++  void InitSaveSlots();
++
++  std::array<uint8_t, 1024> GameExtraData{};
++  std::array<bool, 1200> EVFlags{};
++  std::array<uint8_t, 200> BGMFlags{};
++  // (scriptId << 16) | lineId of every line that has been read
++  std::unordered_set<uint32_t> ReadLines;
++  // Serialised system data, see SaveSystemData()
++  std::vector<uint8_t> SystemData;
++
++  std::unique_ptr<SaveFileEntry> WorkingSaveEntry;
++};
++
++}  // namespace MO6TWPC
++}  // namespace Impacto
+diff --git a/src/profile/data/savesystem.cpp b/src/profile/data/savesystem.cpp
+index ff444187ea2efd5342df7cdf52c6ebb886b4d4a0..99c85c5a97aedbc742704f0fc1729758f3534990 100644
+--- a/src/profile/data/savesystem.cpp
++++ b/src/profile/data/savesystem.cpp
+@@ -8,6 +8,7 @@
+ #include "../../games/cclcc/savesystem_switch.h"
+ #include "../../games/chlcc/savesystem.h"
+ #include "../../games/mo6tw/savesystem.h"
++#include "../../games/mo6twpc/savesystem.h"
+ 
+ namespace Impacto {
+ namespace Profile {
+@@ -120,6 +121,9 @@ void Configure() {
+     case SaveDataType::MO6TW:
+       Implementation = new Impacto::MO6TW::SaveSystem();
+       break;
++    case SaveDataType::MO6TWPC:
++      Implementation = new Impacto::MO6TWPC::SaveSystem();
++      break;
+     case SaveDataType::CCLCC_PS4:
+       Implementation = new Impacto::CCLCC_PS4::SaveSystem();
+       break;
+diff --git a/src/profile/games/mo6twpc/savemenu.cpp b/src/profile/games/mo6twpc/savemenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..de59a6ec1d1c415357e5fe186b2886c80019296a
+--- /dev/null
++++ b/src/profile/games/mo6twpc/savemenu.cpp
+@@ -0,0 +1,68 @@
++#include "savemenu.h"
++#include "../../profile_internal.h"
++#include "../../../log.h"
++
++#include "../../ui/savemenu.h"
++#include "../../../game.h"
++#include "../../../ui/ui.h"
++#include "../../../games/mo6twpc/savemenu.h"
++
++namespace Impacto {
++namespace Profile {
++namespace MO6TWPC {
++namespace SaveMenu {
++
++void Configure() {
++  SaveMenuBackgroundSprite =
++      EnsureGetMember<Sprite>("SaveMenuBackgroundSprite");
++
++  QuickLoadTextSprite = EnsureGetMember<Sprite>("QuickLoadTextSprite");
++  LoadTextSprite = EnsureGetMember<Sprite>("LoadTextSprite");
++  SaveTextSprite = EnsureGetMember<Sprite>("SaveTextSprite");
++  MenuTitleTextPos = EnsureGetMember<glm::vec2>("MenuTitleTextPos");
++
++  QuickLoadEntrySprite = EnsureGetMember<Sprite>("QuickLoadEntrySprite");
++  QuickLoadEntryHighlightedSprite =
++      EnsureGetMember<Sprite>("QuickLoadEntryHighlightedSprite");
++  SaveEntrySprite = EnsureGetMember<Sprite>("SaveEntrySprite");
++  SaveEntryHighlightedSprite =
++      EnsureGetMember<Sprite>("SaveEntryHighlightedSprite");
++  LoadEntrySprite = EnsureGetMember<Sprite>("LoadEntrySprite");
++  LoadEntryHighlightedSprite =
++      EnsureGetMember<Sprite>("LoadEntryHighlightedSprite");
++
++  PrevButtonSprite = EnsureGetMember<Sprite>("PrevButtonSprite");
++  PrevButtonHighlightedSprite =
++      EnsureGetMember<Sprite>("PrevButtonHighlightedSprite");
++  NextButtonSprite = EnsureGetMember<Sprite>("NextButtonSprite");
++  NextButtonHighlightedSprite =
++      EnsureGetMember<Sprite>("NextButtonHighlightedSprite");
++  LockIconSprite = EnsureGetMember<Sprite>("LockIconSprite");
++
++  EntryStartX = EnsureGetMember<float>("EntryStartX");
++  EntryXPadding = EnsureGetMember<float>("EntryXPadding");
++  EntryStartY = EnsureGetMember<float>("EntryStartY");
++  EntryYPadding = EnsureGetMember<float>("EntryYPadding");
++
++  PrevButtonPosition = EnsureGetMember<glm::vec2>("PrevButtonPosition");
++  NextButtonPosition = EnsureGetMember<glm::vec2>("NextButtonPosition");
++  PageTextCentre = EnsureGetMember<glm::vec2>("PageTextCentre");
++
++  ThumbnailOffset = EnsureGetMember<glm::vec2>("ThumbnailOffset");
++  ThumbnailSize = EnsureGetMember<glm::vec2>("ThumbnailSize");
++  LockIconOffset = EnsureGetMember<glm::vec2>("LockIconOffset");
++  NumberTextOffset = EnsureGetMember<glm::vec2>("NumberTextOffset");
++  PlayTimeTextOffset = EnsureGetMember<glm::vec2>("PlayTimeTextOffset");
++  DateTextOffset = EnsureGetMember<glm::vec2>("DateTextOffset");
++  EntryFontSize = EnsureGetMember<float>("EntryFontSize");
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++
++  UI::SaveMenuPtr = new UI::MO6TWPC::SaveMenu();
++  UI::Menus[drawType].push_back(UI::SaveMenuPtr);
++}
++
++}  // namespace SaveMenu
++}  // namespace MO6TWPC
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/mo6twpc/savemenu.h b/src/profile/games/mo6twpc/savemenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ac4d3289c96fbc81074397124c809a8f6d0ab6d
+--- /dev/null
++++ b/src/profile/games/mo6twpc/savemenu.h
+@@ -0,0 +1,58 @@
++#pragma once
++
++#include "../../../spritesheet.h"
++
++namespace Impacto {
++namespace Profile {
++namespace MO6TWPC {
++namespace SaveMenu {
++
++int constexpr EntriesPerRow = 2;
++int constexpr RowsPerPage = 3;
++int constexpr EntriesPerPage = EntriesPerRow * RowsPerPage;
++
++inline Sprite SaveMenuBackgroundSprite;
++
++inline Sprite QuickLoadTextSprite;
++inline Sprite LoadTextSprite;
++inline Sprite SaveTextSprite;
++inline glm::vec2 MenuTitleTextPos;
++
++inline Sprite QuickLoadEntrySprite;
++inline Sprite QuickLoadEntryHighlightedSprite;
++inline Sprite SaveEntrySprite;
++inline Sprite SaveEntryHighlightedSprite;
++inline Sprite LoadEntrySprite;
++inline Sprite LoadEntryHighlightedSprite;
++
++inline Sprite PrevButtonSprite;
++inline Sprite PrevButtonHighlightedSprite;
++inline Sprite NextButtonSprite;
++inline Sprite NextButtonHighlightedSprite;
++inline Sprite LockIconSprite;
++
++inline float EntryStartX;
++inline float EntryXPadding;
++inline float EntryStartY;
++inline float EntryYPadding;
++
++inline glm::vec2 PrevButtonPosition;
++inline glm::vec2 NextButtonPosition;
++// Centre of the "page / pages" text
++inline glm::vec2 PageTextCentre;
++
++// Offsets inside an entry sprite
++inline glm::vec2 ThumbnailOffset;
++inline glm::vec2 ThumbnailSize;
++inline glm::vec2 LockIconOffset;
++inline glm::vec2 NumberTextOffset;
++inline glm::vec2 PlayTimeTextOffset;
++inline glm::vec2 DateTextOffset;
++inline float EntryFontSize;
++
++void Configure();
++
++}  // namespace SaveMenu
++}  // namespace MO6TWPC
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/savemenu.cpp b/src/profile/ui/savemenu.cpp
+index 517e4892a250d7ad874c87cf582b2e2385b2202f..d79a7598303a26f6461d8523ef55036cd08d60ed 100644
+--- a/src/profile/ui/savemenu.cpp
++++ b/src/profile/ui/savemenu.cpp
+@@ -2,6 +2,7 @@
+ #include "../profile_internal.h"
+ #include "../games/mo6tw/savemenu.h"
+ #include "../games/mo8/savemenu.h"
++#include "../games/mo6twpc/savemenu.h"
+ #include "../games/chlcc/savemenu.h"
+ #include "../games/cclcc/savemenu.h"
+ #include "../../ui/ui.h"
+@@ -31,6 +32,8 @@ void Configure() {
+       CCLCC::SaveMenu::Configure();
+     } else if (Type == SaveMenuType::MO8) {
+       MO8::SaveMenu::Configure();
++    } else if (Type == SaveMenuType::MO6TWPC) {
++      MO6TWPC::SaveMenu::Configure();
+     }
+ 
+     Pop();
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index 8f7e70edc90445e06303c7832098a9028895ef02..6745afd76cd406b861506ef374aa01e93e97571b 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -33,6 +33,7 @@ enum class SaveMenuType : int {
+   MO8,
+   CHLCC,
+   CCLCC,
++  MO6TWPC,
+ };
+ enum class SysMesBoxType : int {
+   None,
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index 0b864a60bc72fea24f5d92121547ac4ca950293d..28ea7eec2cd374a1544aa0785673b8d994776f65 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -1278,6 +1278,15 @@ VmInstruction(InstAutoSave) {
+       }
+       SaveSystem::SetQSavedOnCurrentLine(true);
+       SetFlag(SF_AUTOSAVEENABLE, 0);
++      // The PC scripts never write the save file after a quick save (observed
++      // on device: SYSTEM.DAT is unchanged), so a quick save would be lost if
++      // the process is killed. Persist it right away.
++      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC &&
++          quicksaveEntries.has_value() &&
++          SaveSystem::GetLoadStatus() != LoadStatus::Loading) {
++        SaveSystem::SaveSystemData();
++        SaveSystem::WriteQuickSaveFile();
++      }
+     } break;
+ 
+     case 4: {
