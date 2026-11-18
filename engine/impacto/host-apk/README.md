@@ -1,21 +1,22 @@
 # MAGES. 引擎宿主 APK（impacto）
 
-承载 MAGES. 引擎的开源重新实现 impacto（项目名，不是引擎名）——**未改动**的 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（固定提交见 `../source-lock.json`）。
+承载 MAGES. 引擎的开源重新实现 impacto（项目名，不是引擎名）——[CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)
+的固定提交（见 `../source-lock.json`）**加上本仓库经审计的补丁系列**（`../patches/`，流程见其 README）。
 Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负责它的构建、发布与维护。
 
 ## 为什么是独立 APK
 
 上游 `android/` 自带 SDL3 的 `org.libsdl.app` Java 层，与主 APK 内置的 SDL2 同名类冲突。独立进程消除不了同一 APK 内的类名冲突，
-而改名、生成修改后的副本或替换符号都属于被禁止的引擎改动。所以它是单独的 APK：包内只有
+而改名、生成修改后的副本或替换符号（私有 SDL 命名空间）仍然被禁止：补丁系列不碰 SDL3 的 Java 层与 JNI 命名空间，候选库检查会拒绝私有命名空间。所以它是单独的 APK：包内只有
 
-- 上游 Java 源码（`ImpactoActivity` 与 SDL3 Java 层），构建时直接引用已校验的检出，**不复制、不修改**；
-- 上游库 `libimpacto.so`（由 `tools/impacto/build-upstream.sh` 构建的候选库）；
-- 上游的 `profiles/`、`resources/`、着色器和 `gamedefinitions.lua`，构建时暂存到 `build/`，不写回源码目录；
+- 上游 Java 源码（`ImpactoActivity` 与 SDL3 Java 层），构建时直接引用已校验的**补丁后检出**（固定提交 + 系列），不复制；SDL3 Java 层与上游一致；
+- 库 `libimpacto.so`（由 `tools/impacto/build-upstream.sh` 从同一个补丁后检出构建的候选库）；
+- 同一检出里的 `profiles/`、`resources/`、着色器和 `gamedefinitions.lua`，构建时暂存到 `build/`，不写回源码目录；
 - TYN 自有的两个类：`ImpactoLaunchActivity`、`TyranorImpactoActivity`。
 
 ## 宿主做了什么
 
-只使用上游已公开的钩子，没有补丁：
+宿主自己只使用上游已公开的钩子（上游代码的改动全部在补丁系列里，宿主不另改）：
 
 | 上游钩子 | 宿主行为 |
 | --- | --- |
@@ -39,22 +40,33 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 
 需要 Python 3（非 Windows 使用 `python3`）、Android SDK（compileSdk 36）、JDK 17，以及：
 
-1. 已校验的上游检出（`tools/impacto/verify-upstream.py` 通过），
+1. 已校验的补丁后检出：固定上游提交 + 补丁系列（`tools/impacto/apply-patches.py` 应用，`tools/impacto/verify-upstream.py --patched` 通过；`build-upstream.sh` 会自己做这一步，其 `source/` 目录可直接使用），
 2. 候选库 `libimpacto.so`（只能在 Linux 或 WSL 构建，见 `tools/impacto/build-upstream.sh`），以及构建它的 NDK：设置 `ANDROID_NDK_HOME` 或 `-PimpactoNdk=<NDK 目录>`。宿主构建用该 NDK 的 `llvm-strip` 剥离调试符号并核对 build-id；找不到工具时构建失败，不会打进未剥离的库（未剥离约 337 MiB，会使 APK 膨胀到 400 MB 以上）。
 
 ```sh
 ./gradlew -p engine/impacto/host-apk :app:assembleDebug \
-  -PimpactoSource=/path/to/verified/impacto \
+  -PimpactoSource=/path/to/patched/impacto \
   -PimpactoCandidate=/path/to/build/candidate
+```
+
+### 开发快速路径（不得发布）
+
+迭代引擎补丁时，在 WSL/Linux 上用 `tools/impacto/dev-build.sh`：独立根目录（默认 `~/impacto-dev`），首次从 `IMPACTO_DEV_SEED`（默认 `~/impacto-build/upstream`，只读）复制上游检出、vcpkg、二进制缓存与下载缓存，之后每次把源码重置到固定提交并应用补丁系列（已经恰好是「固定提交 + 系列」时保持原样，ninja 只重编改动的文件），再增量构建并产出 `dev-candidate`。
+`IMPACTO_DEV_CONFIGURE_ONLY=1` 只做配置；构建锁（`.build.lock`）记录持有者的 pid 与进程启动时间，持有者已退出时下次运行自动清掉陈旧的锁；默认并行度刻意压低（ninja 最多 4 个任务，vcpkg 2，可用 `IMPACTO_DEV_JOBS`／`VCPKG_MAX_CONCURRENCY` 调整），已有 `build/build.ninja` 时不重复配置（`IMPACTO_DEV_RECONFIGURE=1` 强制）。它不满足发布配方的「新建构建根、不复用 FetchContent/CMake 状态」要求，所以产物标为 `dev-candidate`、`releaseReady:false`，Gradle 只有显式传 `-PimpactoDevCandidate=true` 才接受（版本名带 `-dev`），且与发布签名密钥互斥：
+
+```sh
+./gradlew -p engine/impacto/host-apk :app:assembleDebug \
+  -PimpactoSource=<DEV>/source -PimpactoCandidate=<DEV>/candidate \
+  -PimpactoDevCandidate=true -PimpactoNdk=<NDK>
 ```
 
 只编译 Java、运行 JVM 单测时不需要候选库，加 `-PimpactoHostOnly=true`（打包时也需要核对候选库，所以不加它就必须给 `-PimpactoCandidate`）：
 
 ```sh
-./gradlew -p engine/impacto/host-apk :app:testDebugUnitTest -PimpactoSource=/path/to/verified/impacto -PimpactoHostOnly=true
+./gradlew -p engine/impacto/host-apk :app:testDebugUnitTest -PimpactoSource=/path/to/patched/impacto -PimpactoHostOnly=true
 ```
 
-构建任务（`preBuild`，覆盖编译、lint、单测）会先运行 `verify-upstream.py`，检出不干净或版本不对即失败；打包前还会核对候选库：`candidate.json` 必须来自 `../source-lock.json`，且 `libimpacto.so` 的 SHA-256 与报告一致。
+构建任务（`preBuild`，覆盖编译、lint、单测）会先运行 `verify-upstream.py --patched`，检出不是「固定提交 + 系列」（含多出任何改动）即失败；打包前还会核对候选库：`candidate.json` 必须来自 `../source-lock.json`，且 `libimpacto.so` 的 SHA-256 与报告一致。
 
 仅验证 Java 层（请求校验、权限流程、数据目录与符号链接）时，可加 `-PimpactoHostOnly=true`：不打包 `libimpacto.so`，
 版本名带 `-hostonly`，**该 APK 起不了引擎，不得分发**。
@@ -64,4 +76,4 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 - 仅 Android 11（API 30）及以上：需要「所有文件访问」才能经路径读取游戏目录。
 - 每个进程只跑一个游戏；游戏 Activity 结束时宿主结束进程，避免 SDL 的进程级状态残留。
 - 数据根与存档在宿主的内部私有目录内（`files/games/<gameKey>/`），主 App 无法管理或同步。外部存储（含 `Android/data`）是 FUSE，不允许建符号链接，已在真机上确认，所以数据根必须放在内部存储。
-- 引擎库只在一台真机上加载并进入启动流程过（缺脚本档案，停在读脚本失败）；没有受支持的游戏数据，渲染、声音、输入、存读档均未验证。
+- 只在一台真机（荣耀 PPG-AN00，Android 17）上验证过：Windows／Steam 版 Memories Off 6 T-Wave + `mo6tw-pc-zhs` 到标题画面、New Game、第一段对话（背景、名牌、简体中文文字、语音）；其余 profile、变体、存读档（`mo6tw-pc` 暂无存档系统）、输入与性能均未验证。
