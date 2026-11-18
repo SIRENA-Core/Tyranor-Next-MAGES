@@ -39,5 +39,5 @@ impacto 自己的第三方清单见上游的 `THIRDPARTY.md`，也收录在许�
 
 ## 许可证文本
 
-每个发布附带 `impacto-host.licenses.tar.xz`：上游 Impacto 的 LICENSE 与 THIRDPARTY.md、该次构建里每个 vcpkg 依赖的
+每个发布附带 `Tyranor-Next-MAGES.licenses.tar.xz`：上游 Impacto 的 LICENSE 与 THIRDPARTY.md、该次构建里每个 vcpkg 依赖的
 `copyright` 文件、本仓库的 LICENSE 与本文件，以及该次构建所用的补丁系列（`patches/`）。

@@ -3,7 +3,7 @@ name: Impacto host release
 # Builds the Impacto library from the pinned upstream revision plus the audited patch series (engine/impacto/patches),
 # packages it into the standalone host APK,
 # signs it with this repository's release key and publishes it as the latest release. Tyranor Next downloads
-# https://github.com/<repo>/releases/latest/download/impacto-host.apk (ImpactoExternalEngineModule.installUrl), so the
+# https://github.com/<repo>/releases/latest/download/Tyranor-Next-MAGES.apk (ImpactoExternalEngineModule.installUrl), so the
 # asset names below must stay fixed; the version lives in the tag and in the APK itself.
 # Run it by hand: it takes a long time (vcpkg builds SDL3, FFmpeg and more).
 on:
@@ -168,8 +168,8 @@ jobs:
         run: |
           apk=$(ls engine/impacto/host-apk/app/build/outputs/apk/release/*.apk)
           mkdir -p release-assets
-          cp "${apk}" "release-assets/impacto-host.apk"
-          cp "${BUILD_ROOT}/candidate/candidate.json" "release-assets/impacto-host.candidate.json"
+          cp "${apk}" "release-assets/Tyranor-Next-MAGES.apk"
+          cp "${BUILD_ROOT}/candidate/candidate.json" "release-assets/Tyranor-Next-MAGES.candidate.json"
           # License texts for everything linked into libimpacto.so (see NOTICE.md).
           licenses="${RUNNER_TEMP}/licenses"
           mkdir -p "${licenses}"
@@ -186,12 +186,12 @@ jobs:
           cp LICENSE NOTICE.md "${licenses}/"
           # Corresponding source of the modified ISC upstream = pinned revision + this series.
           cp -r engine/impacto/patches "${licenses}/patches"
-          tar -cJf "release-assets/impacto-host.licenses.tar.xz" -C "${RUNNER_TEMP}" licenses
-          (cd release-assets && sha256sum impacto-host.apk impacto-host.licenses.tar.xz > impacto-host.sha256)
+          tar -cJf "release-assets/Tyranor-Next-MAGES.licenses.tar.xz" -C "${RUNNER_TEMP}" licenses
+          (cd release-assets && sha256sum Tyranor-Next-MAGES.apk Tyranor-Next-MAGES.licenses.tar.xz > Tyranor-Next-MAGES.sha256)
           upstream=$(python3 -c "import json;print(json.load(open('engine/impacto/source-lock.json'))['impacto']['revision'])")
           patches=$(python3 -c "import json;print(len(json.load(open('engine/impacto/source-lock.json'))['patches']['series']))")
           gh release create "${TAG}" release-assets/* \
             --target "${GITHUB_SHA}" \
-            --title "MAGES. host (impacto) ${VERSION}" \
+            --title "Tyranor Next MAGES ${VERSION}" \
             --notes "Standalone host for the MAGES. engine: upstream CommitteeOfZero/impacto (an open-source reimplementation) at ${upstream} plus ${patches} audited patch(es) from engine/impacto/patches, built from commit ${GITHUB_SHA}. Install it, then start a MAGES. game from Tyranor Next (the host has no desktop icon). candidate.json records the library SHA-256, the pinned source lock (including every patch SHA-256) and the patched source tree; the licenses archive holds the texts listed in NOTICE.md and the patch series." \
             --latest
