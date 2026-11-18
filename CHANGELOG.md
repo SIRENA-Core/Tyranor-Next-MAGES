@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 修复（补丁 0015，仅 TYN）：PC 版 Memories Off 6 的日志（Backlog）原来打不开：向下轻扫会跑完 PC 脚本的日志流程（`MesRev` 的 DispInit 再每帧 Main，`SW_SYSSUBMENUNO` 为 1），但什么都不画，脚本在看不见的画面后面等退出标志。两个原因：`InstMesRev` 只对 `InstructionSet::MO6TW`（PS3）调用 `BacklogMenuPtr->Show()`／`Hide()`，PC 的指令集是另一个值；`profiles/mo6tw-pc/hud/backlogmenu.lua` 沿用了 PS3 的 `DrawType` `ExtrasScenes`，而 PC 脚本把日志当系统菜单的子菜单，开着时画的是 `SystemMenu` 层。修复后在 MuMu（`mo6tw-pc-zhs`）上向下轻扫打开 BACKLOG 画面（日期标题、人名、已读台词），两指轻点关闭后继续下一句。条目间距、滚动条与高亮条仍是 PS3 配置放大 1.5 倍的近似值。
+- 修复（补丁 0014，仅 TYN）：PC 版 Memories Off 6 的「Option」（系统菜单与标题菜单都有）原来点了没有任何可见效果，脚本还会在看不见的选项画面后面一直等 `SF_SUBMENUEXIT`，要按返回才能出来。原因是 PC 脚本通过 CC 风格的子菜单变量（`SW_SYSSUBMENUNO` 为 5、`SW_SYSSUBMENUALPHA` 0→256）打开它，从不碰 PS3 版选项菜单依赖的 `SW_OPTIONALPHA`。现在 `InstructionSet::MO6TWPC` 下子菜单渐入完成就立即给出退出标志，脚本照常渐出并回到系统菜单。PS3 布局与 PC 图集对不上，所以没有把它显示出来；PC 专用的选项画面仍是缺口。
+- 文档：新增 `docs/steins-gate-steam-sghd.md`，记录 Steins;Gate（Steam 版）与 impacto 的差距（SGHD 指令集、写死在 Game.exe 里的原生 UI、分步路线），以及读 MPK v2 的小工具 `tools/impacto/sghd/mpk_tool.py`。这是分析，不是支持：宿主仍然不能运行该游戏。
 - 构建：固定的上游 impacto 提交从 `ba0b6e0`（PR #580）升到 `31bbd61`（PR #582，只改 `src/games/cclcc/mapsystem.cpp`，与补丁系列无交集）。补丁分支直接变基，13 个补丁逐字节不变（`source-lock.json` 里的补丁 SHA-256 一个都没变，只改了 `impacto.revision`）；`verify-upstream.py --series-only` / `--patched`、`test-patch-series.py`、`test-profiles.py` 通过，dev 构建通过，MuMu（Android 15，x86_64 + arm64 转译）上 `mo6tw-pc-zhs` 能进标题、New Game、第一段对话与选项。这是补丁系列「只加文件、少改上游文件」策略的一次实际演练。
 - 文档：主 Tyranor Next 应用识别 PC 版目录布局（`game.exe` + `data/*.cpk`；[Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效），添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。README 里「主应用尚不识别 PC 版目录布局」的说明相应改写；0.2.0 条目里的同一句话是该版本发布时的状态，保持原样。无代码改动。
 

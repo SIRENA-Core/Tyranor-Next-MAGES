@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 11:47:41 -0800
+Subject: [PATCH] tyn: show the backlog in the MO6TWPC profiles
+
+TYN-only: flicking down (the engine's backlog gesture) ran the PC script's
+backlog flow - MesRev(DispInit), then MesRev(Main) every frame, with
+SW_SYSSUBMENUNO 1 and SW_SYSSUBMENUALPHA ramping to 256 - but nothing was ever
+drawn, and the script waited for the exit flag behind an invisible screen.
+Two causes:
+
+  - InstMesRev only called BacklogMenuPtr->Show()/Hide() for
+    InstructionSet::MO6TW (PS3); the PC instruction set is a different
+    InstructionSet value, so the fade never started. Accept MO6TWPC too.
+  - profiles/mo6tw-pc/hud/backlogmenu.lua used DrawType ExtrasScenes (copied
+    from the PS3 profile). The PC scripts treat the backlog as a system menu
+    submenu, like the PC save menu, and that layer is the one drawn while it is
+    open; use DrawType SystemMenu.
+
+Observed on MuMu (Android 15, mo6tw-pc-zhs): after the change a flick down
+opens the BACKLOG screen with the date header, name tags and the lines read so
+far, and a two-finger tap closes it and the game continues with the next line.
+Entry spacing, the scrollbar and the highlight bar come from the x1.5 scaled PS3
+profile and may still be a few pixels off the PC game.
+
+diff --git a/profiles/mo6tw-pc/hud/backlogmenu.lua b/profiles/mo6tw-pc/hud/backlogmenu.lua
+index d176372e3dd78cce4067195a2f79fff1775b288f..3ba709ea978c7b6fbc44ce6bd78f28bb277fdce8 100644
+--- a/profiles/mo6tw-pc/hud/backlogmenu.lua
++++ b/profiles/mo6tw-pc/hud/backlogmenu.lua
+@@ -3,7 +3,9 @@
+ -- The PC sheets for these menus were repacked, so sprite bounds are not exact.
+ root.BacklogMenu = {
+     Type = BacklogMenuType.MO6TW,
+-    DrawType = DrawComponentType.ExtrasScenes,
++    -- The PC scripts open the backlog through the CC style submenu variables (SW_SYSSUBMENUNO 1) inside the system menu
++    -- layer, not on the PS3 ExtrasScenes layer, which is never drawn while the backlog is open.
++    DrawType = DrawComponentType.SystemMenu,
+ 
+     BacklogBackgroundSprite = "BacklogBackground",
+ 
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index d25e6917eb5f2e5a9f4e9fdf84d21c606b74097b..15afbc1cd521398bd45c6297f2841e8f90752527 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -810,7 +810,8 @@ VmInstruction(InstMesRev) {
+   PopUint8(type);
+   switch (type) {
+     case 0:  // DispInit
+-      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW)
++      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW ||
++          Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC)
+         UI::BacklogMenuPtr->Show();
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction SetMesModeFormat(type: DispInit)\n");
+@@ -820,7 +821,8 @@ VmInstruction(InstMesRev) {
+                  "STUB instruction SetMesModeFormat(type: Main)\n");
+       break;
+     case 2:  // AllCls
+-      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW)
++      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW ||
++          Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC)
+         UI::BacklogMenuPtr->Hide();
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction SetMesModeFormat(type: AllCls)\n");

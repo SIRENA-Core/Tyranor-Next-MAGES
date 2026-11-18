@@ -24,7 +24,7 @@
 - 引擎库已在真机（Android 17）上加载并进入上游启动流程。
 - Windows／Steam 版《秋之回忆6 T-Wave》（`mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht`，由补丁系列提供）：在一台真机（荣耀 PPG-AN00，Android 17）上，
   `mo6tw-pc-zhs` 能进到标题画面，选「New Game」进入第一段对话，背景、名牌、简体中文文字和语音播放都正常，存档→强制停止→重启→读档能回到同一句。
-  除此之外都没有验证：其他 profile 与游戏、繁体／日文变体、非对话菜单（坐标为近似）、附加内容菜单（占位图集）、输入与性能。
+  在 MuMu 模拟器（Android 15，x86_64 加 arm64 转译，**不是真机**）上，`mo6tw-pc`（日文）、`mo6tw-pc-zhs`、`mo6tw-pc-zht` 三个变体都能进标题、New Game 并显示第一段对话，选项分支、两指轻点打开系统菜单、向下轻扫打开日志（两指轻点关闭）、存档菜单存一格再重启后从 Continue → Load 读出（缩略图、游玩时长、时间都在）也都正常；系统菜单的「オプション」在 PC 版目前没有可用的界面（选项画面的 PS3 布局与 PC 图集对不上），点了会直接回到系统菜单，「エンサイクロペディア」（TIPS）同样没有界面，点了没有可见反应、按返回才退出；「タイトルに戻る」的确认对话框也不显示（脚本在等一个看不见的确认），同样要按返回。除此之外都没有验证：非对话菜单（坐标为近似）、附加内容菜单（占位图集）、输入与性能（真机）。
   存档代码审查发现的问题已修复，并在同一台真机上复测了翻页连点、强制停止后读回、快速存档连点；Windows 构建与非 ASCII 路径、其他游戏的回归没有验证。Tyranor Next 主应用识别 PC 版目录布局（根目录 `game.exe` + `data/` 里的 `script.cpk`、`mes00.cpk`；见 [Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效）：添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。更早的主应用版本不识别，只能由外部 Intent 指定 profile。主应用一侧在真机上只验证了识别、变体选择与版本提示，「主应用启动宿主进入游戏」这一整段还没有验证。
 - 全部可启动 profile 的机器可读清单见 [`engine/impacto/profiles.json`](engine/impacto/profiles.json)。
 - 宿主 0.1.2 起支持接收 Tyranor Next 传来的引擎设置（见下文 `SETTINGS`）。

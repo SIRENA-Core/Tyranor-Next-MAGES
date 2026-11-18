@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 11:14:24 -0800
+Subject: [PATCH] tyn: end the PC options submenu as soon as it has faded in
+
+TYN-only: the Windows/Steam release of Memories Off 6 T-Wave opens the options
+screen through the CC style submenu variables (SW_SYSSUBMENUNO 5,
+SW_SYSSUBMENUALPHA 0 -> 256) and never touches SW_OPTIONALPHA, which is what
+the PS3 style MO6TW options menu is keyed on. The menu was therefore never
+drawn while the script waited for SF_SUBMENUEXIT behind an invisible screen,
+until the player happened to press Back.
+
+The PS3 layout also does not fit the repacked PC option sheet (different
+sliders, button sets and voice toggles), so showing it would only draw garbled
+sprites. Until a PC specific options screen exists, raise SF_SUBMENUEXIT for
+InstructionSet::MO6TWPC once the submenu alpha reaches 256: the script then
+fades the submenu out and returns to the system menu list.
+
+Observed on MuMu (Android 15): SW_SYSSUBMENUNO=5, SW_SYSSUBMENUALPHA ramps
+0..256 in steps of 16, SW_OPTIONALPHA stays 0 and no exit is ever raised.
+
+diff --git a/src/games/mo6tw/optionsmenu.cpp b/src/games/mo6tw/optionsmenu.cpp
+index a9875f4ed98b9e994d53182179cd7bc1bf42defb..552b70a123dfc1fd81abe458155b229bfe3c1d9d 100644
+--- a/src/games/mo6tw/optionsmenu.cpp
++++ b/src/games/mo6tw/optionsmenu.cpp
+@@ -6,6 +6,8 @@
+ #include "../../mem.h"
+ #include "../../profile/scriptvars.h"
+ #include "../../vm/interface/input.h"
++#include "../../vm/vm.h"
++#include "../../profile/vm.h"
+ #include "../../audio/audiosystem.h"
+ 
+ namespace Impacto {
+@@ -343,6 +345,15 @@ void OptionsMenu::UpdateVisibility() {
+ void OptionsMenu::Update(float dt) {
+   UI::OptionsMenu::Update(dt);
+ 
++  // The PC scripts open the options screen through the CC style submenu variables (SW_SYSSUBMENUNO 5,
++  // SW_SYSSUBMENUALPHA 0 -> 256) and never touch SW_OPTIONALPHA, so this PS3 layout is not shown (and its sprites do
++  // not match the repacked PC sheets anyway). Without an exit the script waits for SF_SUBMENUEXIT forever behind an
++  // invisible screen; end the submenu as soon as it has faded in so the game returns to the system menu flow.
++  if (Profile::Vm::GameInstructionSet == Vm::InstructionSet::MO6TWPC &&
++      ScrWork[SW_SYSSUBMENUNO] == 5 && ScrWork[SW_SYSSUBMENUALPHA] == 256) {
++    SetFlag(SF_SUBMENUEXIT, true);
++  }
++
+   if (State == Shown) {
+     if (PADinputButtonWentDown & PAD1X)
+       GoToPage((CurrentPage + 1) % Pages.size());

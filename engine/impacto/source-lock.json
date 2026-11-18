@@ -58,6 +58,14 @@
       {
         "file": "0013-tyn-use-the-MO6TWPC-save-system-and-save-menu-in-the.patch",
         "sha256": "1a71bc01246ad75b1df3c9531b1213898f35abda44ed8ea5e6c300672e7c4d6e"
+      },
+      {
+        "file": "0014-tyn-end-the-PC-options-submenu-as-soon-as-it-has-fad.patch",
+        "sha256": "158f37692e0f9c4d709e60beee708f446ee422818aeff2f95ab59c764b64f4bf"
+      },
+      {
+        "file": "0015-tyn-show-the-backlog-in-the-MO6TWPC-profiles.patch",
+        "sha256": "668d233f9cdddc2702154661ac8f432c26ca3f17e7cf39c2caf0aa8af3ed9f43"
       }
     ]
   },
