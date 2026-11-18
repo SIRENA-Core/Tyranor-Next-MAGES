@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build an unmodified upstream candidate. Never install it into the TYN APK.
+# Build a release candidate from the pinned upstream revision plus the audited patch series
+# (engine/impacto/patches, locked in source-lock.json). Never install it into the TYN APK.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 META="$ROOT/engine/impacto"
@@ -8,19 +9,7 @@ if [[ $(uname -s) != Linux ]]; then
     exit 2
 fi
 source "$ROOT/tools/impacto/build-tools.sh"
-readarray -t LOCK < <(python3 - "$META/source-lock.json" <<'PY'
-import json, re, sys
-from pathlib import Path
-d = json.loads(Path(sys.argv[1]).read_text())
-for name, url in [('impacto', 'https://github.com/CommitteeOfZero/impacto.git'),
-                  ('vcpkg', 'https://github.com/microsoft/vcpkg.git')]:
-    if d[name]['url'] != url or not re.fullmatch('[0-9a-f]{40}', d[name]['revision']):
-        raise SystemExit('Invalid upstream source lock')
-    print(url)
-    print(d[name]['revision'])
-PY
-)
-[[ ${#LOCK[@]} == 4 ]] || { echo 'Unable to read source lock' >&2; exit 2; }
+impacto_read_source_lock "$META/source-lock.json" || exit 2
 
 # Keep this route separate from the old patched engine and SDL binary caches.
 BUILD=${IMPACTO_UPSTREAM_BUILD_ROOT:-"$ROOT/.impacto-upstream-build/${LOCK[1]}"}
@@ -39,7 +28,7 @@ verify_on_exit() {
     local result=$?
     trap - EXIT
     if [[ $SOURCE_VALIDATED == 1 ]] &&
-       ! python3 "$ROOT/tools/impacto/verify-upstream.py" --source "$SOURCE" --report "$BUILD/source-after.json"; then
+       ! python3 "$ROOT/tools/impacto/verify-upstream.py" --patched --source "$SOURCE" --report "$BUILD/source-after.json"; then
         result=1
     fi
     if [[ $result != 0 ]]; then
@@ -62,14 +51,7 @@ if [[ -e "$BUILD/build/_deps" || -e "$BUILD/build/CMakeCache.txt" ]]; then
     exit 2
 fi
 : "${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to Android NDK 28.0.13004108}"
-python3 - "$META/source-lock.json" "$ANDROID_NDK_HOME/source.properties" <<'PY'
-import json, re, sys
-from pathlib import Path
-lock = json.loads(Path(sys.argv[1]).read_text())
-ndk = Path(sys.argv[2]).read_text()
-if not re.search(r'^Pkg\.Revision\s*=\s*' + re.escape(lock['android']['ndk']) + r'\s*$', ndk, re.M):
-    raise SystemExit('Android NDK revision differs from source-lock.json')
-PY
+impacto_check_ndk "$META/source-lock.json" "$ANDROID_NDK_HOME"
 impacto_clear_git_environment
 export GIT_NO_REPLACE_OBJECTS=1
 impacto_resolve_build_tools
@@ -88,7 +70,7 @@ if [[ ! -f "$BUILD/.upstream-only-v1" ]] &&
 fi
 
 checkout() {
-    local dir=$1 url=$2 rev=$3
+    local dir=$1 url=$2 rev=$3 patched=${4:-}
     if [[ ! -e "$dir" ]]; then
         git init "$dir"
         git -C "$dir" config core.autocrlf false
@@ -105,12 +87,19 @@ checkout() {
     [[ $(git -C "$dir" rev-parse HEAD) == "$rev" ]] || {
         echo "Revision mismatch: choose a fresh IMPACTO_UPSTREAM_BUILD_ROOT ($dir)" >&2; exit 2;
     }
-    [[ -z $(git -C "$dir" status --porcelain --untracked-files=no) ]] || {
+    # The engine source may already carry the series from an interrupted attempt; apply-patches.py
+    # below accepts only "pristine" or "exactly pinned + series" and rejects everything else.
+    [[ -n $patched ]] || [[ -z $(git -C "$dir" status --porcelain --untracked-files=no) ]] || {
         echo "Modified checkout: $dir" >&2; exit 2;
     }
 }
-checkout "$SOURCE" "${LOCK[0]}" "${LOCK[1]}"
-python3 "$ROOT/tools/impacto/verify-upstream.py" --source "$SOURCE" --report "$BUILD/source-before.json"
+# The trailing `patched` is a positional flag, not a revision: it lets this one checkout already carry the series
+# (an interrupted earlier attempt). Every other checkout (vcpkg) is called without it and must be unmodified.
+checkout "$SOURCE" "${LOCK[0]}" "${LOCK[1]}" patched
+# Verifies the checkout is pristine (or already exactly pinned + series), checks every patch against its
+# locked SHA-256, applies the series with `git apply --index`, and records the resulting tree.
+python3 "$ROOT/tools/impacto/apply-patches.py" --source "$SOURCE" --report "$BUILD/patches-applied.json"
+python3 "$ROOT/tools/impacto/verify-upstream.py" --patched --source "$SOURCE" --report "$BUILD/source-before.json"
 SOURCE_VALIDATED=1
 checkout "$VCPKG_ROOT" "${LOCK[2]}" "${LOCK[3]}"
 mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE" "$VCPKG_DOWNLOADS"
@@ -121,22 +110,9 @@ fi
 if [[ ! -x "$VCPKG_ROOT/vcpkg" ]]; then
     "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 fi
-export VULKAN_SDK="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr"
-"$CMAKE" -S "$SOURCE" -B "$BUILD/build" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM="$NINJA" \
-    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-    -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
-    -DVCPKG_TARGET_TRIPLET=arm64-android-impacto \
-    -DVCPKG_OVERLAY_TRIPLETS="$META/triplets" \
-    -DVCPKG_OVERLAY_PORTS="$SOURCE/portfiles" \
-    -DCMAKE_PROJECT_impacto_INCLUDE="$META/host-build/pin-dependencies.cmake" \
-    -DTYRANOR_IMPACTO_SOURCE_LOCK="$META/source-lock.json" \
-    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_static \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_FLAGS= -DCMAKE_C_FLAGS= \
-    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--build-id=sha1,-z,max-page-size=16384,-z,common-page-size=16384" \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DIMPACTO_GL_DEBUG=OFF -DIMPACTO_WARNINGS=ON
+impacto_cmake_configure "$SOURCE" "$BUILD/build"
 "$CMAKE" --build "$BUILD/build" --parallel "$VCPKG_MAX_CONCURRENCY"
-python3 "$ROOT/tools/impacto/verify-upstream.py" --source "$SOURCE" --report "$BUILD/source-after.json"
+python3 "$ROOT/tools/impacto/verify-upstream.py" --patched --source "$SOURCE" --report "$BUILD/source-after.json"
 # Upstream Android install paths point inside its source checkout. Do not install.
 # The old package-runtime.py requires a patched SDL namespace; do not use it here.
 python3 "$ROOT/tools/impacto/stage-upstream.py" --build-root "$BUILD" --ndk "$ANDROID_NDK_HOME" --build-lock-owner "$$"

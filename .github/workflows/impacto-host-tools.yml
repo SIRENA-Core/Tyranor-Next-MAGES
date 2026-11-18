@@ -25,11 +25,25 @@ jobs:
           python tools/impacto/check-host-manifest.py
           python tools/impacto/test-check-host-manifest.py
           python tools/impacto/test-upstream-integrity.py
+          python tools/impacto/test-patch-series.py
           python tools/impacto/test-git-environment.py
           python tools/impacto/test-build-preflight.py
           python tools/impacto/test-stage-upstream.py
+          python tools/impacto/test-profiles.py
+          bash -n tools/impacto/build-tools.sh
           bash -n tools/impacto/build-upstream.sh
+          bash -n tools/impacto/dev-build.sh
           bash tools/impacto/test-build-tools.sh
+      - name: Apply the locked patch series to the pinned upstream revision
+        run: |
+          rev=$(python -c "import json;print(json.load(open('engine/impacto/source-lock.json'))['impacto']['revision'])")
+          git init -q "$RUNNER_TEMP/impacto-source"
+          git -C "$RUNNER_TEMP/impacto-source" config core.autocrlf false
+          git -C "$RUNNER_TEMP/impacto-source" fetch -q --depth 1 https://github.com/CommitteeOfZero/impacto.git "$rev"
+          git -C "$RUNNER_TEMP/impacto-source" checkout -q --detach "$rev"
+          python tools/impacto/apply-patches.py --source "$RUNNER_TEMP/impacto-source" --report "$RUNNER_TEMP/patches-applied.json"
+          python tools/impacto/verify-upstream.py --patched --source "$RUNNER_TEMP/impacto-source"
+          python tools/impacto/test-profiles.py --source "$RUNNER_TEMP/impacto-source"
       - name: Check dependency pinning without downloads
         run: |
           cmake -S tools/impacto/tests/pins -B "$RUNNER_TEMP/impacto-pins" \

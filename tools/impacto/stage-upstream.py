@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Stage an upstream candidate; never overwrite the application's runtime."""
+"""Stage a candidate built from pinned upstream + the locked patch series; never overwrite the application's runtime.
+
+--dev stages a "dev-candidate" (developer iteration build, never releasable).
+"""
 import argparse
 from contextlib import contextmanager
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import impacto_common  # noqa: E402
+
+ROOT = impacto_common.ROOT
 
 
 def digest(path):
@@ -45,8 +51,9 @@ def build_lock(build, inherited_owner=None):
     if inherited_owner is not None:
         # Only the direct child of the owning build shell may reuse its lock.
         # The child must leave ownership and cleanup with the parent.
-        if (inherited_owner != os.getppid()
-                or (lock / 'owner').read_text(encoding='ascii').strip() != str(inherited_owner)):
+        # The shell writes "<pid> [<start time>]"; only the pid identifies the parent here.
+        owner = (lock / 'owner').read_text(encoding='ascii').split()
+        if inherited_owner != os.getppid() or not owner or owner[0] != str(inherited_owner):
             raise RuntimeError('Inherited build lock does not belong to the parent process')
         yield
         return
@@ -82,13 +89,12 @@ def publication_lock(stage):
 
 
 def source_report(build):
-    spec = importlib.util.spec_from_file_location('verify_upstream', Path(__file__).with_name('verify-upstream.py'))
-    verifier = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(verifier)
-    return verifier.verify(build / 'source', ROOT / 'engine/impacto/source-lock.json')
+    verifier = impacto_common.load_verifier()
+    # The candidate is built from the patched checkout: pinned revision + the locked series, nothing else.
+    return verifier.verify(build / 'source', ROOT / 'engine/impacto/source-lock.json', patched=True)
 
 
-def stage_candidate(build, ndk, inherited_owner=None):
+def stage_candidate(build, ndk, inherited_owner=None, dev=False):
     stage = build / 'candidate'
     stage.mkdir(parents=True, exist_ok=True)
     library = build / 'build/libimpacto.so'
@@ -109,16 +115,20 @@ def stage_candidate(build, ndk, inherited_owner=None):
             elf = subprocess.check_output([str(tool), '-h', '-l', '--dyn-syms', '--wide', str(snapshot)], text=True)
             inspect_elf(elf)
             report = {
-                'version': 1, 'status': 'candidate-not-integrated', 'engineSource': source,
+                'version': 1, 'status': 'dev-candidate' if dev else 'candidate-not-integrated',
+                'releaseReady': False,  # the one place that says so: nothing built here is releasable by itself
+                'engineSource': source,
                 'sourceLock': json.loads((ROOT / 'engine/impacto/source-lock.json').read_text()),
-                'tyranorEnginePatches': [], 'tyranorDependencyPatches': [],
+                'tyranorEnginePatches': source['patches'], 'patchedTree': source['patchedTree'],
+                'tyranorDependencyPatches': [],
                 'upstreamDependencyRecipe': 'Retained, including the upstream LibAtrac9 CMake copy',
                 'library': library.name, 'sha256': digest(snapshot), 'elfLoadAlignment': 16384,
                 'recipeSha256': {name: digest(ROOT / name) for name in [
-                    'tools/impacto/build-upstream.sh', 'engine/impacto/host-build/pin-dependencies.cmake',
+                    'tools/impacto/dev-build.sh' if dev else 'tools/impacto/build-upstream.sh',
+                    'engine/impacto/host-build/pin-dependencies.cmake',
                     'engine/impacto/triplets/arm64-android-impacto.cmake']},
                 'validation': {'hostIntegrated': False, 'gameplayTested': False,
-                               'correspondingSourcesPackaged': False, 'releaseReady': False},
+                               'correspondingSourcesPackaged': False},
             }
             (temporary / 'elf-report.txt').write_text(elf, encoding='utf-8')
             (temporary / 'candidate.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
@@ -126,16 +136,17 @@ def stage_candidate(build, ndk, inherited_owner=None):
             os.replace(temporary / 'elf-report.txt', stage / 'elf-report.txt')
             # Publish valid metadata last. Interrupted publication stays pending.
             os.replace(temporary / 'candidate.json', stage / 'candidate.json')
-    print(f'Candidate staged at {stage}; not installed into TYN or approved for distribution.')
+    print(f'{"Dev candidate" if dev else "Candidate"} staged at {stage}; not installed into TYN or approved for distribution.')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-root', type=Path, required=True)
     parser.add_argument('--ndk', type=Path, required=True)
+    parser.add_argument('--dev', action='store_true', help='stage a dev-candidate (never releasable)')
     parser.add_argument('--build-lock-owner', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    stage_candidate(args.build_root.resolve(), args.ndk, args.build_lock_owner)
+    stage_candidate(args.build_root.resolve(), args.ndk, args.build_lock_owner, args.dev)
 
 
 if __name__ == '__main__':

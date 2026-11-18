@@ -71,7 +71,7 @@ class SnapshotPublicationTest(unittest.TestCase):
         (self.candidate / 'libimpacto.so').write_bytes(b'previous candidate')
         (self.candidate / 'candidate.json').write_text(
             json.dumps({'status': 'candidate-not-integrated', 'sha256': 'old'}), encoding='utf-8')
-        for name in ['tools/impacto/build-upstream.sh',
+        for name in ['tools/impacto/build-upstream.sh', 'tools/impacto/dev-build.sh',
                      'engine/impacto/host-build/pin-dependencies.cmake',
                      'engine/impacto/triplets/arm64-android-impacto.cmake']:
             path = self.root / name
@@ -81,7 +81,9 @@ class SnapshotPublicationTest(unittest.TestCase):
         self.root_patch = patch.object(stage, 'ROOT', self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
-        self.source_patch = patch.object(stage, 'source_report', return_value={'clean': True})
+        self.series = [{'file': '0001-fixture.patch', 'sha256': '1' * 64}]
+        self.source_patch = patch.object(stage, 'source_report', return_value={
+            'clean': True, 'patched': True, 'patches': self.series, 'patchedTree': 'f' * 40})
         self.source_patch.start()
         self.addCleanup(self.source_patch.stop)
 
@@ -111,6 +113,25 @@ class SnapshotPublicationTest(unittest.TestCase):
         self.assertEqual(report['sha256'], hashlib.sha256(checked).hexdigest())
         self.assertEqual(report['status'], 'candidate-not-integrated')
         self.assert_no_temporary_publication()
+
+    def test_release_candidate_records_patch_series_and_tree(self):
+        with patch.object(stage.subprocess, 'check_output', return_value=ELF):
+            stage.stage_candidate(self.build, self.root / 'ndk')
+        report = json.loads((self.candidate / 'candidate.json').read_text())
+        self.assertEqual(report['status'], 'candidate-not-integrated')
+        self.assertEqual(report['tyranorEnginePatches'], self.series)
+        self.assertEqual(report['patchedTree'], 'f' * 40)
+        self.assertEqual(report['engineSource']['patches'], self.series)
+        self.assertIn('tools/impacto/build-upstream.sh', report['recipeSha256'])
+
+    def test_dev_candidate_is_marked_and_never_release_ready(self):
+        with patch.object(stage.subprocess, 'check_output', return_value=ELF):
+            stage.stage_candidate(self.build, self.root / 'ndk', dev=True)
+        report = json.loads((self.candidate / 'candidate.json').read_text())
+        self.assertEqual(report['status'], 'dev-candidate')
+        self.assertIs(report['releaseReady'], False)
+        self.assertIn('tools/impacto/dev-build.sh', report['recipeSha256'])
+        self.assertNotIn('tools/impacto/build-upstream.sh', report['recipeSha256'])
 
     def test_rejected_snapshot_keeps_old_bytes_but_invalidates_old_report(self):
         with patch.object(stage.subprocess, 'check_output', return_value=ELF.replace('AArch64', 'X86-64')):
