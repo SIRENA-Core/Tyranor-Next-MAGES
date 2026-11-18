@@ -26,4 +26,19 @@ final class ImpactoIntents {
             return null;
         }
     }
+
+    /**
+     * The user settings carried by the request (see {@link ImpactoSettings}); never {@code null}. A missing or
+     * unusable payload gives {@link ImpactoSettings#none()}, i.e. the engine keeps its own values.
+     */
+    static ImpactoSettings readSettings(Intent intent) {
+        if (intent == null) {
+            return ImpactoSettings.none();
+        }
+        try {
+            return ImpactoSettings.parse(intent.getStringExtra(ImpactoSettings.EXTRA_SETTINGS));
+        } catch (RuntimeException e) {
+            return ImpactoSettings.none();
+        }
+    }
 }

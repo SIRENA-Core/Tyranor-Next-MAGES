@@ -30,6 +30,8 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 上游即按 `RootGamedataDir/<profile>/<档案>` 找到数据，无需复制。存档与 `userconfig.toml` 因此按游戏隔离。
 链接位置已存在真实目录或文件时拒绝替换。
 
+启动请求还可带 `SETTINGS`（用户设置 JSON，字段与对应的 `userconfig.toml` 键见仓库根 README）：宿主在建好数据根后、启动引擎前，把它合并进数据根下的 `userconfig.toml`（引擎自己的 `-uc` 路径）；写入失败只记日志，不阻止启动。
+
 入口 Activity 对外导出，所有字段都按不可信输入校验：profile 必须在固定白名单内；目录必须是共享存储（`/storage/`、`/sdcard/`）
 下的规范化路径，且不得位于其他应用的 `Android/data`、`Android/obb`；`gameKey` 由宿主按与主 App 相同的方式
 （SHA-256 前 12 字节，输入为 `profile NUL 目录`）重新计算，不符即拒绝，因此调用方无法让某个游戏的数据根指向别的目录。
