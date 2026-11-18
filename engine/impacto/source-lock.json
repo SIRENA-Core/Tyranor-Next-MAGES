@@ -2,7 +2,7 @@
   "version": 1,
   "impacto": {
     "url": "https://github.com/CommitteeOfZero/impacto.git",
-    "revision": "ba0b6e0884b9016fcd7dfd3e50024c5af1e8aef7"
+    "revision": "31bbd61ea41b3e0df7b409c6b784a42b4a75d951"
   },
   "patches": {
     "directory": "patches",
