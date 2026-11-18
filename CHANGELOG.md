@@ -28,7 +28,7 @@
   快速存档连点后 `SYSTEM.DAT` 的 CRC 与结构完好、无残留临时文件，且槽位数与内存一致。**未验证**：Windows 构建与非 ASCII 路径、损坏系统数据的行为只做了代码审查、其他游戏没有设备回归。
 - NOTICE：APK 含经修改的 ISC 上游源码，修改即补丁系列；发布的许可证文本包同时附带补丁系列；补丁系列自身的许可证待仓库所有者确定（NOTICE 里有占位说明）。
 - 发行版与宿主 APK 改用新名字「Tyranor Next MAGES」：发布标题为「Tyranor Next MAGES <版本>」，发布资产改为 `Tyranor-Next-MAGES.apk`、`Tyranor-Next-MAGES.sha256`、`Tyranor-Next-MAGES.candidate.json`、`Tyranor-Next-MAGES.licenses.tar.xz`（资产名不能含空格，用连字符），宿主应用名由「MAGES.（impacto）」改为「Tyranor Next MAGES」。标签仍是 `impacto-host-<版本>`，包名与 Intent 协议不变。
-- 0.1.2 及更早的发布仍带 `impacto-host.*` 资产，不会被改动。Tyranor Next 里写死 `releases/latest/download/impacto-host.apk` 的旧版本，在本仓库发布第一个新名字的版本之后将下载失败；Tyranor Next 的下载链接需要随之改为 `Tyranor-Next-MAGES.apk`。
+- 0.2.0 另附一份与 `Tyranor-Next-MAGES.apk` 逐字节相同的 `impacto-host.apk`，只为让写死旧资产名的旧版 Tyranor Next 继续能从 `releases/latest/download/impacto-host.apk` 下载。**这份兼容副本只在 0.2.0 里有，之后的版本不再附带**：旧版 Tyranor Next 的旧链接会从下一个发布起失效，Tyranor Next 的下载链接需要改为 `Tyranor-Next-MAGES.apk`。0.1.2 及更早的发布仍带 `impacto-host.*` 资产，不会被改动。
 
 ## 0.1.2（versionCode 3）
 
