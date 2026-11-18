@@ -1,0 +1,2267 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:46 -0800
+Subject: [PATCH] tyn: add the mo6tw-pc, mo6tw-pc-zhs and mo6tw-pc-zht profiles
+
+TYN-only. Profiles and gamedefinitions entries for the Windows/Steam release
+of Memories Off 6 T-Wave (InstructionSet MO6TWPC; Japanese, Simplified and
+Traditional Chinese variants).
+
+They use the generic switches added earlier in the series
+(Game.VoiceTableLittleEndian, Dialogue.NameInsideNametag,
+SaveData.AllowMissingImplementation) and UseMsbStrings. Sprite, HUD and font
+width tables are generated (headers point to tools/impacto/mo6tw-pc/*.py in
+yuukana1/Tyranor-Next-Impacto); HUD coordinates are the PS3 profile scaled
+x1.5 where the PC sheets are exact 1.5x copies.
+
+Known gaps: Dialogue.KeyWaitIconPos is {0, 0} like upstream mo6tw/mo8, not
+measured (TODO(tyn)); there is no save system for the PC release yet.
+SW_MESWIN0TYPE/SW_MESMODE0 are moved 60 down because the common layout's
+4422 collides with the third mask priority on PC (commented in
+scriptvars.lua).
+
+diff --git a/gamedefinitions.lua b/gamedefinitions.lua
+index 7c0bef886ac737ea4099f32a54fbea057b3ed656..1e368b0f4f18b49826d35d401dd7881cbe7dd849 100644
+--- a/gamedefinitions.lua
++++ b/gamedefinitions.lua
+@@ -37,6 +37,24 @@ root.GameDefinitions = {
+     LauncherOrderId = 6,
+     GameProfile = root.BasePaths.RootProfilesDir .. "/mo6tw/game.lua",
+   },
++  ["mo6tw-pc"] = {
++    Hidden = true,
++    Name = "Memories Off 6 ~T-Wave~ (PC)",
++    LauncherOrderId = 6,
++    GameProfile = root.BasePaths.RootProfilesDir .. "/mo6tw-pc/game.lua",
++  },
++  ["mo6tw-pc-zhs"] = {
++    Hidden = true,
++    Name = "Memories Off 6 ~T-Wave~ (PC, Simplified Chinese)",
++    LauncherOrderId = 6,
++    GameProfile = root.BasePaths.RootProfilesDir .. "/mo6tw-pc-zhs/game.lua",
++  },
++  ["mo6tw-pc-zht"] = {
++    Hidden = true,
++    Name = "Memories Off 6 ~T-Wave~ (PC, Traditional Chinese)",
++    LauncherOrderId = 6,
++    GameProfile = root.BasePaths.RootProfilesDir .. "/mo6tw-pc-zht/game.lua",
++  },
+   darling = {
+     Hidden = true,
+     Name = "STEINS;GATE: My Darling's Embrace",
+diff --git a/profiles/mo6tw-pc-zhs/game.lua b/profiles/mo6tw-pc-zhs/game.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..0cd61883074561593ce816defc3b5b719ecf0872
+--- /dev/null
++++ b/profiles/mo6tw-pc-zhs/game.lua
+@@ -0,0 +1,3 @@
++-- Memories Off 6 T-Wave (PC) - Simplified Chinese (mes02, font_kt)
++root.Mo6Pc = { Lang = "zhs", Dir = "mo6tw-pc-zhs", Mes = "mes02" };
++include(root.BasePaths.RootProfilesDir .. '/mo6tw-pc/profile.lua');
+diff --git a/profiles/mo6tw-pc-zht/game.lua b/profiles/mo6tw-pc-zht/game.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd4059b57378eafbfa538fd8eeffddd90583ebb0
+--- /dev/null
++++ b/profiles/mo6tw-pc-zht/game.lua
+@@ -0,0 +1,3 @@
++-- Memories Off 6 T-Wave (PC) - Traditional Chinese (mes01, font_ht)
++root.Mo6Pc = { Lang = "zht", Dir = "mo6tw-pc-zht", Mes = "mes01" };
++include(root.BasePaths.RootProfilesDir .. '/mo6tw-pc/profile.lua');
+diff --git a/profiles/mo6tw-pc/charset.lua b/profiles/mo6tw-pc/charset.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f0fc2c46580e0df6a4e0f8e7497b38296291001
+--- /dev/null
++++ b/profiles/mo6tw-pc/charset.lua
+@@ -0,0 +1,57 @@
++-- Glyph flags for the 64x125 glyph grid of the PC fonts (font / font_ht / font_kt).
++-- The symbol/kana region (rows 0..9) is laid out identically in all three fonts: punctuation
++-- ids were verified by rendering cells 188..255, 275/276, 389..392 and 419..424 of each
++-- atlas side by side (e.g. 190 '、' 191 '。' 192 '，' 196 '？' 197 '！' 216/217 '「」').
++-- Simplified/Traditional Chinese only differ in the kanji region (ids >= ~700), which has
++-- no punctuation.
++root.Charset = {
++    Flags = {}
++};
++
++for i = 0, (64 * 125) - 1 do root.Charset.Flags[i] = 0; end
++
++local spaces = {[0]=0, 63};
++for i = 0, #spaces do
++    root.Charset.Flags[spaces[i]] = root.Charset.Flags[spaces[i]] | CharacterTypeFlags.Space;
++end
++
++-- 、 。 ． ， ？ ！ 〜 ” ー ） 〕 ］ ｝ 〉 》 」 』 】☆ ★ ♪ 々 ぁ ぃ ぅ ぇ
++-- ぉ っ ゃ ゅ ょ ァ ィ ゥ ェ ォ ッ ャ ュ ョ –
++local wordEndingPuncts = {
++    [0]=0x00BE, 0x00BF, 0x00C1,
++    0x00C0, 0x00C4, 0x00C5,
++    0x00E4, 0x00CB, 0x00E5,
++    0x00CD, 0x00CF, 0x00D1,
++    0x00D3, 0x00D5, 0x00D7,
++    0x00D9, 0x00DB, 0x00DD,
++    0x01A5, 0x01A6, 0x00E6,
++    0x0187, 0x00E8, 0x00E9,
++    0x00EA, 0x00EB, 0x00EC,
++    0x00ED, 0x00EE, 0x00EF,
++    0x00F0, 0x00F2, 0x00F3,
++    0x00F4, 0x00F5, 0x00F6,
++    0x00F7, 0x00F8, 0x00F9,
++    0x00FA, 0x0113
++};
++for i = 0, #wordEndingPuncts do
++    root.Charset.Flags[wordEndingPuncts[i]] = root.Charset.Flags[wordEndingPuncts[i]] | CharacterTypeFlags.WordEndingPunct;
++end
++
++-- Chinese text also uses full-width ： (0xC2) and ； (0xC3) which must not start a line
++if root.Mo6Pc.Lang ~= "ja" then
++    local zhEndingPuncts = {[0]=0x00C2, 0x00C3};
++    for i = 0, #zhEndingPuncts do
++        root.Charset.Flags[zhEndingPuncts[i]] = root.Charset.Flags[zhEndingPuncts[i]] | CharacterTypeFlags.WordEndingPunct;
++    end
++end
++
++-- space(63) space(0) “ （ 〔 ［ ｛ 〈 《 「
++local wordStartingPuncts = {
++    [0]=63, 0, 0x00CA,
++    0x00CC, 0x00CE, 0x00D0,
++    0x00D2, 0x00D4, 0x00D6,
++    0x00D8, 0x00DA, 0x00DC
++};
++for i = 0, #wordStartingPuncts do
++    root.Charset.Flags[wordStartingPuncts[i]] = root.Charset.Flags[wordStartingPuncts[i]] | CharacterTypeFlags.WordStartingPunct;
++end
+diff --git a/profiles/mo6tw-pc/dialogue.lua b/profiles/mo6tw-pc/dialogue.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..4157b13014a1067d86437245b582d7d76c47d9cf
+--- /dev/null
++++ b/profiles/mo6tw-pc/dialogue.lua
+@@ -0,0 +1,125 @@
++-- Generated from profiles/mo6tw/dialogue.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++root.Sprites["ADVBox"] = {
++    Sheet = "Data",
++    Bounds = { X = 0, Y = 464, Width = 1541, Height = 309 }
++};
++
++root.Sprites["DialogueWaitIcon"] = {
++    Sheet = "Data",
++    Bounds = { X = 627, Y = 414, Width = 48, Height = 48 }
++};
++
++root.Sprites["ADVBoxPartLeft"] = {
++    Sheet = "Data",
++    Bounds = { X = 1542, Y = 464, Width = 42, Height = 270 }
++};
++
++root.Sprites["ADVBoxPartRight"] = {
++    Sheet = "Data",
++    Bounds = { X = 1587, Y = 464, Width = 42, Height = 270 }
++};
++
++root.Sprites["ADVBoxDecoration"] = {
++    Sheet = "Data",
++    Bounds = { X = 557, Y = 182, Width = 72, Height = 69 }
++};
++
++root.Dialogue = {
++    TipsMessageModeIdx = 7,
++    TipsColorIndex = 0,
++    REVMessageModeIdx = 9,
++    REVColor = 0,
++    REVNameColor = 24,
++    REVOutlineMode = 2,
++    REVNameOutlineMode = 2,
++    ADVBoxSprite = "ADVBox",
++    ADVBoxPos = { X = 191, Y = 750 },
++    FadeOutDuration = 0.33,
++    FadeInDuration = 0.33,
++    TextFadeInDuration = 0.33,
++    TextFadeOutDuration = 0.33,
++    DialogueBoxCurrentType = DialogueBoxType.MO6TW,
++    ADVBoxPartLeft = "ADVBoxPartLeft",
++    ADVBoxPartRight = "ADVBoxPartRight",
++    ADVBoxPartLeftPos = { X = 152, Y = 750 },
++    ADVBoxPartRightPos = { X = 1730, Y = 750 },
++    ADVBoxDecoration = "ADVBoxDecoration",
++    ADVBoxDecorationPos = { X = 1502, Y = 969 },
++    NVLBoxMaxOpacity = 0.55,
++
++    OldNametagPositioning = true,
++    NameInsideNametag = true,
++    NametagCurrentType = NametagType.ThreePiece,
++    NametagPosition = { X = 150, Y = 687 },
++    NametagLeftSprite = "NametagLeftSprite",
++    NametagMiddleSprite = "NametagMiddleSprite",
++    NametagRightSprite = "NametagRightSprite",
++    NametagMiddleBaseWidth = 0.0,
++
++    WaitIconCurrentType = WaitIconType.Rotating3D,
++    WaitIconSprite = "DialogueWaitIcon",
++    WaitIconAnimationDuration = 3.2,
++    KeyWaitIconPos = { X = 0, Y = 0 }, -- TODO(tyn): unmeasured (key-wait icon only); upstream mo6tw/mo8 also use 0,0
++    WaitIconOffset = { X = 6, Y = 6 },
++
++    DialogueFont = "Default",
++    SetFontSizeRatio = 1000.0,
++    DefaultFontSize = 48,
++    ColorTable = {
++        {0xFFFFFF, 0x000000}, {0x5080FF, 0x000000},
++        {0xFF7080, 0x000000}, {0xFFA0F8, 0x000000},
++        {0x46FF80, 0x000000}, {0x90FFFF, 0x000000},
++        {0xFFFF70, 0x000000}, {0x80FFC0, 0x000000},
++        {0xFFB080, 0x000000}, {0xB080FF, 0x000000},
++        {0x000000, 0x808080}, {0x000000, 0x5080FF},
++        {0x000000, 0xFF7080}, {0x000000, 0xFFA0F8},
++        {0x000000, 0x268840}, {0x000000, 0x409999},
++        {0x000000, 0x888830}, {0x000000, 0x80FFC0},
++        {0x000000, 0xFFB080}, {0x000000, 0xB080FF},
++        {0xD0D0D0, 0x000000}, {0xD0D0FF, 0x000000},
++        {0xFFD0D0, 0x000000}, {0xFFD0FF, 0x000000},
++        {0xD0FFD0, 0x000000}, {0xD0FFFF, 0x000000},
++        {0xFFFFD0, 0x000000}, {0xE8FFD0, 0x000000},
++        {0xFFE8D0, 0x000000}, {0xD0E8FF, 0x000000},
++        {0xFFFFFF, 0x808080}, {0xFFFFFF, 0x5080FF},
++        {0xFFFFFF, 0xFF7080}, {0xFFFFFF, 0xFFA0F8},
++        {0xFFFFFF, 0x46FF80}, {0xFFFFFF, 0x90FFFF},
++        {0xFFFFFF, 0xFFFF70}, {0xFFFFFF, 0x80FFC0},
++        {0xFFFFFF, 0xFFB080}, {0xFFFFFF, 0xB080FF},
++        {0xFFEEEE, 0x000000}, {0xFFCCCC, 0x000000},
++        {0xFFAAAA, 0x000000}, {0xFF9999, 0x000000},
++        {0xFF8888, 0x000000}, {0xFFFF00, 0x000000},
++        {0xFEF000, 0x000000}, {0xFF7777, 0x000000},
++        {0xFF6666, 0x000000}, {0xFF5555, 0x000000},
++        {0xFF4444, 0x000000}, {0xFF3333, 0x000000},
++        {0xFF2222, 0x000000}, {0xFF0000, 0x000000},
++        {0xDD0000, 0x000000}, {0xBB0000, 0x000000},
++        {0xB00000, 0x000000}, {0xAA0000, 0x000000},
++        {0x950000, 0x000000}, {0x808080, 0x000000},
++        {0xAAAAAA, 0x000000}, {0xAAC1C9, 0x000000},
++        {0x000000, 0x000000}, {0x000000, 0x000000},
++        {0x000000, 0x000000}, {0x000000, 0x000000},
++        {0x000000, 0x000000}, {0xF80B0B, 0x000000},
++        {0xF8910B, 0x000000}, {0x33F12A, 0x000000},
++        {0x44DD66, 0x000000}, {0xAAFFAA, 0x000000}
++    },
++    MaxPageSize = 2000,
++    PageCount = 3,
++    ColorTagIsUint8 = false
++};
++
++root.Sprites["NametagLeftSprite"] = {
++    Sheet = "Data",
++    Bounds = { X = 2, Y = 399, Width = 35, Height = 62 }
++};
++
++root.Sprites["NametagMiddleSprite"] = {
++    Sheet = "Data",
++    Bounds = { X = 36, Y = 399, Width = 285, Height = 62 }
++};
++
++root.Sprites["NametagRightSprite"] = {
++    Sheet = "Data",
++    Bounds = { X = 321, Y = 399, Width = 35, Height = 62 }
++};
+diff --git a/profiles/mo6tw-pc/font-widths.lua b/profiles/mo6tw-pc/font-widths.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b25033c6d664b389e325210570fec8156823b96
+--- /dev/null
++++ b/profiles/mo6tw-pc/font-widths.lua
+@@ -0,0 +1,10 @@
++-- Generated by tools/impacto/mo6tw-pc/gen_widths.py in yuukana1/Tyranor-Next-Impacto from system.cpk font/font_ht/font_kt (ids 10/11/12); do not edit.
++-- Advance widths in 48px-em units; every glyph not listed has advance 48.
++root.Mo6PcAdvanceOverrides = {
++    [63]=26, [64]=26, [65]=26, [66]=26, [67]=26, [68]=26, [69]=26, [70]=26, [71]=26, [72]=26, [73]=26, [74]=26,
++    [75]=26, [76]=26, [77]=26, [78]=26, [79]=26, [80]=26, [81]=26, [82]=26, [83]=26, [84]=26, [85]=26, [86]=26,
++    [87]=26, [88]=26, [89]=26, [90]=26, [91]=26, [92]=26, [93]=26, [94]=26, [95]=26, [96]=26, [97]=26, [98]=26,
++    [99]=26, [100]=26, [101]=26, [102]=26, [103]=26, [104]=26, [105]=26, [106]=26, [107]=26, [108]=26, [109]=26, [110]=26,
++    [111]=26, [112]=26, [113]=26, [114]=26, [115]=26, [116]=26, [117]=26, [118]=26, [119]=26, [120]=26, [121]=26, [122]=26,
++    [123]=26, [124]=26, [125]=26, [126]=26, [127]=26,
++};
+diff --git a/profiles/mo6tw-pc/font.lua b/profiles/mo6tw-pc/font.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..0410beda1d9924dbf1b9fc26ce6eff48d74b3fa1
+--- /dev/null
++++ b/profiles/mo6tw-pc/font.lua
+@@ -0,0 +1,16 @@
++-- SingleSheet font for the PC release: sheet 3072x6000, 64x125 grid of 48px cells.
++-- Advance widths: see font-widths.lua (generated by tools/impacto/mo6tw-pc/gen_widths.py in yuukana1/Tyranor-Next-Impacto).
++root.Fonts = {
++    ["Default"] = {
++        Type = FontType.SingleSheet,
++        Sheet = "Font",
++        GridSize = { X = 64, Y = 125 },
++        AdvanceWidthsTable = {},
++        AdvanceWidthsEmWidth = 48,
++    }
++};
++
++local overrides = root.Mo6PcAdvanceOverrides;
++for i = 1, (64 * 125) do
++    root.Fonts["Default"].AdvanceWidthsTable[i] = overrides[i - 1] or 48;
++end
+diff --git a/profiles/mo6tw-pc/game.lua b/profiles/mo6tw-pc/game.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f007b9d1661391913e4bb9d08346bd1ca2f21c2
+--- /dev/null
++++ b/profiles/mo6tw-pc/game.lua
+@@ -0,0 +1,3 @@
++-- Memories Off 6 T-Wave (PC) - Japanese
++root.Mo6Pc = { Lang = "ja", Dir = "mo6tw-pc", Mes = "mes00" };
++include(root.BasePaths.RootProfilesDir .. '/mo6tw-pc/profile.lua');
+diff --git a/profiles/mo6tw-pc/hud/backlogmenu.lua b/profiles/mo6tw-pc/hud/backlogmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..d176372e3dd78cce4067195a2f79fff1775b288f
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/backlogmenu.lua
+@@ -0,0 +1,59 @@
++-- TODO(tyn): PC layout differs, coordinates approximate
++-- Generated from profiles/mo6tw/hud/backlogmenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
++-- The PC sheets for these menus were repacked, so sprite bounds are not exact.
++root.BacklogMenu = {
++    Type = BacklogMenuType.MO6TW,
++    DrawType = DrawComponentType.ExtrasScenes,
++
++    BacklogBackgroundSprite = "BacklogBackground",
++
++    EntryHighlightSprite = "EntryHighlight",
++    EntryHighlightLocation = EntryHighlightLocationType.BottomLeftOfEntry,
++    EntryHighlightOffset = { X = 0, Y = 0 },
++    EntryHighlightPadding = 0.0,
++
++    VoiceIconSprite = "VoiceIcon",
++    VoiceIconOffset = { X = 0, Y = 0 },
++
++    ScrollbarTrackSprite = "ScrollbarTrack",
++    ScrollbarThumbSprite = "ScrollbarThumb",
++    ScrollbarPosition = { X = 1748, Y = 147 },
++    ScrollbarThumbLength = 45,
++
++    EntriesStart = { X = 0, Y = 135 },
++    RenderingBounds = { X = 125, Y = 125, Width = 1676, Height = 885 },
++    EntryYPadding = 33,
++
++    HoverBounds = { X = 195, Y = 125, Width = 1488, Height = 885 },
++
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2,
++
++    ScrollingSpeed = 900,
++    PageUpDownHeight = 780
++};
++
++root.Sprites["BacklogBackground"] = {
++    Sheet = "Backlog",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 },
++};
++
++root.Sprites["VoiceIcon"] = {
++    Sheet = "Backlog",
++    Bounds = { X = 1922, Y = 2, Width = 45, Height = 45 },
++};
++
++root.Sprites["EntryHighlight"] = {
++    Sheet = "Data",
++    Bounds = { X = 98, Y = 2, Width = 141, Height = 45 }
++};
++
++root.Sprites["ScrollbarThumb"] = {
++    Sheet = "Backlog",
++    Bounds = { X = 1922, Y = 48, Width = 45, Height = 45 },
++};
++
++root.Sprites["ScrollbarTrack"] = {
++    Sheet = "Backlog",
++    Bounds = { X = 2250, Y = 0, Width = 12, Height = 851 },
++};
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/datedisplay.lua b/profiles/mo6tw-pc/hud/datedisplay.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..19ca2b36f0568d1a2ef746dd076937e4301d688a
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/datedisplay.lua
+@@ -0,0 +1,180 @@
++-- Generated from profiles/mo6tw/hud/datedisplay.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++local sheet = "Data";
++local name = "Date";
++
++local yearNumFirstX = 2288;
++local yearNumFirstY = 95;
++local yearNumWidth = 38;
++local yearNum1Width = 12;
++local yearNumHeight = 30;
++
++local numFirstX = 2286;
++local numFirstY = 50;
++local numWidth = 60;
++local num1Width = 18;
++local numHeight = 42;
++
++local weekFirstX = 2678;
++local weekFirstY = 95;
++local weekSecondX = 2288;
++local weekSecondY = 128;
++local weekWidth = 110;
++local weekFriWidth = 84;
++local weekHeight = 30;
++
++root.DateDisplay = {
++    Type = DateDisplayType.RNE,
++    YearNumSprites = {},
++    MonthNumSprites = {},
++    DayNumSprites = {},
++    WeekSprites = {},
++    BackgroundStartPos = { X = 1632, Y = 110 },
++    BackgroundEndPos = { X = 1632 - 384, Y = 110 },
++    DateStartX = 1751,
++    YearWeekY = 90,
++    MonthDayY = 78,
++    Spacing = 2,
++    FadeInDuration = 0.5,
++    FadeOutDuration = 0.5
++};
++
++for i = 0, 9 do
++    local yearW;
++    if i == 1 then
++        yearW = yearNum1Width;
++    else
++        yearW = yearNumWidth;
++    end
++
++    root.Sprites[name .. "YearNum" .. i] = {
++        Sheet = sheet,
++        Bounds = {
++            X = yearNumFirstX,
++            Y = yearNumFirstY,
++            Width = yearW,
++            Height = yearNumHeight
++        }
++    };
++    root.DateDisplay.YearNumSprites[#root.DateDisplay.YearNumSprites + 1] = name .. "YearNum" .. i;
++
++    local numW
++    if i == 1 then
++        numW = num1Width;
++    else
++        numW = numWidth;
++    end
++
++    root.Sprites[name .. "Num" .. i] = {
++        Sheet = sheet,
++        Bounds = {
++            X = numFirstX,
++            Y = numFirstY,
++            Width = numW,
++            Height = numHeight
++        }
++    };
++    root.DateDisplay.MonthNumSprites[#root.DateDisplay.MonthNumSprites + 1] = name .. "Num" .. i;
++    root.DateDisplay.DayNumSprites[#root.DateDisplay.DayNumSprites + 1] = name .. "Num" .. i;
++
++    if i == 1 then
++        yearNumFirstX = yearNumFirstX + yearNum1Width;
++        numFirstX = numFirstX + num1Width;
++    else
++        yearNumFirstX = yearNumFirstX + yearNumWidth;
++        numFirstX = numFirstX + numWidth;
++    end
++end
++
++for i = 0, 6 do
++    if i > 1 then
++        local weekW;
++        if i == 5 then
++            weekW = weekFriWidth;
++        else
++            weekW = weekWidth;
++        end
++
++        root.Sprites[name .. "Week" .. i] = {
++            Sheet = sheet,
++            Bounds = {
++                X = weekSecondX,
++                Y = weekSecondY,
++                Width = weekW,
++                Height = weekHeight
++            }
++        };
++        if i == 5 then
++            weekSecondX = weekSecondX + weekFriWidth;
++        else
++            weekSecondX = weekSecondX + weekWidth;
++         end
++    else
++        root.Sprites[name .. "Week" .. i] = {
++            Sheet = sheet,
++            Bounds = {
++                X = weekFirstX,
++                Y = weekFirstY,
++                Width = weekWidth,
++                Height = weekHeight
++            }
++        };
++        weekFirstX = weekFirstX + weekWidth;
++    end
++    root.DateDisplay.WeekSprites[#root.DateDisplay.WeekSprites + 1] = name .. "Week" .. i;
++end
++
++root.Sprites[name .. "MonthDaySeparator"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2846,
++        Y = 50,
++        Width = 15,
++        Height = 42
++    }
++};
++root.DateDisplay.MDSeparatorSprite = name .. "MonthDaySeparator";
++
++root.Sprites[name .. "DayYearSeparator"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2637,
++        Y = 95,
++        Width = 12,
++        Height = 30
++    }
++};
++root.DateDisplay.DYSeparatorSprite = name .. "DayYearSeparator";
++
++root.Sprites[name .. "OpenBracket"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2649,
++        Y = 95,
++        Width = 12,
++        Height = 30
++    }
++};
++root.DateDisplay.OpenBracketSprite = name .. "OpenBracket";
++
++root.Sprites[name .. "CloseBracket"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2664,
++        Y = 95,
++        Width = 12,
++        Height = 30
++    }
++};
++root.DateDisplay.CloseBracketSprite = name .. "CloseBracket";
++
++root.Sprites[name .. "Background"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2288,
++        Y = 2,
++        Width = 675,
++        Height = 42
++    }
++};
++root.DateDisplay.BackgroundSprite = name .. "Background";
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/extramenus.lua b/profiles/mo6tw-pc/hud/extramenus.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..08cc3e505b8098eab904d3be249cd43e9b34d8c6
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/extramenus.lua
+@@ -0,0 +1,768 @@
++-- TODO(tyn): PC layout differs, coordinates approximate
++-- Generated from profiles/mo6tw/hud/extramenus.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
++-- The PC sheets for these menus were repacked, so sprite bounds are not exact.
++root.ExtraMenus = {
++    ClearListMenu = {
++        DrawType = DrawComponentType.PlayData,
++        Type = ClearListMenuType.MO6TW,
++        BackgroundSprite = "ClearListBackground",
++        WindowSprite = "ClearListWindow",
++        WindowPosition = { X = 128, Y = 173 },
++        WindowSpritePartLeft = "ClearListSceneWindowLeft",
++        WindowSpritePartRight = "ClearListSceneWindowRight",
++        FontSize = 48,
++        SeparatorTable = 0,
++        SeparatorEntry = 13,
++        LabelPosition = { X = 1185, Y = 48 },
++        ClearListLabel = "ClearListLabel",
++        EndingsLabelPosition = { X = 96, Y = 174 },
++        EndingsLabel = "EndingsLabel",
++        EndingCountPosition =  { X = 840, Y = 258 },
++        ScenesLabelPosition = { X = 192, Y = 342 },
++        ScenesLabel = "ScenesLabel",
++        SceneCountPosition =  { X = 840, Y = 426 },
++        CompletionLabelPosition = { X = 144, Y = 510 },
++        CompletionLabel = "CompletionLabel",
++        CompletionPosition =  { X = 840, Y = 594 },
++        AlbumLabelPosition = { X = 192, Y = 678 },
++        AlbumLabel = "AlbumLabel",
++        AlbumCountPosition = { X = 840, Y = 762 },
++        PlayTimeLabelPosition = { X = 96, Y = 846 },
++        PlayTimeLabel = "PlayTimeLabel",
++        PlayTimeTextTable = 0,
++        PlayTimeSecondsTextEntry = 9,
++        PlayTimeMinutesTextEntry = 8,
++        PlayTimeHoursTextEntry = 10,
++        PlayTimeSecondsTextPosition =  { X = 843, Y = 930 },
++        PlayTimeMinutesTextPosition =  { X = 771, Y = 930 },
++        PlayTimeHoursTextPosition =  { X = 699, Y = 930 },
++        PlayTimeSecondsPosition =  { X = 840, Y = 930 },
++        PlayTimeMinutesPosition =  { X = 768, Y = 930 },
++        PlayTimeHoursPosition =  { X = 696, Y = 930 },
++        ClearListColorIndex = 0,
++        ClearListTextBackground = "ClearListTextBackground",
++        ClearListTextBGOffset = { X = 0, Y = 72 },
++        EndingListLabel = "EndingListLabel",
++        EndingCount = 14,
++        EndingsListNumberInitialPosition = { X = 162, Y = 213 },
++        EndingsListTextInitialPosition = { X = 234, Y = 213 },
++        EndingsListTextMargin = { X = 0, Y = 54 },
++        EndingsListTextFontSize = 42,
++        EndingsListTextLockedTable = 0,
++        EndingsListTextLockedEntry = 15,
++        EndingsListTextTable = 3,
++        EndingsListTextColorIndex = 0,
++        SceneTitleLabel = "SceneTitleLabel",
++        SceneCount = 158,
++        SceneListNumberInitialPosition = { X = 162, Y = 210 },
++        SceneListTextInitialPosition = { X = 234, Y = 210 },
++        SceneListTextMargin = { X = 0, Y = 54 },
++        SceneListFontSize = 36,
++        SceneListTextTable = 4,
++        SceneTitleItemsRenderingBounds = { X = 135, Y = 180, Width = 1193, Height = 807 },
++        SceneListColorIndex = 0,
++        SceneTitleLockedTable = 0,
++        SceneTitleLockedEntry = 15,
++        SceneTitleItemsWidth = 1257,
++        ScrollbarStart = 210,
++        ScrollAreaHeight = 750,
++        ScrollbarTrackSprite = "ClearListScrollbarTrack",
++        ScrollbarThumbSprite = "ClearListScrollbarThumb",
++        ScrollbarPosition = { X = 1305, Y = 195 },
++        ArrowsAnimationDuration = 0.3,
++        ArrowLeft = "ClearListArrowLeft",
++        ArrowLeftPosition = { X = 87, Y = 506 },
++        ArrowRight = "ClearListArrowRight",
++        ArrowRightPosition = { X = 1785, Y = 506 },
++        FadeInDuration = 0.2,
++        FadeOutDuration = 0.2
++    },
++    MovieMenu = {
++        DrawType = DrawComponentType.ExtrasMovieMode,
++        Type = MovieMenuType.MO6TW,
++        BackgroundSprite = "MovieMenuBackground",
++        FirstOPTopPartSprite = "MovieMenuFirstOPTopPart",
++        FirstOPBottomPartSprite = "MovieMenuFirstOPBottomPart",
++        SecondOPTopPartSprite = "MovieMenuSecondOPTopPart",
++        SecondOPBottomPartSprite = "MovieMenuSecondOPBottomPart",
++        UnlockedMovieThumbnailSprites = {},
++        LockedMovieThumbnailSprites = {},
++        SelectionHighlightTopLeft = "MovieMenuSelectionHighlightTopLeft",
++        SelectionHighlightTopRight = "MovieMenuSelectionHighlightTopRight",
++        SelectionHighlightBottomLeft = "MovieMenuSelectionHighlightBottomLeft",
++        SelectionHighlightBottomRight = "MovieMenuSelectionHighlightBottomRight",
++        ItemCount = 12,
++        ItemsPerRow = 4,
++        InitialItemPosition = { X = 227, Y = 120 },
++        ItemOffset = { X = 375, Y = 309 },
++        HighlightAnimationDuration = 0.5,
++        HighlightTopLeftOffset = { X = 12, Y = 12 },
++        HighlightTopRightOffset = { X = 18, Y = 14 },
++        HighlightBottomLeftOffset = { X = 12, Y = 21 },
++        HighlightBottomRightOffset = { X = 20, Y = 21 },
++        FadeInDuration = 0.2,
++        FadeOutDuration = 0.2
++    },
++    ActorsVoiceMenu = {
++        DrawType = DrawComponentType.ExtrasActorsVoice,
++        Type = ActorsVoiceMenuType.MO6TW,
++        BackgroundSprite = "ActorsVoiceBackground",
++        UnlockedSprites = {},
++        LockedSprites = {},
++        UnlockedHighlightedSprites = {},
++        LockedHighlightedSprites = {},
++        InitialItemPosition = { X = 384, Y = 168 },
++        ItemOffset = { X = 0, Y = 90 },
++        CharacterBackgroundBufferId = 4,
++        FadeInDuration = 0.2,
++        FadeOutDuration = 0.2
++    },
++    MusicMenu = {
++        DrawType = DrawComponentType.ExtrasActorsVoice,
++        Type = MusicMenuType.MO6TW,
++        BackgroundSprite = "MusicMenuBackground",
++        ItemsWindow = "MusicMenuItemsWindow",
++        ItemsWindowPosition = { X = 1028, Y = 350 },
++        ItemsWindowRenderingBounds = { X = 1053, Y = 363, Width = 630, Height = 642 },
++        MusicListMargin = { X = 0, Y = 39 },
++        MusicListInitialPosition = { X = 1085, Y = 378 },
++        PlaybackWindow = "MusicMenuPlaybackWindow",
++        PlaybackWindowPosition = { X = 326, Y = 147 },
++        PlaybackModeLabels = {},
++        PlaybackModeLabelPosition = { X = 1329, Y = 267 },
++        CurrentlyPlayingLabelPosition = { X = 506, Y = 215 },
++        Thumbnails = {},
++        ThumbnailPosition = { X = 332, Y = 446 },
++        ItemNames = {},
++        ItemNameHighlightOffset = { X = 0, Y = -6 },
++        Playlist =
++            {
++                30, 0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 8, 9, 25, 12,
++                13, 14, 15, 16, 17, 18, 19, 26, 27, 28, 29, 20,
++                24, 22, 31, 32, 33, 34, 35, 37, 39, 40, 36, 41
++            },
++        TimerChars = {},
++        TimerInitialPosition = { X = 1238, Y = 212 },
++        TimerMargin = { X = 23, Y = 0 },
++        LockedItem = "MusicMenuLockedItem",
++        ScrollbarThumb = "MusicMenuScrollbarThumb",
++        ScrollbarTrack = "MusicMenuScrollbarTrack",
++        ScrollbarPosition = { X = 1701, Y = 366 },
++        ScrollbarStart = 378,
++        FadeInDuration = 0.2,
++        FadeOutDuration = 0.2
++    },
++    AlbumMenu = {
++        DrawType = DrawComponentType.Album,
++        Type = MusicMenuType.MO6TW,
++        CharacterButtons = {},
++        HighlightedCharacterButtons = {},
++        BackgroundSprite = "AlbumMenuBackground",
++        InitialButtonPosition = { X = 224, Y = 173 },
++        ButtonOddX = 632,
++        ButtonEvenX = 224,
++        ButtonMargin = { X = 0, Y = 135 },
++        HighlightAnimationDuration = 0.5,
++        YunoButtonIdx = 3,
++        SuzuButtonIdx = 4,
++        CharacterPortraits = {},
++        OthersPortraitTopPart = "AlbumMenuOthersPortraitTop",
++        OthersPortraitBottomPart = "AlbumMenuOthersPortraitBottom",
++        PortraitPosition = { X = 1923, Y = 120 },
++        OthersPortraitPosition = { X = 1923, Y = 186 },
++        ThumbnailsPerRow = 3,
++        ThumbnailsPerColumn = 3,
++        Thumbnails = {},
++        ThumbnailOffsets = {0, 30, 56, 80, 98, 117},
++        LockedThumbnail = "AlbumMenuLockedThumbnail",
++        ThumbnailBorder = "AlbumMenuThumbnailBorder",
++        ThumbnailHighlightTopLeft = "AlbumMenuThumbnailHighlightTopLeft",
++        ThumbnailHighlightTopRight = "AlbumMenuThumbnailHighlightTopRight",
++        ThumbnailHighlightBottomLeft = "AlbumMenuThumbnailHighlightBottomLeft",
++        ThumbnailHighlightBottomRight = "AlbumMenuThumbnailHighlightBottomRight",
++        ThumbnailGridFirstPosition = { X = 231, Y = 195 },
++        ThumbnailGridMargin = { X = 393, Y = 282 },
++        ThumbnailGridBounds = { X = 191, Y = 159, Width = 1215, Height = 825 },
++        ArrowsAnimationDuration = 0.2,
++        ArrowUp = "AlbumMenuArrowUp",
++        ArrowUpPosition = { X = 779, Y = 126 },
++        ArrowDown = "AlbumMenuArrowDown",
++        ArrowDownPosition = { X = 779, Y = 998 },
++        ThumbnailButtonBorderOffset = { X = -12, Y = -14 },
++        ThumbnailButtonTextFontSize = 32,
++        ThumbnailButtonTextColorIndex = 0,
++        ThumbnailButtonTextOffset = { X = -9, Y = -9 },
++        FadeInDuration = 0.2,
++        FadeOutDuration = 0.2
++    }
++};
++
++-- Clear list
++
++root.Sprites["ClearListBackground"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++root.Sprites["ClearListLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 1937, Y = 989, Width = 615, Height = 93 }
++};
++
++root.Sprites["EndingsLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1088, Width = 864, Height = 72 }
++};
++
++root.Sprites["ScenesLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1161, Width = 864, Height = 72 }
++};
++
++root.Sprites["CompletionLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1235, Width = 864, Height = 72 }
++};
++
++root.Sprites["AlbumLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1308, Width = 864, Height = 72 }
++};
++
++root.Sprites["PlayTimeLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1382, Width = 864, Height = 72 }
++};
++
++root.Sprites["ClearListTextBackground"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 158, Y = 1455, Width = 864, Height = 72 }
++};
++
++root.Sprites["EndingListLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 1937, Y = 1085, Width = 615, Height = 93 }
++};
++
++root.Sprites["SceneTitleLabel"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 1937, Y = 893, Width = 615, Height = 93 }
++};
++
++root.Sprites["ClearListWindow"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 1937, Y = 2, Width = 957, Height = 831 }
++};
++
++root.Sprites["ClearListSceneWindowLeft"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 1937, Y = 2, Width = 807, Height = 831 }
++};
++
++root.Sprites["ClearListSceneWindowRight"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 2444, Y = 2, Width = 450, Height = 831 }
++};
++
++root.Sprites["ClearListScrollbarThumb"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 98, Y = 1088, Width = 57, Height = 69 },
++};
++
++root.Sprites["ClearListScrollbarTrack"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 2909, Y = 26, Width = 12, Height = 771 },
++};
++
++root.Sprites["ClearListArrowLeft"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 2, Y = 1088, Width = 45, Height = 69 },
++};
++
++root.Sprites["ClearListArrowRight"] = {
++    Sheet = "ClearList",
++    Bounds = { X = 50, Y = 1088, Width = 45, Height = 69 },
++};
++
++-- Movie menu
++
++root.Sprites["MovieMenuBackground"] = {
++    Sheet = "Movie",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++root.Sprites["MovieMenuFirstOPTopPart"] = {
++    Sheet = "Movie",
++    Bounds = { X = 698, Y = 1370, Width = 345, Height = 143 }
++};
++
++root.Sprites["MovieMenuFirstOPBottomPart"] = {
++    Sheet = "Movie",
++    Bounds = { X = 1046, Y = 1370, Width = 345, Height = 143 }
++};
++
++root.Sprites["MovieMenuSecondOPTopPart"] = {
++    Sheet = "Movie",
++    Bounds = { X = 2, Y = 1370, Width = 345, Height = 143 }
++};
++
++root.Sprites["MovieMenuSecondOPBottomPart"] = {
++    Sheet = "Movie",
++    Bounds = { X = 350, Y = 1370, Width = 345, Height = 143 }
++};
++
++root.Sprites["MovieMenuSelectionHighlightTopLeft"] = {
++    Sheet = "Movie",
++    Bounds = { X = 1742, Y = 1082, Width = 33, Height = 33 }
++};
++
++root.Sprites["MovieMenuSelectionHighlightTopRight"] = {
++    Sheet = "Movie",
++    Bounds = { X = 1778, Y = 1082, Width = 33, Height = 33 }
++};
++
++root.Sprites["MovieMenuSelectionHighlightBottomLeft"] = {
++    Sheet = "Movie",
++    Bounds = { X = 1742, Y = 1118, Width = 33, Height = 33 }
++};
++
++root.Sprites["MovieMenuSelectionHighlightBottomRight"] = {
++    Sheet = "Movie",
++    Bounds = { X = 1778, Y = 1118, Width = 33, Height = 33 }
++};
++
++local firstX = 1922;
++local firstY = 2;
++
++for i = 1, 10 do
++    root.Sprites["UnlockedMovieThumbnail" .. i] = {
++        Sheet = "Movie",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 345,
++            Height = 285
++        }
++    };
++    root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites[#root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites + 1] = "UnlockedMovieThumbnail" .. i;
++
++    if i % 3 == 0 then
++        firstX = 1922;
++        firstY = firstY + 287;
++    else
++        firstX = firstX + 347;
++    end
++end
++
++firstX = 2;
++firstY = 1082;
++
++for i = 1, 10 do
++    if i == 6 then
++        firstX = 2270;
++        firstY = 866;
++    elseif i == 8 then
++        firstX = 1922;
++        firstY = 1154;
++    end
++
++    root.Sprites["LockedMovieThumbnail" .. i] = {
++        Sheet = "Movie",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 345,
++            Height = 285
++        }
++    };
++    root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites[#root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites + 1] = "LockedMovieThumbnail" .. i;
++
++    firstX = firstX + 347;
++end
++
++-- I don't fucking know, do you know?
++-- I don't, fuck.
++local temp = root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites[7];
++root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites[7] = root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites[8];
++root.ExtraMenus.MovieMenu.UnlockedMovieThumbnailSprites[8] = temp;
++
++temp = root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites[7];
++root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites[7] = root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites[8];
++root.ExtraMenus.MovieMenu.LockedMovieThumbnailSprites[8] = temp;
++
++-- Actors Voice menu
++
++root.Sprites["ActorsVoiceBackground"] = {
++    Sheet = "ActorsVoiceBackground",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++firstX = 2;
++firstY = 2;
++
++for i = 1, 8 do
++    root.Sprites["LockedHighlightedSprites" .. i] = {
++        Sheet = "ActorsVoice",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 1161,
++            Height = 75
++        }
++    };
++    root.ExtraMenus.ActorsVoiceMenu.LockedHighlightedSprites[#root.ExtraMenus.ActorsVoiceMenu.LockedHighlightedSprites + 1] = "LockedHighlightedSprites" .. i;
++
++    root.Sprites["UnlockedHighlightedSprites" .. i] = {
++        Sheet = "ActorsVoice",
++        Bounds = {
++            X = firstX + 1164,
++            Y = firstY,
++            Width = 1161,
++            Height = 75
++        }
++    };
++    root.ExtraMenus.ActorsVoiceMenu.UnlockedHighlightedSprites[#root.ExtraMenus.ActorsVoiceMenu.UnlockedHighlightedSprites + 1] = "UnlockedHighlightedSprites" .. i;
++
++    root.Sprites["LockedSprites" .. i] = {
++        Sheet = "ActorsVoice",
++        Bounds = {
++            X = firstX,
++            Y = firstY + 672,
++            Width = 1161,
++            Height = 75
++        }
++    };
++    root.ExtraMenus.ActorsVoiceMenu.LockedSprites[#root.ExtraMenus.ActorsVoiceMenu.LockedSprites + 1] = "LockedSprites" .. i;
++
++    root.Sprites["UnlockedSprites" .. i] = {
++        Sheet = "ActorsVoice",
++        Bounds = {
++            X = firstX + 1164,
++            Y = firstY + 672,
++            Width = 1161,
++            Height = 75
++        }
++    };
++    root.ExtraMenus.ActorsVoiceMenu.UnlockedSprites[#root.ExtraMenus.ActorsVoiceMenu.UnlockedSprites + 1] = "UnlockedSprites" .. i;
++
++    firstY = firstY + 84;
++end
++
++-- Music menu
++
++root.Sprites["MusicMenuBackground"] = {
++    Sheet = "Music",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++root.Sprites["MusicMenuItemsWindow"] = {
++    Sheet = "Music",
++    Bounds = { X = 1922, Y = 2, Width = 720, Height = 681 }
++};
++
++root.Sprites["MusicMenuPlaybackWindow"] = {
++    Sheet = "Music",
++    Bounds = { X = 2, Y = 1082, Width = 1431, Height = 171 }
++};
++
++firstX = 2;
++firstY = 2;
++local sheetIdx = 0;
++
++for i = 1, 39 do
++    root.Sprites["MusicMenuThumbnail" .. i] = {
++        Sheet = "MusicThumbnails" .. sheetIdx,
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 600,
++            Height = 600
++        }
++    };
++    root.ExtraMenus.MusicMenu.Thumbnails[#root.ExtraMenus.MusicMenu.Thumbnails + 1] = "MusicMenuThumbnail" .. i;
++
++    if i % 10 == 0 then
++        sheetIdx = sheetIdx + 1;
++        firstX = 2;
++        firstY = 2;
++    elseif (i % 5 == 0) then
++        firstX = 2;
++        firstY = firstY + 603;
++    else
++        firstX = firstX + 603;
++    end
++end
++
++firstX = 1436;
++firstY = 1080;
++
++for i = 0, 3 do
++    root.Sprites["MusicMenuPlaybackModeLabel" .. i] = {
++        Sheet = "Music",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 141,
++            Height = 36
++        }
++    };
++    root.ExtraMenus.MusicMenu.PlaybackModeLabels[#root.ExtraMenus.MusicMenu.PlaybackModeLabels + 1] = "MusicMenuPlaybackModeLabel" .. i;
++
++    firstY = firstY + 39;
++end
++
++firstX = 1922;
++firstY = 684;
++
++for i = 1, 40 do
++    if i ~= 20 then
++        root.Sprites["MusicMenuItemName" .. i] = {
++            Sheet = "Music",
++            Bounds = {
++                X = firstX,
++                Y = firstY,
++                Width = 537,
++                Height = 33
++            }
++        };
++        root.ExtraMenus.MusicMenu.ItemNames[#root.ExtraMenus.MusicMenu.ItemNames + 1] = "MusicMenuItemName" .. i;
++    end
++
++    if i % 20 == 0 then
++        firstX = 2460;
++        firstY = 684;
++    else
++        firstY = firstY + 36;
++    end
++end
++
++root.Sprites["MusicMenuLockedItem"] = {
++    Sheet = "Music",
++    Bounds = { X = 1922, Y = 1368, Width = 537, Height = 33 }
++};
++
++root.Sprites["MusicMenuScrollbarThumb"] = {
++    Sheet = "Music",
++    Bounds = { X = 2, Y = 1256, Width = 51, Height = 69 }
++};
++
++root.Sprites["MusicMenuScrollbarTrack"] = {
++    Sheet = "Music",
++    Bounds = { X = 2670, Y = 0, Width = 14, Height = 641 }
++};
++
++firstX = 1580;
++firstY = 1082;
++
++for i = 0, 10 do
++    root.Sprites["MusicMenuTimerChar" .. i] = {
++        Sheet = "Music",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 23,
++            Height = 36
++        }
++    };
++    root.ExtraMenus.MusicMenu.TimerChars[#root.ExtraMenus.MusicMenu.TimerChars + 1] = "MusicMenuTimerChar" .. i;
++
++    firstX = firstX + 26;
++end
++
++-- Album menu
++
++root.Sprites["AlbumMenuBackground"] = {
++    Sheet = "Album",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++local buttonX = 2;
++local highlightedButtonX = 1922;
++local buttonY = 1142;
++local highlightedButtonY = 2;
++local portraitX = 2;
++local portraitY = 2;
++local portraitWidths = {575, 620, 726, 533, 489};
++
++for i = 1, 6 do
++    if i == 4 then
++        root.Sprites["AlbumMenuCharaButton" .. i .. "Locked"] = {
++            Sheet = "Album",
++            Bounds = {
++                X = 1922,
++                Y = 794,
++                Width = 1065,
++                Height = 129
++            }
++        };
++        root.Sprites["AlbumMenuCharaButtonHighlighted" .. i .. "Locked"] = {
++            Sheet = "Album",
++            Bounds = {
++                X = 1922,
++                Y = 926,
++                Width = 1065,
++                Height = 129
++            }
++        };
++        root.ExtraMenus.AlbumMenu.CharacterButtons[#root.ExtraMenus.AlbumMenu.CharacterButtons + 1] = "AlbumMenuCharaButton" .. i .. "Locked";
++        root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons[#root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons + 1] = "AlbumMenuCharaButtonHighlighted" .. i .. "Locked";
++    elseif i == 5 then
++        root.Sprites["AlbumMenuCharaButton" .. i .. "Locked"] = {
++            Sheet = "Album2",
++            Bounds = {
++                X = 1226,
++                Y = 1220,
++                Width = 1065,
++                Height = 129
++            }
++        };
++        root.Sprites["AlbumMenuCharaButtonHighlighted" .. i .. "Locked"] = {
++            Sheet = "Album2",
++            Bounds = {
++                X = 1226,
++                Y = 1088,
++                Width = 1065,
++                Height = 129
++            }
++        };
++        root.ExtraMenus.AlbumMenu.CharacterButtons[#root.ExtraMenus.AlbumMenu.CharacterButtons + 1] = "AlbumMenuCharaButton" .. i .. "Locked";
++        root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons[#root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons + 1] = "AlbumMenuCharaButtonHighlighted" .. i .. "Locked";
++    end
++
++    root.Sprites["AlbumMenuCharaButton" .. i] = {
++        Sheet = "Album",
++        Bounds = {
++            X = buttonX,
++            Y = buttonY,
++            Width = 1065,
++            Height = 129
++        }
++    };
++
++    root.Sprites["AlbumMenuCharaButtonHighlighted" .. i] = {
++        Sheet = "Album",
++        Bounds = {
++            X = highlightedButtonX,
++            Y = highlightedButtonY,
++            Width = 1065,
++            Height = 129
++        }
++    };
++
++    root.ExtraMenus.AlbumMenu.CharacterButtons[#root.ExtraMenus.AlbumMenu.CharacterButtons + 1] = "AlbumMenuCharaButton" .. i;
++    root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons[#root.ExtraMenus.AlbumMenu.HighlightedCharacterButtons + 1] = "AlbumMenuCharaButtonHighlighted" .. i;
++
++    if i ~= 6 then
++        root.Sprites["AlbumMenuCharaPortrait" .. i] = {
++            Sheet = "Album2",
++            Bounds = {
++                X = portraitX,
++                Y = portraitY,
++                Width = portraitWidths[i],
++                Height = 960
++            }
++        };
++        root.ExtraMenus.AlbumMenu.CharacterPortraits[#root.ExtraMenus.AlbumMenu.CharacterPortraits + 1] = "AlbumMenuCharaPortrait" .. i;
++        portraitX = portraitX + portraitWidths[i];
++    end
++
++    if i % 3 == 0 then
++        buttonX = 1070;
++        buttonY = 1142;
++        highlightedButtonY = highlightedButtonY + 132;
++    else
++        buttonY = buttonY + 132;
++        highlightedButtonY = highlightedButtonY + 132;
++    end
++end
++
++temp = root.ExtraMenus.AlbumMenu.CharacterPortraits[4];
++root.ExtraMenus.AlbumMenu.CharacterPortraits[4] = root.ExtraMenus.AlbumMenu.CharacterPortraits[5];
++root.ExtraMenus.AlbumMenu.CharacterPortraits[5] = temp;
++
++root.Sprites["AlbumMenuOthersPortraitTop"] = {
++    Sheet = "Album2",
++    Bounds = { X = 614, Y = 1088, Width = 609, Height = 447 }
++};
++root.Sprites["AlbumMenuOthersPortraitBottom"] = {
++    Sheet = "Album2",
++    Bounds = { X = 2, Y = 1088, Width = 609, Height = 447 }
++};
++
++local column = 0;
++local row = 0;
++local block = 0;
++local thumbX = 2;
++local thumbY = 2;
++local thumbnailSheet = "AlbumThumbnails0";
++
++for i = 0, 103 do
++    root.Sprites["AlbumMenuThumbnail" .. i] = {
++        Sheet = thumbnailSheet,
++        Bounds = {
++            X = thumbX,
++            Y = thumbY,
++            Width = 360,
++            Height = 203
++        }
++    };
++
++    root.ExtraMenus.AlbumMenu.Thumbnails[#root.ExtraMenus.AlbumMenu.Thumbnails + 1] = "AlbumMenuThumbnail" .. i;
++
++    thumbX = thumbX + 363;
++    column = column + 1;
++    if column == 4 then
++        thumbX = (block * 1452) + 2;
++        thumbY = thumbY + 206;
++        row = row + 1;
++        column = 0;
++        if row == 7 then
++            row = 0;
++            block = block + 1;
++            if block == 2 then
++                thumbnailSheet = "AlbumThumbnails1";
++                block = 0;
++                thumbX = 2;
++                thumbY = 2;
++            else
++                thumbX = block * 1454;
++                thumbY = 2;
++            end
++        end
++    end
++end
++
++root.Sprites["AlbumMenuThumbnailBorder"] = {
++    Sheet = "Album",
++    Bounds = { X = 2138, Y = 1082, Width = 393, Height = 237 }
++};
++root.Sprites["AlbumMenuLockedThumbnail"] = {
++    Sheet = "Album",
++    Bounds = { X = 2547, Y = 1097, Width = 360, Height = 203 }
++};
++
++root.Sprites["AlbumMenuThumbnailHighlightTopLeft"] = {
++    Sheet = "Album",
++    Bounds = { X = 2138, Y = 1322, Width = 33, Height = 33 }
++};
++root.Sprites["AlbumMenuThumbnailHighlightTopRight"] = {
++    Sheet = "Album",
++    Bounds = { X = 2174, Y = 1322, Width = 33, Height = 33 }
++};
++root.Sprites["AlbumMenuThumbnailHighlightBottomLeft"] = {
++    Sheet = "Album",
++    Bounds = { X = 2138, Y = 1358, Width = 33, Height = 33 }
++};
++root.Sprites["AlbumMenuThumbnailHighlightBottomRight"] = {
++    Sheet = "Album",
++    Bounds = { X = 2174, Y = 1358, Width = 33, Height = 33 }
++};
++
++root.Sprites["AlbumMenuArrowUp"] = {
++    Sheet = "Album",
++    Bounds = { X = 2210, Y = 1322, Width = 51, Height = 33 }
++};
++root.Sprites["AlbumMenuArrowDown"] = {
++    Sheet = "Album",
++    Bounds = { X = 2210, Y = 1358, Width = 51, Height = 33 }
++};
+diff --git a/profiles/mo6tw-pc/hud/loadingdisplay.lua b/profiles/mo6tw-pc/hud/loadingdisplay.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..d174119b8814e51d19a4e3d7b745b1085e66d762
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/loadingdisplay.lua
+@@ -0,0 +1,80 @@
++-- Generated from profiles/mo6tw/hud/loadingdisplay.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++root.LoadingDisplay = {
++    ResourceLoadBgAnim = "ResourceLoadingBg",
++    SaveLoadBgAnim = "SaveLoadingBg",
++    LoadingIconAnim = "LoadingDisc",
++    LoadingTextAnim = "LoadingText",
++    ResourceBgPos = { X = 1611, Y = 917 },
++    SaveBgPos = { X = 1529, Y = 897 },
++    IconPos = { X = 1479, Y = 912 },
++    TextPos = { X = 1538, Y = 942 },
++    FadeInDuration = 0.66,
++    FadeOutDuration = 0.33
++};
++
++MakeAnimation({
++    Name = "ResourceLoadingBg",
++    Sheet = "Data",
++    FirstFrameX = 833,
++    FirstFrameY = 816,
++    FrameWidth = 309,
++    ColWidth = 309,
++    FrameHeight = 87,
++    RowHeight = 90,
++    Frames = 8,
++    Duration = 0.8,
++    Rows = 8,
++    Columns = 1,
++    PrimaryDirection = AnimationDirections.Down
++});
++
++MakeAnimation({
++    Name = "SaveLoadingBg",
++    Sheet = "Data",
++    FirstFrameX = 582,
++    FirstFrameY = 0,
++    FrameWidth = 416,
++    ColWidth = 419,
++    FrameHeight = 122,
++    RowHeight = 125,
++    Frames = 4,
++    Duration = 0.8,
++    Rows = 2,
++    Columns = 2,
++    PrimaryDirection = AnimationDirections.Down,
++    SecondaryDirection = AnimationDirections.Right
++});
++
++MakeAnimation({
++    Name = "LoadingDisc",
++    Sheet = "Data",
++    FirstFrameX = 258,
++    FirstFrameY = 2,
++    FrameWidth = 90,
++    ColWidth = 93,
++    FrameHeight = 90,
++    RowHeight = 93,
++    Frames = 3,
++    Duration = 0.8,
++    Rows = 1,
++    Columns = 3,
++    PrimaryDirection = AnimationDirections.Right
++});
++root.Animations["LoadingDisc"].Frames[#root.Animations["LoadingDisc"].Frames + 1] = "LoadingDisc1";
++
++MakeAnimation({
++    Name = "LoadingText",
++    Sheet = "Data",
++    FirstFrameX = 260,
++    FirstFrameY = 137,
++    FrameWidth = 321,
++    ColWidth = 321,
++    FrameHeight = 32,
++    RowHeight = 35,
++    Frames = 5,
++    Duration = 0.8,
++    Rows = 5,
++    Columns = 1,
++    PrimaryDirection = AnimationDirections.Down
++});
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/optionsmenu.lua b/profiles/mo6tw-pc/hud/optionsmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a1f5d48b4a55f870cf044fbb5f93e0c90f31c76
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/optionsmenu.lua
+@@ -0,0 +1,161 @@
++-- TODO(tyn): PC layout differs, coordinates approximate
++-- Generated from profiles/mo6tw/hud/optionsmenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
++-- The PC sheets for these menus were repacked, so sprite bounds are not exact.
++root.OptionsMenu = {
++    Type = OptionsMenuType.MO6TW,
++    DrawType = DrawComponentType.SystemMenu,
++    BackgroundSprite = "OptionsBackground",
++    SliderTrackSprite = "OptionsSliderTrack",
++    SliderFillSprite = "OptionsSliderFill",
++    SliderThumbSprite = "OptionsSliderThumb",
++    VoiceToggleEnabledSprites = {},
++    VoiceToggleDisabledSprites = {},
++    VoiceToggleHighlightSprite = "OptionsVoiceToggleHighlight",
++    SectionHeaderSprites = {},
++    CheckboxBoxSprite = "OptionsCheckboxBox",
++    CheckboxTickSprite = "OptionsCheckboxTick",
++    CheckboxLabelSprites = {},
++    VoiceToggleStart = { X = 120, Y = 698 },
++    VoiceTogglePadding = { X = 144, Y = 84 },
++    VoiceTogglePerLine = 5,
++    FirstPageSliderPos = { X = 141, Y = 132 },
++    FirstPageSliderMargin = 144,
++    SliderThumbOffset = { X = 9, Y = 21 },
++    CheckboxLabelOffset = { X = 36, Y = 5 },
++    CheckboxFirstPos = { X = 135, Y = 98 },
++    CheckboxFirstSectionPaddingX = 132,
++    CheckboxMargin = { X = 48, Y = 120 },
++    CheckboxSecondPos = { X = 135, Y = 578 },
++    CheckboxSecondSectionFirstPaddingX = 200,
++    AutoSaveTriggerXPos = { 183, 384, 585, 896 },
++    ScreenSizeSliderPos = { X = 237, Y = 827 },
++    TipsPos = { X = 279, Y = 938 },
++    FirstPageSectionHeaderPos = { X = 119, Y = 71 },
++    SecondPageSectionHeaderPos = { X = 119, Y = 47 },
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2,
++
++};
++
++root.Sprites["OptionsBackground"] = {
++    Sheet = "Options",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++root.Sprites["OptionsSliderTrack"] = {
++    Sheet = "Options",
++    Bounds = { X = 2, Y = 1382, Width = 720, Height = 12 }
++};
++
++root.Sprites["OptionsSliderFill"] = {
++    Sheet = "Options",
++    Bounds = { X = 2, Y = 1397, Width = 720, Height = 12 }
++};
++
++root.Sprites["OptionsSliderThumb"] = {
++    Sheet = "Options",
++    Bounds = { X = 1445, Y = 1211, Width = 63, Height = 63 }
++};
++
++local enabledFirstX = 729;
++local enabledFirstY = 1130;
++local disabledFirstX = 6;
++local disabledFirstY = 1130;
++
++for i = 1, 14 do
++    root.Sprites["OptionsVoiceToggleDisabled" .. i] = {
++        Sheet = "Options",
++        Bounds = {
++            X = disabledFirstX,
++            Y = disabledFirstY,
++            Width = 132,
++            Height = 72
++        }
++    };
++    root.OptionsMenu.VoiceToggleDisabledSprites[#root.OptionsMenu.VoiceToggleDisabledSprites + 1] = "OptionsVoiceToggleDisabled" .. i;
++
++    root.Sprites["OptionsVoiceToggleEnabled" .. i] = {
++        Sheet = "Options",
++        Bounds = {
++            X = enabledFirstX,
++            Y = enabledFirstY,
++            Width = 132,
++            Height = 72
++        }
++    };
++    root.OptionsMenu.VoiceToggleEnabledSprites[#root.OptionsMenu.VoiceToggleEnabledSprites + 1] = "OptionsVoiceToggleEnabled" .. i;
++
++    if i % 5 == 0 then
++        enabledFirstX = 729;
++        disabledFirstX = 6;
++        enabledFirstY = enabledFirstY + 84;
++        disabledFirstY = disabledFirstY + 84;
++    else
++        disabledFirstX = disabledFirstX + 144;
++        enabledFirstX = enabledFirstX + 144;
++    end
++end
++
++root.Sprites["OptionsVoiceToggleHighlight"] = {
++    Sheet = "Options",
++    Bounds = { X = 1452, Y = 1130, Width = 132, Height = 72 }
++};
++
++local firstX = 1952;
++local firstY = 2;
++local highlightedFirstY = 665;
++
++for i = 1, 13 do
++    root.Sprites["OptionsSectionHeader" .. i] = {
++        Sheet = "Options",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 600,
++            Height = 48
++        }
++    };
++    root.OptionsMenu.SectionHeaderSprites[#root.OptionsMenu.SectionHeaderSprites + 1] = "OptionsSectionHeader" .. i;
++
++    root.Sprites["OptionsSectionHeaderHighlighted" .. i] = {
++        Sheet = "Options",
++        Bounds = {
++            X = firstX,
++            Y = highlightedFirstY,
++            Width = 600,
++            Height = 48
++        }
++    };
++    root.OptionsMenu.SectionHeaderSprites[#root.OptionsMenu.SectionHeaderSprites + 1] = "OptionsSectionHeaderHighlighted" .. i;
++
++    firstY = firstY + 51;
++    highlightedFirstY = highlightedFirstY + 51;
++end
++
++root.Sprites["OptionsCheckboxBox"] = {
++    Sheet = "Options",
++    Bounds = { X = 1448, Y = 1283, Width = 45, Height = 45 }
++};
++
++root.Sprites["OptionsCheckboxTick"] = {
++    Sheet = "Options",
++    Bounds = { X = 1493, Y = 1283, Width = 45, Height = 45 }
++};
++
++firstX = 2603;
++firstY = 2;
++
++for i = 1, 14 do
++    root.Sprites["OptionsCheckboxLabel" .. i] = {
++        Sheet = "Options",
++        Bounds = {
++            X = firstX,
++            Y = firstY,
++            Width = 300,
++            Height = 48
++        }
++    };
++    root.OptionsMenu.CheckboxLabelSprites[#root.OptionsMenu.CheckboxLabelSprites + 1] = "OptionsCheckboxLabel" .. i;
++
++    firstY = firstY + 48;
++end
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/saveicon.lua b/profiles/mo6tw-pc/hud/saveicon.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4b35b6f6320fa4e6185a111f9f0adf86786e2b3
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/saveicon.lua
+@@ -0,0 +1,32 @@
++-- Generated from profiles/mo6tw/hud/saveicon.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++root.SaveIcon = {
++    ForegroundAnimation = "SaveIcon",
++    DefaultPosition = { X = 1608, Y = 54 },
++    BackgroundSprite = "SaveIconBg",
++    BackgroundOffset = { X = -11, Y = -6 },
++    BackgroundMaxAlpha = 0.5,
++    FadeInDuration = 0.25,
++    FadeOutDuration = 0.25
++};
++
++MakeAnimation({
++    Name = "SaveIcon",
++    Sheet = "Data",
++    FirstFrameX = 386,
++    FirstFrameY = 182,
++    FrameWidth = 144,
++    ColWidth = 144,
++    FrameHeight = 33,
++    RowHeight = 36,
++    Frames = 4,
++    Duration = 0.8,
++    Rows = 4,
++    Columns = 1,
++    PrimaryDirection = AnimationDirections.Down
++});
++
++root.Sprites["SaveIconBg"] = {
++    Sheet = "Data",
++    Bounds = { X = 2159, Y = 2, Width = 126, Height = 126 }
++};
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/savemenu.lua b/profiles/mo6tw-pc/hud/savemenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1d9f957c04108b1e3fa456473d02d9930594647
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/savemenu.lua
+@@ -0,0 +1,78 @@
++-- TODO(tyn): PC layout differs, coordinates approximate
++-- Generated from profiles/mo6tw/hud/savemenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
++-- The PC sheets for these menus were repacked, so sprite bounds are not exact.
++root.SaveMenu = {
++    Type = SaveMenuType.MO6TW,
++    DrawType = DrawComponentType.SystemMenu,
++    SaveMenuBackgroundSprite = "SaveMenuBackground",
++    EmptyThumbnailSprite = "EmptyThumbnail",
++    QuickLoadTextSprite = "QuickLoadText",
++    LoadTextSprite = "LoadText",
++    SaveTextSprite = "SaveText",
++    MenuTitleTextPos = { X = 93, Y = 50 },
++    EntryStartX = 230,
++    EntryXPadding = 768,
++    EntryStartY = 153,
++    EntryYPadding = 212,
++    QuickLoadEntrySprite = "QuickLoadEntry",
++    QuickLoadEntryHighlightedSprite = "QuickLoadEntryHighlighted",
++    SaveEntrySprite = "SaveEntry",
++    SaveEntryHighlightedSprite = "SaveEntryHighlighted",
++    LoadEntrySprite = "LoadEntry",
++    LoadEntryHighlightedSprite = "LoadEntryHighlighted",
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2
++};
++
++root.Sprites["SaveMenuBackground"] = {
++    Sheet = "Save",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++
++root.Sprites["EmptyThumbnail"] = {
++    Sheet = "Save",
++    Bounds = { X = 1922, Y = 2, Width = 267, Height = 162 }
++};
++
++root.Sprites["QuickLoadText"] = {
++    Sheet = "Save",
++    Bounds = { X = 1922, Y = 167, Width = 393, Height = 63 }
++};
++root.Sprites["SaveText"] = {
++    Sheet = "Save",
++    Bounds = { X = 1922, Y = 233, Width = 393, Height = 63 }
++};
++root.Sprites["LoadText"] = {
++    Sheet = "Save",
++    Bounds = { X = 1922, Y = 299, Width = 393, Height = 63 }
++};
++
++root.Sprites["QuickLoadEntry"] = {
++    Sheet = "Save",
++    Bounds = { X = 2, Y = 1082, Width = 762, Height = 192 }
++};
++
++root.Sprites["SaveEntry"] = {
++    Sheet = "Save",
++    Bounds = { X = 767, Y = 1082, Width = 762, Height = 192 }
++};
++
++root.Sprites["LoadEntry"] = {
++    Sheet = "Save",
++    Bounds = { X = 1532, Y = 1082, Width = 762, Height = 192 }
++};
++
++root.Sprites["QuickLoadEntryHighlighted"] = {
++    Sheet = "Save",
++    Bounds = { X = 2, Y = 1277, Width = 762, Height = 192 }
++};
++
++root.Sprites["SaveEntryHighlighted"] = {
++    Sheet = "Save",
++    Bounds = { X = 767, Y = 1277, Width = 762, Height = 192 }
++};
++
++root.Sprites["LoadEntryHighlighted"] = {
++    Sheet = "Save",
++    Bounds = { X = 1532, Y = 1277, Width = 762, Height = 192 }
++};
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/selectiondisplay.lua b/profiles/mo6tw-pc/hud/selectiondisplay.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ef466d5cc38a71e996b6c8801445c89e0dec356
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/selectiondisplay.lua
+@@ -0,0 +1,77 @@
++-- Generated from profiles/mo6tw/hud/selectiondisplay.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++root.SelectionDisplay = {
++    DrawType = DrawComponentType.Text,
++    SelectionBackgroundSprite = "SelectionBackground",
++    PlainSelectionFrameTopLeftSprite = "PlainSelectionFrameTopLeft",
++    PlainSelectionFrameTopSideSprite = "PlainSelectionFrameTopSide",
++    PlainSelectionFrameTopRightSprite = "PlainSelectionFrameTopRight",
++    PlainSelectionFrameLeftSideSprite = "PlainSelectionFrameLeftSide",
++    PlainSelectionFrameBottomLeftSprite = "PlainSelectionFrameBottomLeft",
++    PlainSelectionFrameRightSideSprite = "PlainSelectionFrameRightSide",
++    PlainSelectionFrameBottomRightSprite = "PlainSelectionFrameBottomRight",
++    PlainSelectionFrameBottomSideSprite = "PlainSelectionFrameBottomSide",
++    PlainSelectionFrameMiddleSprite = "PlainSelectionFrameMiddle",
++    SelectionHighlightSprite = "SelectionHighlight",
++    SelectionMaxCount = 5,
++    SelectionBackgroundX = 342,
++    SelectionBackgroundY = {416, 416, 294, 194, 143},
++    SelectionYSpacing = 122,
++    PlainSelectionYSpacing = 15,
++    FadeAnimationDurationInOut = 0.2
++};
++
++root.Sprites["SelectionBackground"] = {
++    Sheet = "Data",
++    Bounds = { X = 2, Y = 803, Width = 1244, Height = 104 }
++};
++
++root.Sprites["PlainSelectionFrameTopLeft"] = {
++    Sheet = "Data",
++    Bounds = { X = 0, Y = 0, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameTopSide"] = {
++    Sheet = "Data",
++    Bounds = { X = 24, Y = 0, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameTopRight"] = {
++    Sheet = "Data",
++    Bounds = { X = 48, Y = 0, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameLeftSide"] = {
++    Sheet = "Data",
++    Bounds = { X = 0, Y = 24, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameBottomLeft"] = {
++    Sheet = "Data",
++    Bounds = { X = 0, Y = 48, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameRightSide"] = {
++    Sheet = "Data",
++    Bounds = { X = 48, Y = 24, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameBottomRight"] = {
++    Sheet = "Data",
++    Bounds = { X = 48, Y = 48, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameBottomSide"] = {
++    Sheet = "Data",
++    Bounds = { X = 24, Y = 48, Width = 24, Height = 24 }
++};
++
++root.Sprites["PlainSelectionFrameMiddle"] = {
++    Sheet = "Data",
++    Bounds = { X = 24, Y = 24, Width = 24, Height = 24 }
++};
++
++root.Sprites["SelectionHighlight"] = {
++    Sheet = "Data",
++    Bounds = { X = 98, Y = 50, Width = 141, Height = 45 }
++};
+diff --git a/profiles/mo6tw-pc/hud/sysmesboxdisplay.lua b/profiles/mo6tw-pc/hud/sysmesboxdisplay.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4f20b3255cf62495481e20058d3935041179c2a
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/sysmesboxdisplay.lua
+@@ -0,0 +1,79 @@
++-- Generated from profiles/mo6tw/hud/sysmesboxdisplay.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++local sheet = "Data";
++local name = "SysMesBox";
++
++root.SysMesBoxDisplay = {
++    Type = SysMesBoxType.MO6TW,
++    DrawType = DrawComponentType.SystemMessage,
++    BoxX = 903,
++    BoxY = 306,
++    BoxMiddleBaseX = 1175,
++    BoxMinimumWidth = 1152,
++    BoxMiddleBaseWidth = 210,
++    BoxMiddleRemainBase = 231,
++    BoxRightBaseX = 555,
++    BoxRightRemainPad = 72,
++    TextFontSize = 48,
++    TextMiddleY = 354,
++    TextX = 960,
++    TextLineHeight = 51,
++    TextMarginY = 21,
++    ChoicePadding = 60,
++    ChoiceY = 548,
++    ChoiceXBase = 1020,
++    MinMaxMesWidth = 441,
++    AnimationSpeed = 83,
++    FadeInDuration = 0.256,
++    FadeOutDuration = 0.256
++};
++
++root.Sprites["SelectionHighlight"] = {
++    Sheet = "Data",
++    Bounds = { X = 98, Y = 50, Width = 141, Height = 45 }
++};
++root.SysMesBoxDisplay.SelectionHighlight = "SelectionHighlight";
++
++root.Sprites[name .. "BoxPartLeft"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2,
++        Y = 909,
++        Width = 272,
++        Height = 318
++    }
++};
++root.SysMesBoxDisplay.BoxPartLeft = name .. "BoxPartLeft";
++
++root.Sprites[name .. "BoxPartRight"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 483,
++        Y = 909,
++        Width = 272,
++        Height = 318
++    }
++};
++root.SysMesBoxDisplay.BoxPartRight = name .. "BoxPartRight";
++
++root.Sprites[name .. "BoxPartMiddle"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 273,
++        Y = 909,
++        Width = 210,
++        Height = 318
++    }
++};
++root.SysMesBoxDisplay.BoxPartMiddle = name .. "BoxPartMiddle";
++
++root.Sprites[name .. "BoxDecoration"] = {
++    Sheet = sheet,
++    Bounds = {
++        X = 2075,
++        Y = 176,
++        Width = 888,
++        Height = 12
++    }
++};
++root.SysMesBoxDisplay.BoxDecoration = name .. "BoxDecoration";
+\ No newline at end of file
+diff --git a/profiles/mo6tw-pc/hud/systemmenu.lua b/profiles/mo6tw-pc/hud/systemmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..140110a85f7c71c8bd61700a3977b73700e41a6f
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/systemmenu.lua
+@@ -0,0 +1,43 @@
++-- Generated from profiles/mo6tw/hud/systemmenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5
++-- (PC system.cpk data01 is the PS3 Data sheet scaled by exactly 1.5).
++root.SystemMenu = {
++    Type = SystemMenuType.MO6TW,
++    DrawType = DrawComponentType.SystemMenu,
++    SystemMenuBackgroundSprite = "SystemMenuBackground",
++    SystemMenuX = 1490,
++    SystemMenuY = 171,
++    MenuEntriesSprites = {},
++    MenuEntriesHighlightedSprite = "MenuEntriesHSprite",
++    MenuEntriesNum = 7,
++    MenuEntriesHNum = 0,
++    MenuEntriesX = 1502,
++    MenuEntriesXOffset = 150,
++    MenuEntriesFirstY = 189,
++    MenuEntriesYPadding = 81,
++    MenuEntriesTargetWidth = 381,
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2
++};
++
++for i = 0, 6 do
++    root.Sprites["SystemMenuEntry" .. i] = {
++        Sheet = "Data",
++        Bounds = {
++            X = 876,
++            Y = i * 48,
++            Width = root.SystemMenu.MenuEntriesTargetWidth,
++            Height = 45
++        }
++    };
++    root.SystemMenu.MenuEntriesSprites[#root.SystemMenu.MenuEntriesSprites + 1] = "SystemMenuEntry" .. i;
++end
++
++root.Sprites["MenuEntriesHSprite"] = {
++    Sheet = "Data",
++    Bounds = { X = 98, Y = 2, Width = 141, Height = 45 }
++};
++
++root.Sprites["SystemMenuBackground"] = {
++    Sheet = "Data",
++    Bounds = { X = 2648, Y = 2, Width = 423, Height = 570 }
++};
+diff --git a/profiles/mo6tw-pc/hud/tipsmenu.lua b/profiles/mo6tw-pc/hud/tipsmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..992a07c57ec68c1710995b8b61f78a9676994897
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/tipsmenu.lua
+@@ -0,0 +1,4 @@
++-- TODO(tyn): PC TIPS menu not implemented.
++root.TipsMenu = {
++    Type = TipsMenuType.None
++};
+diff --git a/profiles/mo6tw-pc/hud/tipsnotification.lua b/profiles/mo6tw-pc/hud/tipsnotification.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c08c9f70eaf1a386a1d8200570ce0124eb2b8c0
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/tipsnotification.lua
+@@ -0,0 +1,4 @@
++-- TODO(tyn): PC TIPS notification not implemented.
++root.TipsNotification = {
++    Type = TipsNotificationType.None,
++};
+diff --git a/profiles/mo6tw-pc/hud/titlemenu.lua b/profiles/mo6tw-pc/hud/titlemenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..44417eaedbe2f3c394247bc8bcb39b6eedd0c517
+--- /dev/null
++++ b/profiles/mo6tw-pc/hud/titlemenu.lua
+@@ -0,0 +1,90 @@
++-- Title menu of the PC release. The PC scripts drive the MO8-generation state machine
++-- (SW_TITLEMODE / SF_TITLEEND), so this uses TitleMenuType.MO8.
++-- The "Title" sheet (system.cpk title / title_ht / title_kt) holds the menu entry labels in
++-- four columns; the logo and copyright are part of the background (title_bg1).
++-- Entry rectangles are fixed-size cells centred on the measured alpha bounds of each label
++-- (measured with tools/impacto/mo6tw-pc/seg.py in yuukana1/Tyranor-Next-Impacto: alpha
++-- connected-component scan of the sheets).
++local function cell(cx, y0, w)
++    return { X = cx - w / 2, Y = y0 - 5, Width = w, Height = 68 };
++end
++
++local entries = {
++    [0]  = cell(1092, 275, 400), -- Warning theater (3rd column, 4th row)
++    [1]  = cell(1581, 185, 540), -- DLC / extra story label (4th column)
++    [2]  = cell(654, 281, 400),  -- Music
++    [3]  = cell(654, 191, 400),  -- Album
++    [4]  = cell(653, 370, 400),  -- Clear List
++    [5]  = cell(654, 11, 400),   -- Load
++    [6]  = cell(216, 281, 400),  -- Memories (gallery)
++    [7]  = cell(1092, 13, 400),  -- Shortcut (unused)
++    [8]  = cell(215, 190, 400),  -- Option
++    [9]  = cell(216, 100, 400),  -- Continue
++    [10] = cell(216, 10, 400),   -- New Game
++    [12] = cell(653, 100, 400),  -- Quick Load
++};
++
++root.TitleMenu = {
++    Type = TitleMenuType.MO8,
++    DrawType = DrawComponentType.SystemMenu,
++    PressToStartPos = { X = 750, Y = 800 },
++    LogoX = 0,
++    LogoY = 0,
++    MenuEntriesNum = 13,
++    MenuEntriesSprites = {},
++    MenuEntriesHighlightedSprites = {},
++    MenuEntriesX = 760,
++    MenuEntriesFirstY = 586,
++    MenuEntriesGalleryFirstY = 546,
++    MenuEntriesYPadding = 80,
++    NewGameSpriteIndex = 10,
++    ContinueSpriteIndex = 9,
++    OptionSpriteIndex = 8,
++    GallerySpriteIndex = 6,
++    AlbumSpriteIndex = 3,
++    MusicSpriteIndex = 2,
++    ClearListSpriteIndex = 4,
++    WarningSpriteIndex = 0,
++    AdditionalSpriteIndex = 8,
++    DLCSpriteIndex = 1,
++    LoadSpriteIndex = 5,
++    QuickLoadSpriteIndex = 12,
++    HasAdditional = false,
++    PressToStartAnimated = false,
++    PressToStartAnimDurationIn = 0,
++    PressToStartAnimDurationOut = 0,
++    PrimaryFadeAnimDuration = 0.5,
++    ItemFadeAnimDuration = 0.3,
++    PressToStartSprite = "TitleMenuPressToStart",
++    BackgroundSprite = "TitleMenuBackground",
++    LogoSprite = "TitleMenuLogo",
++};
++
++for i = 0, 12 do
++    local b = entries[i];
++    if i == 11 then
++        -- Highlight glow bar (drawn behind the focused entry)
++        b = { X = 29, Y = 391, Width = 376, Height = 24 };
++    elseif b == nil then
++        b = entries[7];
++    end
++    root.Sprites["MenuEntry" .. i] = { Sheet = "Title", Bounds = b };
++    root.TitleMenu.MenuEntriesSprites[#root.TitleMenu.MenuEntriesSprites + 1] = "MenuEntry" .. i;
++    root.TitleMenu.MenuEntriesHighlightedSprites[#root.TitleMenu.MenuEntriesHighlightedSprites + 1] = "MenuEntry" .. i;
++end
++
++root.Sprites["TitleMenuBackground"] = {
++    Sheet = "Titlebg",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 },
++};
++
++root.Sprites["TitleMenuPressToStart"] = {
++    Sheet = "Title",
++    Bounds = cell(1581, 10, 420),
++};
++
++-- The logo is part of title_bg1; the menu class still needs a sprite, use an empty area
++root.Sprites["TitleMenuLogo"] = {
++    Sheet = "Title",
++    Bounds = { X = 1900, Y = 300, Width = 2, Height = 2 },
++};
+diff --git a/profiles/mo6tw-pc/profile.lua b/profiles/mo6tw-pc/profile.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..489e0518ab0f9ba8d34ac444b9e905b7000aa6fe
+--- /dev/null
++++ b/profiles/mo6tw-pc/profile.lua
+@@ -0,0 +1,64 @@
++-- Shared profile of the Windows/Steam release of Memories Off 6 T-Wave.
++-- Included by the per-language game.lua files, which must set root.Mo6Pc first:
++--   Lang (ja|zhs|zht), Dir (profile id == game directory name), Mes (mes00|mes01|mes02),
++--   LoadExtraSheets (optional, see sprites.lua).
++root.LayerCount = 100;
++root.GameFeatures = GameFeature.Sc3VirtualMachine | GameFeature.Renderer2D | GameFeature.Input | GameFeature.Audio | GameFeature.Video | GameFeature.DebugMenu;
++root.DesignWidth = 1920;
++root.DesignHeight = 1080;
++
++root.WindowName = "Memories Off 6 ~T-Wave~";
++
++root.CharaIsMvl = true;
++root.UseMoviePriority = true;
++root.VoiceTableLittleEndian = true;
++
++root.ScreenCaptureCount = 2;
++
++root.Vm = {
++    StartScript = 0,
++    StartScriptBuffer = 0,
++    GameInstructionSet = InstructionSet.MO6TWPC,
++    UseReturnIds = true,
++    UseMsbStrings = true,
++    UseSeparateMsbArchive = true,
++
++    ScrWorkChaStructSize = 40,
++    ScrWorkChaOffsetStructSize = 10,
++    ScrWorkBgStructSize = 40,
++    ScrWorkBgOffsetStructSize = 10,
++    ScrWorkCaptureStructSize = 20,
++    ScrWorkCaptureOffsetStructSize = 10,
++    ScrWorkCaptureEffectInfoStructSize = 3,
++
++    MaxLinkedBgBuffers = 2
++};
++
++local profileDir = root.BasePaths.RootProfilesDir .. '/mo6tw-pc/';
++
++include(root.BasePaths.RootProfilesDir .. '/common/scriptinput.lua');
++include(root.BasePaths.RootProfilesDir .. '/common/scriptvars.lua');
++include(profileDir .. 'scriptvars.lua');
++include(profileDir .. 'savedata.lua');
++include(profileDir .. 'tipssystem.lua');
++include(profileDir .. 'vfs.lua');
++include(profileDir .. 'sprites.lua');
++include(root.BasePaths.RootProfilesDir .. '/common/animation.lua');
++include(root.BasePaths.RootProfilesDir .. '/common/achievementnotification.lua');
++include(profileDir .. 'charset.lua');
++include(profileDir .. 'font-widths.lua');
++include(profileDir .. 'font.lua');
++include(profileDir .. 'dialogue.lua');
++include(profileDir .. 'hud/saveicon.lua');
++include(profileDir .. 'hud/loadingdisplay.lua');
++include(profileDir .. 'hud/datedisplay.lua');
++include(profileDir .. 'hud/titlemenu.lua');
++include(profileDir .. 'hud/systemmenu.lua');
++include(profileDir .. 'hud/savemenu.lua');
++include(profileDir .. 'hud/sysmesboxdisplay.lua');
++include(profileDir .. 'hud/selectiondisplay.lua');
++include(profileDir .. 'hud/backlogmenu.lua');
++include(profileDir .. 'hud/optionsmenu.lua');
++include(profileDir .. 'hud/tipsmenu.lua');
++include(profileDir .. 'hud/extramenus.lua');
++include(profileDir .. 'hud/tipsnotification.lua');
+diff --git a/profiles/mo6tw-pc/savedata.lua b/profiles/mo6tw-pc/savedata.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..99f1ae57734e9da9dd037069937d954d10d61762
+--- /dev/null
++++ b/profiles/mo6tw-pc/savedata.lua
+@@ -0,0 +1,8 @@
++-- TODO(tyn): no save system for the PC release yet (same as mo8).
++-- AllowMissingImplementation: LoadSystemData reports OK with all system state at
++-- its zero defaults, otherwise the startup script takes its fatal error path.
++root.SaveData = {
++    Type = SaveDataType.None,
++    AllowMissingImplementation = true,
++    SaveFilePath = root.BasePaths.RootSavesDir .. "/" .. root.Mo6Pc.Dir .. "/SYSTEM.DAT",
++};
+diff --git a/profiles/mo6tw-pc/scriptvars.lua b/profiles/mo6tw-pc/scriptvars.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..2279dd3e6a39261e2fe2b5b48321674b62c74be9
+--- /dev/null
++++ b/profiles/mo6tw-pc/scriptvars.lua
+@@ -0,0 +1,28 @@
++-- ScrWork/SysFlag overrides on top of common/scriptvars.lua; same as mo8/scriptvars.lua
++-- (verified: SW_SELNO 4318 is the JumpTable operand after Select in PC scripts).
++local sv = root.ScriptVars;
++
++sv.SW_BG1POSX_OFS = 2400;
++sv.SW_BG1POSY_OFS = 2401;
++sv.SW_BG1SX_OFS = 2402;
++sv.SW_BG1SY_OFS = 2403;
++sv.SW_BG1SIZE_OFS = 2404;
++sv.SW_BG1LX_OFS = 2405;
++sv.SW_BG1LY_OFS = 2406;
++sv.SW_BG1ROTZ_OFS = 2407;
++sv.SW_BG1ALPHA_OFS = 2408;
++sv.SW_MASK1COLOR = 4400;
++sv.SW_MASK1ALPHA = 4401;
++sv.SW_MASK1PRI = 4402;
++sv.SW_MASK1POSX = 4403;
++sv.SW_MASK1POSY = 4404;
++sv.SW_MASK1SIZEX = 4405;
++sv.SW_MASK1SIZEY = 4406;
++sv.SW_MESMODE0 = 4363;
++-- The common (CC) layout has SW_MESWIN0TYPE at 4422, which on PC is the priority field of
++-- the third mask (SW_MASK1PRI 4402 + 2 * 10, mask stride 10). Both fields are moved 60 down
++-- (SW_MESMODE0: 4423 -> 4363). The scripts never write the window type, so it stays 0
++-- (default window).
++sv.SW_MESWIN0TYPE = 4362;
++
++sv.SF_MOVIEPLAY = 1851;
+diff --git a/profiles/mo6tw-pc/sprites.lua b/profiles/mo6tw-pc/sprites.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e81c07d5b903ec0dc18ede36298349d52142a89
+--- /dev/null
++++ b/profiles/mo6tw-pc/sprites.lua
+@@ -0,0 +1,59 @@
++-- Sprite sheets of the Windows/Steam release of Memories Off 6 T-Wave (system.cpk ids).
++-- Sheets are loaded eagerly at startup, so sheets only used by the extras menus
++-- (album, music, clear list, movie, actors voice) are replaced by a tiny dummy unless
++-- root.Mo6Pc.LoadExtraSheets is true (TODO(tyn): enable once those menus are laid out).
++local lang = root.Mo6Pc.Lang;
++
++-- system.cpk ids per language: {ja, zht (_ht), zhs (_kt)}
++local ids = {
++    font = { ja = 10, zht = 11, zhs = 12 },
++    menu = { ja = 14, zht = 15, zhs = 16 },
++    music = { ja = 18, zht = 19, zhs = 20 },
++    option = { ja = 21, zht = 22, zhs = 23 },
++    savemenu = { ja = 24, zht = 25, zhs = 26 },
++    title = { ja = 29, zht = 35, zhs = 36 },
++};
++
++local function sheet(id, w, h)
++    return { Path = { Mount = "system", Id = id }, DesignWidth = w, DesignHeight = h };
++end
++
++local dummy = sheet(5, 768, 768); -- data03
++
++root.SpriteSheets = {
++    -- PS3 Data sheet x1.5 (exact)
++    Data = sheet(4, 3072, 1536),
++    Font = sheet(ids.font[lang], 3072, 6000),
++    Backlog = sheet(2, 2048, 1110),
++    Options = sheet(ids.option[lang], 4096, 2048),
++    Save = sheet(ids.savemenu[lang], 2048, 2048),
++    Title = sheet(ids.title[lang], 2048, 444),
++    Titlebg = sheet(30, 1920, 1080),  -- title_bg1
++    MainBg = sheet(31, 1920, 1080),   -- title_bg2
++};
++
++local extra = {
++    ClearList = sheet(3, 2048, 2048),
++    Album = sheet(0, 2048, 1716),
++    Album2 = sheet(1, 2748, 1716),
++    AlbumThumbnails0 = sheet(28, 4096, 2565),
++    AlbumThumbnails1 = sheet(28, 4096, 2565),
++    Music = sheet(ids.music[lang], 2048, 1326),
++    MusicThumbnails0 = sheet(ids.music[lang], 2048, 1326),
++    MusicThumbnails1 = sheet(ids.music[lang], 2048, 1326),
++    MusicThumbnails2 = sheet(ids.music[lang], 2048, 1326),
++    MusicThumbnails3 = sheet(ids.music[lang], 2048, 1326),
++    Movie = sheet(ids.menu[lang], 1656, 656),
++    ActorsVoice = sheet(ids.menu[lang], 1656, 656),
++    ActorsVoiceBackground = sheet(30, 1920, 1080),
++};
++
++for name, s in pairs(extra) do
++    if root.Mo6Pc.LoadExtraSheets then
++        root.SpriteSheets[name] = s;
++    else
++        root.SpriteSheets[name] = dummy;
++    end
++end
++
++root.Sprites = {};
+diff --git a/profiles/mo6tw-pc/tipssystem.lua b/profiles/mo6tw-pc/tipssystem.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e14e7d66d25008ef4e7a9f619b4efcb149c26d0
+--- /dev/null
++++ b/profiles/mo6tw-pc/tipssystem.lua
+@@ -0,0 +1,4 @@
++-- TODO(tyn): PC TIPS data not implemented.
++root.TipsSystem = {
++    Type = TipsSystemType.None,
++};
+diff --git a/profiles/mo6tw-pc/vfs.lua b/profiles/mo6tw-pc/vfs.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..22ce4274231879bdc607bea6a60dd8a450353254
+--- /dev/null
++++ b/profiles/mo6tw-pc/vfs.lua
+@@ -0,0 +1,18 @@
++-- Game root (symlink dir name == profile id) contains data/*.cpk with lowercase names.
++local dataDir = root.BasePaths.RootGamedataDir .. "/" .. root.Mo6Pc.Dir .. "/data";
++
++root.Vfs = {
++    Mounts = {
++        ["script"] = {dataDir .. "/script.cpk"},
++        ["mes"] = {dataDir .. "/" .. root.Mo6Pc.Mes .. ".cpk"},
++        ["system"] = {dataDir .. "/system.cpk"},
++        ["bgm"] = {dataDir .. "/bgm.cpk"},
++        ["se"] = {dataDir .. "/se.cpk"},
++        ["sysse"] = {dataDir .. "/sysse.cpk"},
++        ["voice"] = {dataDir .. "/voice.cpk"},
++        ["bg"] = {dataDir .. "/bg.cpk"},
++        ["chara"] = {dataDir .. "/chara.cpk"},
++        ["mask"] = {dataDir .. "/mask.cpk"},
++        ["movie"] = {dataDir .. "/movie.cpk"}
++    }
++};

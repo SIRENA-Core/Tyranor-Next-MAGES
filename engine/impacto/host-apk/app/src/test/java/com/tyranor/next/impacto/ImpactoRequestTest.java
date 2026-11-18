@@ -12,8 +12,14 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ImpactoRequestTest {
     private static final String DIR = "/storage/emulated/0/Games/mo6tw";
@@ -45,6 +51,24 @@ public class ImpactoRequestTest {
     }
 
     @Test
+    public void profilesMatchTheMachineReadableProfileList() throws IOException {
+        String path = System.getProperty("impacto.profilesJson");
+        Path json = path != null ? Paths.get(path) : Paths.get("../../profiles.json");
+        if (path != null) {
+            assertTrue("profiles.json not found: " + json, Files.isRegularFile(json)); // Gradle passes it: no silent skip
+        } else {
+            Assume.assumeTrue("profiles.json not found: " + json, Files.isRegularFile(json));
+        }
+        String text = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
+        Set<String> ids = new HashSet<>();
+        Matcher m = Pattern.compile("\\{\\s*\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(text);
+        while (m.find()) {
+            assertTrue("duplicate id " + m.group(1), ids.add(m.group(1)));
+        }
+        assertEquals(ImpactoRequest.PROFILES, ids);
+    }
+
+    @Test
     public void gameKeyMatchesTheAppsGoldenVector() {
         // The same vector is asserted by the app's ImpactoExternalEngineModuleTest; both sides must agree.
         assertEquals("853382f8b09761cd5c6e475c", keyFor(DIR, "mo6tw"));
@@ -61,9 +85,13 @@ public class ImpactoRequestTest {
 
     @Test
     public void profileListMatchesTheAppCatalog() {
-        // Same seven upstream game profiles as ImpactoGameCatalog in the app; viewers are not games.
-        assertEquals(7, ImpactoRequest.PROFILES.size());
+        // Seven upstream game profiles plus the three Windows/Steam MO6TW language profiles (defined by this
+        // repository's patch series); viewers are not games.
+        assertEquals(10, ImpactoRequest.PROFILES.size());
         assertTrue(ImpactoRequest.PROFILES.contains("mo6tw"));
+        assertTrue(ImpactoRequest.PROFILES.contains("mo6tw-pc"));
+        assertTrue(ImpactoRequest.PROFILES.contains("mo6tw-pc-zhs"));
+        assertTrue(ImpactoRequest.PROFILES.contains("mo6tw-pc-zht"));
         assertTrue(!ImpactoRequest.PROFILES.contains("characterviewer"));
     }
 

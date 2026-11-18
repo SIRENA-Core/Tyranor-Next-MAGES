@@ -5,8 +5,11 @@ plugins {
 }
 
 // Inputs, never copied into the repository:
-//   -PimpactoSource=<verified upstream checkout>           (tools/impacto/verify-upstream.py must pass)
+//   -PimpactoSource=<patched upstream checkout>            (pinned revision + the locked patch series;
+//                                                           tools/impacto/verify-upstream.py --patched must pass)
 //   -PimpactoCandidate=<.../candidate with libimpacto.so>  (output of tools/impacto/build-upstream.sh)
+//   -PimpactoDevCandidate=true                             (accept a dev-candidate from tools/impacto/dev-build.sh;
+//                                                           the version gets a "-dev" suffix, never distribute it)
 val missing = layout.buildDirectory.dir("missing-input").get().asFile
 val impactoSource: File = providers.gradleProperty("impactoSource").map(::File).getOrElse(missing)
 val impactoCandidate: File = providers.gradleProperty("impactoCandidate").map(::File).getOrElse(missing)
@@ -14,6 +17,9 @@ val repoRoot: File = rootDir.resolve("../../..").canonicalFile
 // Diagnostics only: -PimpactoHostOnly=true packages WITHOUT libimpacto.so, to exercise the Java host layer on a
 // device. The result cannot start the engine and is labelled "-hostonly"; never distribute it.
 val hostOnly = providers.gradleProperty("impactoHostOnly").orNull == "true"
+// Developer iteration only: a candidate from tools/impacto/dev-build.sh (status "dev-candidate"). Refused when the
+// release signing key is present, so such a build can never become a release.
+val devCandidate = providers.gradleProperty("impactoDevCandidate").orNull == "true"
 // Release signing reads the ANDROID_KEYSTORE_* variables set by the release workflow. A host APK must always be
 // signed with one stable key: Android refuses to update an installed package signed with a different key.
 val signingEnv = listOf("ANDROID_KEYSTORE_FILE", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
@@ -23,13 +29,13 @@ val pythonCommand = if (System.getProperty("os.name").lowercase().contains("wind
 
 val verifyImpactoSource = tasks.register<Exec>("verifyImpactoSource") {
     group = "impacto"
-    description = "Fails unless -PimpactoSource is the pinned, clean, unmodified upstream checkout."
+    description = "Fails unless -PimpactoSource is the pinned upstream revision plus exactly the locked patch series."
     doFirst {
         if (!impactoSource.isDirectory) {
             throw GradleException("Pass -PimpactoSource=<verified Impacto checkout> (see engine/impacto/host-apk/README.md)")
         }
     }
-    commandLine(pythonCommand, repoRoot.resolve("tools/impacto/verify-upstream.py").path, "--source", impactoSource.path)
+    commandLine(pythonCommand, repoRoot.resolve("tools/impacto/verify-upstream.py").path, "--patched", "--source", impactoSource.path)
 }
 
 // Assets are staged under build/, because upstream's own install step would write into the source tree.
@@ -62,8 +68,14 @@ val verifyImpactoCandidate = tasks.register("verifyImpactoCandidate") {
         val slurper = groovy.json.JsonSlurper()
         val report = slurper.parse(reportFile) as Map<*, *>
         val lock = slurper.parse(repoRoot.resolve("engine/impacto/source-lock.json")) as Map<*, *>
-        if (report["status"] != "candidate-not-integrated" || report["sourceLock"] != lock) {
-            throw GradleException("candidate.json was not produced from engine/impacto/source-lock.json")
+        // The whole lock, patch series hashes included, must equal the one this build is checked out with.
+        val expectedStatus = if (devCandidate) "dev-candidate" else "candidate-not-integrated"
+        if (report["status"] != expectedStatus || report["sourceLock"] != lock) {
+            throw GradleException("candidate.json was not produced from engine/impacto/source-lock.json " +
+                "(expected status $expectedStatus; a dev-candidate needs -PimpactoDevCandidate=true)")
+        }
+        if (devCandidate && hasReleaseSigning) {
+            throw GradleException("A dev candidate must not be built with the release signing key")
         }
         val sha256 = MessageDigest.getInstance("SHA-256").digest(library.readBytes())
             .joinToString("") { "%02x".format(it) }
@@ -133,13 +145,19 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    testOptions {
+        // ImpactoRequestTest compares ImpactoRequest.PROFILES with the machine-readable profile list.
+        unitTests.all { it.systemProperty("impacto.profilesJson", repoRoot.resolve("engine/impacto/profiles.json").path) }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     sourceSets.getByName("main") {
-        // Unmodified upstream sources: ImpactoActivity and the SDL3 org.libsdl.app Java layer. Not copied, not edited.
+        // Upstream sources from the patched checkout (pinned revision + the locked series): ImpactoActivity and the
+        // SDL3 org.libsdl.app Java layer. Not copied; the checkout is verified before anything is compiled.
         java.directories.add(impactoSource.resolve("android/app/src/main/java").path)
         assets.directories.add(layout.buildDirectory.dir("generated/impacto-assets").get().asFile.path)
         // Host-only diagnostics must never pick up a stale staged library left in build/ by an earlier run.
@@ -163,6 +181,9 @@ android {
     }
 
     buildTypes {
+        if (devCandidate) {
+            configureEach { versionNameSuffix = "-dev" }
+        }
         release {
             // JNI looks up ImpactoActivity methods by name; keep everything unobfuscated.
             isMinifyEnabled = false

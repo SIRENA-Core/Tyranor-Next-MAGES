@@ -4,6 +4,63 @@
     "url": "https://github.com/CommitteeOfZero/impacto.git",
     "revision": "ba0b6e0884b9016fcd7dfd3e50024c5af1e8aef7"
   },
+  "patches": {
+    "directory": "patches",
+    "series": [
+      {
+        "file": "0001-tyn-fix-the-buffer-check-in-Sc3VmThread-SetStringIp-.patch",
+        "sha256": "63ca6d9921698177024e3b84b61805b146c18dbed1a87887cbd1a665c6760d11"
+      },
+      {
+        "file": "0002-tyn-derive-MSB-vs-script-string-buffers-from-the-buf.patch",
+        "sha256": "ff69a6d201dddc3521c4e564670e7001767a61adb1f3253445d8509758a8d2b3"
+      },
+      {
+        "file": "0003-tyn-recover-from-opcodes-whose-group-has-no-table-fo.patch",
+        "sha256": "964c0235f833943b16aec7ef5f23a4bd8ac33a8c96a9ea0655d5b5817ce50361"
+      },
+      {
+        "file": "0004-tyn-bounds-check-the-voice-lip-sync-table.patch",
+        "sha256": "22c34e7b260aefd31a30795b23e049a5992d4d1c4e9deb556a663b09280cbab2"
+      },
+      {
+        "file": "0005-tyn-add-the-Game.VoiceTableLittleEndian-profile-swit.patch",
+        "sha256": "21dec99f6be9bbe20594277612cf54ac9a5c8c87bb4ec0604821456dda6e9403"
+      },
+      {
+        "file": "0006-tyn-add-the-Dialogue.NameInsideNametag-profile-switc.patch",
+        "sha256": "09eee480a2c05d44011653707e6f01eab1e52ffbef28c69efb68894c22287898"
+      },
+      {
+        "file": "0007-tyn-add-the-MO6TWPC-instruction-set.patch",
+        "sha256": "9ba6619413046d1ea737216a6eb72d63cbb78966f297242c9e2822af06146543"
+      },
+      {
+        "file": "0008-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch",
+        "sha256": "e43ec942a1d1350ac4c042eb917aaa7dbbff194283cb6737f87faddb85fc053d"
+      },
+      {
+        "file": "0009-tyn-map-the-PC-title-mode-numbering-in-the-MO8-title.patch",
+        "sha256": "fd2e87c5cb8bf7311d0ed486aaba1fab310ba1f96ee572886e4662cccfff6167"
+      },
+      {
+        "file": "0010-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch",
+        "sha256": "1e4d30a33510c10a09d9e284e0764e1a95dac6b52af8ff62081bd78430c84998"
+      },
+      {
+        "file": "0011-tyn-run-save-file-tasks-one-at-a-time-and-snapshot-w.patch",
+        "sha256": "4b489829ed7993e1fb4412f56347837459e033fec1738a4963f2d5bf82877ba5"
+      },
+      {
+        "file": "0012-tyn-add-the-MO6TWPC-save-system-and-save-menu.patch",
+        "sha256": "274d05153c189c99ac886f25b95578b64beeedb313f49ede5bdc140918a11d86"
+      },
+      {
+        "file": "0013-tyn-use-the-MO6TWPC-save-system-and-save-menu-in-the.patch",
+        "sha256": "1a71bc01246ad75b1df3c9531b1213898f35abda44ed8ea5e6c300672e7c4d6e"
+      }
+    ]
+  },
   "vcpkg": {
     "url": "https://github.com/microsoft/vcpkg.git",
     "revision": "fa9a5b330aed997a68310ed56418617b87a3b83d"

@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:11 -0800
+Subject: [PATCH] tyn: add the Dialogue.NameInsideNametag profile switch
+
+New generic profile switch, default off. Upstreamable.
+
+The FixedPos name branch for ModeInfo.UseNameLengthL was ungated, but that
+bit comes from the scripts at runtime, so any game could reach it. Gate it
+on the new profile field Dialogue.NameInsideNametag: when set, the name of a
+UseNameLengthL FixedPos mode is drawn inside the auto-sized three piece
+nametag (right after the left cap, vertically centred) instead of centred on
+NamePos + MaxNameWidth, which is the full screen width in the PC release of
+Memories Off 6. Other profiles do not set it and keep the existing paths.
+
+diff --git a/src/profile/dialogue.cpp b/src/profile/dialogue.cpp
+index b381b9a94201f7c26562beb4fa82f524435fc8af..959fc9af6d55ee068834a51efaa2c787825c913a 100644
+--- a/src/profile/dialogue.cpp
++++ b/src/profile/dialogue.cpp
+@@ -16,6 +16,7 @@ namespace Dialogue {
+ static void ConfigureNametag() {
+   OldNametagPositioning =
+       TryGetMember<bool>("OldNametagPositioning").value_or(false);
++  NameInsideNametag = TryGetMember<bool>("NameInsideNametag").value_or(false);
+   NametagCurrentType = EnsureGetMember<NametagType>("NametagCurrentType");
+ 
+   switch (NametagCurrentType) {
+diff --git a/src/profile/dialogue.h b/src/profile/dialogue.h
+index 647ec809831e5fa53c10dec036ff4b6862779253..04b94a0987b89f045f851c9d46928bc5e281215c 100644
+--- a/src/profile/dialogue.h
++++ b/src/profile/dialogue.h
+@@ -105,6 +105,9 @@ inline int PageCount;
+ inline bool ColorTagIsUint8;
+ 
+ inline bool OldNametagPositioning = false;
++// FixedPos names with ModeInfo.UseNameLengthL are drawn inside the three piece
++// nametag (right after the left cap) instead of at NamePos + MaxNameWidth.
++inline bool NameInsideNametag = false;
+ inline NametagType NametagCurrentType = NametagType::None;
+ 
+ inline glm::vec2 NametagPosition{};
+diff --git a/src/text/textparser.cpp b/src/text/textparser.cpp
+index 6f6d2eea4297c8893237bd6145aaaedf75b09218..23d4290564a40b3568fad5a00db6843dc52ce447 100644
+--- a/src/text/textparser.cpp
++++ b/src/text/textparser.cpp
+@@ -451,7 +451,17 @@ void TextParser::FinishName() {
+     case FixedPos:
+       pos = ModeInfo.NamePos + glm::vec2(ModeInfo.MaxNameWidth, 0.0f);
+ 
+-      if (OldNametagPositioning) {
++      if (Profile::Dialogue::NameInsideNametag && ModeInfo.UseNameLengthL) {
++        // PC release of Memories Off 6 (NameInsideNametag): MaxNameWidth is the
++        // full screen width here and the name sits inside the (auto-sized)
++        // three piece nametag, so place it right after the left cap instead of
++        // centering it on NamePos + MaxNameWidth.
++        pos = Profile::Dialogue::NametagPosition +
++              glm::vec2(Profile::Dialogue::NametagLeftSprite.ScaledWidth(),
++                        (Profile::Dialogue::NametagMiddleSprite.ScaledHeight() -
++                         ModeInfo.NameGlyphSize.y) /
++                            2.0f);
++      } else if (OldNametagPositioning) {
+         switch (ModeInfo.NameAlignment) {
+           case Left:
+             break;

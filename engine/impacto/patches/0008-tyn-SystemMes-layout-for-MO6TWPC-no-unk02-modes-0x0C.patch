@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:46 -0800
+Subject: [PATCH] tyn: SystemMes layout for MO6TWPC (no unk02, modes 0x0C-0x0E)
+
+TYN-only. Two independent MO6TWPC-gated changes to InstSystemMes; the other
+instruction sets keep their code paths.
+ - MSB forms (0x83/0x84 SetMes/SetSel) have no unk02 byte before the buffer
+   id on the PC release, so the unk02/optional-expression read is skipped.
+ - Modes 0x0C, 0x0D and 0x0E take one expression operand and are stubbed
+   (log only). Their meaning is unverified (possibly box layout
+   parameters); only the operand shape is established, as the one that keeps
+   the PC scripts decoding. Other sets still log "Unknown mode" for them.
+
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index 65b04038330598f78d3415ac6964fe39e84a7e96..0b864a60bc72fea24f5d92121547ac4ca950293d 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -749,9 +749,12 @@ VmInstruction(InstSystemMes) {
+       uint32_t message;
+ 
+       if (useMsb) {
+-        PopUint8(unk02);
+-        if (unk02 == 1) {
+-          PopExpression(unk03);
++        // The PC release of MO6TW has no unk02 byte before the buffer id
++        if (Profile::Vm::GameInstructionSet != InstructionSet::MO6TWPC) {
++          PopUint8(unk02);
++          if (unk02 == 1) {
++            PopExpression(unk03);
++          }
+         }
+         [[maybe_unused]]
+         int bufId;
+@@ -828,6 +831,20 @@ VmInstruction(InstSystemMes) {
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction SystemMes(mode: {:d})\n", mode);
+       break;
++    // PC MO6TW modes 0x0C-0x0E: meaning unverified (possibly box layout
++    // parameters). Only the operand shape, one expression, is established: it
++    // is the one that keeps the PC scripts decoding.
++    case 12:
++    case 13:
++    case 14:
++      if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC) {
++        PopExpression(arg1);
++        ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
++                   "STUB instruction SystemMes(mode: {:d}, arg1: {:d})\n",
++                   mode, arg1);
++        break;
++      }
++      [[fallthrough]];
+     default:
+       ImpLog(LogLevel::Warning, LogChannel::VMStub,
+              "Unknown mode for instruction SystemMes(mode: {:d})\n", mode);

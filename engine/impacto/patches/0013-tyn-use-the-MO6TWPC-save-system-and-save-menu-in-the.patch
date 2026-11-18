@@ -1,0 +1,194 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Tue, 17 Nov 2026 06:58:33 -0800
+Subject: [PATCH] tyn: use the MO6TWPC save system and save menu in the PC
+ profiles
+
+TYN-only. Sprite bounds measured on system.cpk savemenu (ids 24/25/26); the PC
+font charset gets the ASCII CharacterToSc3 mapping (same glyph ids as PS3).
+
+diff --git a/profiles/mo6tw-pc/charset.lua b/profiles/mo6tw-pc/charset.lua
+index 8f0fc2c46580e0df6a4e0f8e7497b38296291001..bfa984b183d33654407c54db24cd4bf023edc9b8 100644
+--- a/profiles/mo6tw-pc/charset.lua
++++ b/profiles/mo6tw-pc/charset.lua
+@@ -4,8 +4,26 @@
+ -- atlas side by side (e.g. 190 '、' 191 '。' 192 '，' 196 '？' 197 '！' 216/217 '「」').
+ -- Simplified/Traditional Chinese only differ in the kanji region (ids >= ~700), which has
+ -- no punctuation.
++-- Rows 0-1 of the PC font atlases hold the same ASCII glyphs at the same ids as the PS3 font
++-- (verified by rendering rows 0..5 of font/font_ht/font_kt), so the PS3 mapping is reused. It is only
++-- needed for text that is laid out from UTF-8 strings by the engine (save menu entries); script
++-- strings already carry glyph ids.
+ root.Charset = {
+-    Flags = {}
++    Flags = {},
++    CharacterToSc3 = {
++        [" "] = 0x803F, ["0"] = 0x8001, ["1"] = 0x8002, ["2"] = 0x8003, ["3"] = 0x8004, ["4"] = 0x8005, ["5"] = 0x8006,
++        ["6"] = 0x8007, ["7"] = 0x8008, ["8"] = 0x8009, ["9"] = 0x800A, ["A"] = 0x800B, ["B"] = 0x800C, ["C"] = 0x800D,
++        ["D"] = 0x800E, ["E"] = 0x800F, ["F"] = 0x8010, ["G"] = 0x8011, ["H"] = 0x8012, ["I"] = 0x8013, ["J"] = 0x8014,
++        ["K"] = 0x8015, ["L"] = 0x8016, ["M"] = 0x8017, ["N"] = 0x8018, ["O"] = 0x8019, ["P"] = 0x801A, ["Q"] = 0x801B,
++        ["R"] = 0x801C, ["S"] = 0x801D, ["T"] = 0x801E, ["U"] = 0x801F, ["V"] = 0x8020, ["W"] = 0x8021, ["X"] = 0x8022,
++        ["Y"] = 0x8023, ["Z"] = 0x8024, ["a"] = 0x8025, ["b"] = 0x8026, ["c"] = 0x8027, ["d"] = 0x8028, ["e"] = 0x8029,
++        ["f"] = 0x802A, ["g"] = 0x802B, ["h"] = 0x802C, ["i"] = 0x802D, ["j"] = 0x802E, ["k"] = 0x802F, ["l"] = 0x8030,
++        ["m"] = 0x8031, ["n"] = 0x8032, ["o"] = 0x8033, ["p"] = 0x8034, ["q"] = 0x8035, ["r"] = 0x8036, ["s"] = 0x8037,
++        ["t"] = 0x8038, ["u"] = 0x8039, ["v"] = 0x803A, ["w"] = 0x803B, ["x"] = 0x803C, ["y"] = 0x803D, ["z"] = 0x803E,
++        ["　"] = 0x803F, ["/"] = 0x8040, [":"] = 0x8041, ["-"] = 0x8042, [";"] = 0x8043, ["!"] = 0x8044, ["?"] = 0x80C4,
++        ["'"] = 0x8046, ["."] = 0x80C1, ["@"] = 0x8048, ["#"] = 0x8049, ["%"] = 0x8112, ["~"] = 0x805B, ["*"] = 0x805C,
++        ["【"] = 0x80E0, ["】"] = 0x80E1
++    }
+ };
+ 
+ for i = 0, (64 * 125) - 1 do root.Charset.Flags[i] = 0; end
+diff --git a/profiles/mo6tw-pc/hud/savemenu.lua b/profiles/mo6tw-pc/hud/savemenu.lua
+index f1d9f957c04108b1e3fa456473d02d9930594647..b6a041a331ecc0d0c58e01e98e952c01840cc602 100644
+--- a/profiles/mo6tw-pc/hud/savemenu.lua
++++ b/profiles/mo6tw-pc/hud/savemenu.lua
+@@ -1,78 +1,74 @@
+--- TODO(tyn): PC layout differs, coordinates approximate
+--- Generated from profiles/mo6tw/hud/savemenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
+--- The PC sheets for these menus were repacked, so sprite bounds are not exact.
++-- Save / load / quick load menu of the PC release (SaveMenuType.MO6TWPC: six entries per page, PREV/NEXT).
++-- Sprite bounds measured on system.cpk savemenu (id 24; ids 25/26 have identical layout) with
++-- tools/impacto/mo6tw-pc/seg.py plus an alpha connected-component scan:
++--   background 0,0 1920x1080; entry cards 752x180 at y = 1272 (save), 1458 (load), 1644 (quick load),
++--   left column x = 2 (normal), right column x = 764 (highlighted); PREV/NEXT 294x70 at x = 768
++--   (normal) and 1074 (highlighted), y = 1093 / 1177; lock icon 28x30 at 1789,1086; the title words
++--   (SAVE / LOAD / QUICK LOAD) sit right of the cards at x ~ 1528.
++-- Inside a card (offsets from the card origin (2, y)): thumbnail box 260x146 at (71, 17), divider line at
++-- y = 92, the baked-in "play time" / "save date" labels at x = 348-470, y = 99-130 and 137-163, so the
++-- values go at x = 480.
++-- NOT measurable from the sheet: where the native menu places the cards on the 1920x1080 screen.
++-- TODO(tyn): the grid origin, pitch and the PREV/NEXT / page text positions are an estimate (cards
++-- centred horizontally, three rows below the header gradient, buttons in the footer band).
+ root.SaveMenu = {
+-    Type = SaveMenuType.MO6TW,
++    Type = SaveMenuType.MO6TWPC,
+     DrawType = DrawComponentType.SystemMenu,
+     SaveMenuBackgroundSprite = "SaveMenuBackground",
+     EmptyThumbnailSprite = "EmptyThumbnail",
+     QuickLoadTextSprite = "QuickLoadText",
+     LoadTextSprite = "LoadText",
+     SaveTextSprite = "SaveText",
+-    MenuTitleTextPos = { X = 93, Y = 50 },
+-    EntryStartX = 230,
+-    EntryXPadding = 768,
+-    EntryStartY = 153,
+-    EntryYPadding = 212,
++    MenuTitleTextPos = { X = 93, Y = 24 },
+     QuickLoadEntrySprite = "QuickLoadEntry",
+     QuickLoadEntryHighlightedSprite = "QuickLoadEntryHighlighted",
+     SaveEntrySprite = "SaveEntry",
+     SaveEntryHighlightedSprite = "SaveEntryHighlighted",
+     LoadEntrySprite = "LoadEntry",
+     LoadEntryHighlightedSprite = "LoadEntryHighlighted",
++    PrevButtonSprite = "SavePrev",
++    PrevButtonHighlightedSprite = "SavePrevHighlighted",
++    NextButtonSprite = "SaveNext",
++    NextButtonHighlightedSprite = "SaveNextHighlighted",
++    LockIconSprite = "SaveLock",
++    EntryStartX = 202,
++    EntryXPadding = 764,
++    EntryStartY = 150,
++    EntryYPadding = 232,
++    PrevButtonPosition = { X = 636, Y = 940 },
++    NextButtonPosition = { X = 990, Y = 940 },
++    PageTextCentre = { X = 960, Y = 878 },
++    ThumbnailOffset = { X = 71, Y = 17 },
++    ThumbnailSize = { X = 260, Y = 146 },
++    LockIconOffset = { X = 2, Y = 2 },
++    NumberTextOffset = { X = 350, Y = 38 },
++    PlayTimeTextOffset = { X = 480, Y = 99 },
++    DateTextOffset = { X = 480, Y = 134 },
++    EntryFontSize = 17,
+     FadeInDuration = 0.2,
+     FadeOutDuration = 0.2
+ };
+ 
+-root.Sprites["SaveMenuBackground"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
+-};
+-
+-root.Sprites["EmptyThumbnail"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1922, Y = 2, Width = 267, Height = 162 }
+-};
+-
+-root.Sprites["QuickLoadText"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1922, Y = 167, Width = 393, Height = 63 }
+-};
+-root.Sprites["SaveText"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1922, Y = 233, Width = 393, Height = 63 }
+-};
+-root.Sprites["LoadText"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1922, Y = 299, Width = 393, Height = 63 }
+-};
++local function sprite(x, y, w, h)
++    return { Sheet = "Save", Bounds = { X = x, Y = y, Width = w, Height = h } };
++end
+ 
+-root.Sprites["QuickLoadEntry"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 2, Y = 1082, Width = 762, Height = 192 }
+-};
+-
+-root.Sprites["SaveEntry"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 767, Y = 1082, Width = 762, Height = 192 }
+-};
++root.Sprites["SaveMenuBackground"] = sprite(0, 0, 1920, 1080);
++root.Sprites["EmptyThumbnail"] = sprite(2, 1086, 752, 180);
+ 
+-root.Sprites["LoadEntry"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1532, Y = 1082, Width = 762, Height = 192 }
+-};
++root.Sprites["SaveText"] = sprite(1526, 1272, 180, 70);
++root.Sprites["LoadText"] = sprite(1522, 1458, 196, 70);
++root.Sprites["QuickLoadText"] = sprite(1524, 1644, 415, 86);
+ 
+-root.Sprites["QuickLoadEntryHighlighted"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 2, Y = 1277, Width = 762, Height = 192 }
+-};
+-
+-root.Sprites["SaveEntryHighlighted"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 767, Y = 1277, Width = 762, Height = 192 }
+-};
++root.Sprites["SaveEntry"] = sprite(2, 1272, 752, 180);
++root.Sprites["SaveEntryHighlighted"] = sprite(764, 1272, 752, 180);
++root.Sprites["LoadEntry"] = sprite(2, 1458, 752, 180);
++root.Sprites["LoadEntryHighlighted"] = sprite(764, 1458, 752, 180);
++root.Sprites["QuickLoadEntry"] = sprite(2, 1644, 752, 180);
++root.Sprites["QuickLoadEntryHighlighted"] = sprite(764, 1644, 752, 180);
+ 
+-root.Sprites["LoadEntryHighlighted"] = {
+-    Sheet = "Save",
+-    Bounds = { X = 1532, Y = 1277, Width = 762, Height = 192 }
+-};
+\ No newline at end of file
++root.Sprites["SavePrev"] = sprite(768, 1093, 294, 70);
++root.Sprites["SavePrevHighlighted"] = sprite(1074, 1093, 294, 70);
++root.Sprites["SaveNext"] = sprite(768, 1177, 294, 70);
++root.Sprites["SaveNextHighlighted"] = sprite(1074, 1177, 294, 70);
++root.Sprites["SaveLock"] = sprite(1789, 1086, 28, 30);
+diff --git a/profiles/mo6tw-pc/savedata.lua b/profiles/mo6tw-pc/savedata.lua
+index 99f1ae57734e9da9dd037069937d954d10d61762..a5759d8a6f98b4a59a6675a4bbe2f55d2a67f5eb 100644
+--- a/profiles/mo6tw-pc/savedata.lua
++++ b/profiles/mo6tw-pc/savedata.lua
+@@ -1,8 +1,6 @@
+--- TODO(tyn): no save system for the PC release yet (same as mo8).
+--- AllowMissingImplementation: LoadSystemData reports OK with all system state at
+--- its zero defaults, otherwise the startup script takes its fatal error path.
++-- Own save format (compatibility with the Steam save files is a non-goal), see
++-- src/games/mo6twpc/savesystem.cpp. One file per language profile, written atomically.
+ root.SaveData = {
+-    Type = SaveDataType.None,
+-    AllowMissingImplementation = true,
++    Type = SaveDataType.MO6TWPC,
+     SaveFilePath = root.BasePaths.RootSavesDir .. "/" .. root.Mo6Pc.Dir .. "/SYSTEM.DAT",
+ };

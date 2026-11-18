@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:46 -0800
+Subject: [PATCH] tyn: map the PC title mode numbering in the MO8 title menu
+
+TYN-only (MO6TWPC-gated; other games read SW_TITLEMODE unchanged).
+
+The PC release numbers the title modes like the CC PS4 menu (1 press to
+start, 2 start transition, 3 main, 4 fading out, 5 sub menu, 11 initial
+fade, 13 clear list), the MO8 title menu is written against another set.
+GetTitleMode() maps them: 3/5/13 -> 5 (main items), 4 -> 6, 11 -> 11,
+0/1/2 unchanged; all other PC modes are inert (-1).
+
+Evidence and limits, documented in the code: in the disassembly of all 196
+PC scripts only _startup writes SW_TITLEMODE (literals 0, 1, 3, 13, 21) and
+nothing reads it, so modes 4/5/11 are never produced by scripts; they would
+come from native PC title code. Their mapping is inferred. This fixes the
+previous mapping, which was reversed: MO8 6 fades to black and MO8 11 reveals
+from black, so PC fading out (4) belongs to 6 and the PC initial fade (11) to
+11. Modes 0-2 are numbered identically, so the raw SW_TITLEMODE reads in
+InstTitleMenuNew agree with the mapped ones; the "!= 1" gate in
+Update() now also goes through GetTitleMode().
+
+diff --git a/src/games/mo8/titlemenu.cpp b/src/games/mo8/titlemenu.cpp
+index 5e000743e6341c21b7e99618bb3b56ee4cd7ee1f..d5d99b3366f946df4f69baf2e0f1c183e8a16945 100644
+--- a/src/games/mo8/titlemenu.cpp
++++ b/src/games/mo8/titlemenu.cpp
+@@ -12,6 +12,7 @@
+ #include "../../mem.h"
+ #include "../../profile/scriptvars.h"
+ #include "../../profile/game.h"
++#include "../../profile/vm.h"
+ #include "../../background2d.h"
+ #include "../../vm/interface/input.h"
+ 
+@@ -25,6 +26,43 @@ using namespace Impacto::Profile::ScriptVars;
+ 
+ using namespace Impacto::UI::Widgets;
+ 
++// The PC release of Memories Off 6 uses the CC (PS4) style title mode numbering
++// (0 = invisible, 1 = press to start, 2 = start transition, 3 = main, 4 = fading
++// out, 5 = sub menu, 11 = initial fade, 13 = clear list; see
++// TitleMenuMode::PS4::Mode) instead of the MO8 one this class is written
++// against. Map it onto the MO8 modes.
++//
++// Evidence (disassembly of all 196 PC scripts): only _startup writes
++// SW_TITLEMODE, and only the literals 0, 1, 3, 13 and 21; nothing reads it.
++// Mode 2 is set by InstTitleMenuNew itself, and 0/1/2 mean the same in both
++// numberings (so the raw ScrWork[SW_TITLEMODE] reads in InstTitleMenuNew and
++// the state checks below agree). The PC title code that would drive 4, 5 and 11
++// is native and not part of the scripts, so those mappings are inferred, not
++// observed: MO8 6 fades to black, MO8 11 reveals from black, hence PC 4 (fading
++// out) -> 6 and PC 11 (initial fade) -> 11. PC modes without an MO8 counterpart
++// (6, 7, 12, 21, ...) are inert here.
++static int GetTitleMode() {
++  const int mode = ScrWork[SW_TITLEMODE];
++  if (Profile::Vm::GameInstructionSet != Vm::InstructionSet::MO6TWPC) {
++    return mode;
++  }
++  switch (mode) {
++    case 0:
++    case 1:
++    case 2:
++    case 11:
++      return mode;
++    case 3:
++    case 5:
++    case 13:
++      return 5;
++    case 4:
++      return 6;
++    default:
++      return -1;
++  }
++}
++
+ void TitleMenu::MenuButtonOnClick(Widgets::Button* target) {
+   target->Hovered = false;
+   AllowsScriptInput = true;
+@@ -233,7 +271,7 @@ void TitleMenu::Update(float dt) {
+   }
+ 
+   if (State != Hidden && IsFocused && GetFlag(SF_TITLEMODE) &&
+-      ScrWork[SW_TITLEMODE] != 1) {
++      GetTitleMode() != 1) {
+     Gallery->Tint = glm::vec4(1.0f, 1.0f, 1.0f, GetFlag(803) ? 1.0f : 0.0f);
+     Gallery->Enabled = GetFlag(803);
+     MainItems->Update(dt);
+@@ -246,7 +284,7 @@ void TitleMenu::Update(float dt) {
+       GalleryItems->UpdateInput(dt);
+     }
+ 
+-    switch (ScrWork[SW_TITLEMODE]) {
++    switch (GetTitleMode()) {
+       case 0:
+       case 2: {
+         if (PrimaryFadeAnimation.State == AnimationState::Stopped &&
+@@ -282,7 +320,7 @@ void TitleMenu::Render() {
+   if (State != Hidden && GetFlag(SF_TITLEMODE)) {
+     Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f));
+     Renderer->DrawSprite(LogoSprite, glm::vec2(LogoPositionX, LogoPositionY));
+-    switch (ScrWork[SW_TITLEMODE]) {
++    switch (GetTitleMode()) {
+       case 0:
+       case 1: {  // Press to start
+         glm::vec4 col = glm::vec4(1.0f);

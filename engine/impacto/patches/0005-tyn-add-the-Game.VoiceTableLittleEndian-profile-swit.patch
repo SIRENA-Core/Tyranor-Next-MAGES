@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Mon, 16 Nov 2026 12:34:11 -0800
+Subject: [PATCH] tyn: add the Game.VoiceTableLittleEndian profile switch
+
+New generic profile switch, default off (all existing profiles keep the
+big-endian table). Upstreamable.
+
+The PC release of Memories Off 6 stores the voice lip-sync table header
+(entry count, padding word, data index) little-endian, unlike the console
+tables. With VoiceTableLittleEndian = true those three fields are read
+little-endian; the padding word is now read with the table's own endianness
+for readability.
+
+diff --git a/src/profile/game.cpp b/src/profile/game.cpp
+index c1e8c2b47289e2ec53511a596cb4f9a44180ca8e..86965b2b70d47432bf6ac1ef8e1b0e041ff5cc23 100644
+--- a/src/profile/game.cpp
++++ b/src/profile/game.cpp
+@@ -21,6 +21,8 @@ void Configure() {
+ 
+   LayFileBigEndian = TryGetMember<bool>("LayFileBigEndian").value_or(false);
+   CharaIsMvl = TryGetMember<bool>("CharaIsMvl").value_or(false);
++  VoiceTableLittleEndian =
++      TryGetMember<bool>("VoiceTableLittleEndian").value_or(false);
+   LayFileTexXMultiplier =
+       TryGetMember<float>("LayFileTexXMultiplier").value_or(1.0f);
+   LayFileTexYMultiplier =
+diff --git a/src/profile/game.h b/src/profile/game.h
+index 2f16263118d18ea2ae79f5384591b28f8f4a074a..5479bbb331f2cf5c190b4c7ccf763e18d44c6006 100644
+--- a/src/profile/game.h
++++ b/src/profile/game.h
+@@ -19,6 +19,7 @@ inline std::optional<std::string> CursorPointerPath;
+ 
+ inline bool LayFileBigEndian;
+ inline bool CharaIsMvl;
++inline bool VoiceTableLittleEndian = false;
+ 
+ inline size_t ScreenCaptureCount = 0;
+ inline bool UseMoviePriority = false;
+diff --git a/src/voicetable.cpp b/src/voicetable.cpp
+index 89c14de866ad39518d2b2892f539898caf131cab..3cf6dfc0e5a02dcb218abd8bbde2c53e648bdfa0 100644
+--- a/src/voicetable.cpp
++++ b/src/voicetable.cpp
+@@ -3,6 +3,7 @@
+ #include "io/io.h"
+ #include "io/vfs.h"
+ #include "log.h"
++#include "profile/game.h"
+ 
+ namespace Impacto {
+ bool VoiceTable::LoadSync(uint32_t id) {
+@@ -10,8 +11,12 @@ bool VoiceTable::LoadSync(uint32_t id) {
+   int64_t err = Io::VfsOpen("system", id, &stream);
+   if (err != IoError_OK) return false;
+ 
+-  VoiceFileCount = Io::ReadBE<uint16_t>(stream);
+-  Io::ReadBE<uint16_t>(stream);
++  const bool littleEndian = Profile::Game::VoiceTableLittleEndian;
++  VoiceFileCount = littleEndian ? Io::ReadLE<uint16_t>(stream)
++                                : Io::ReadBE<uint16_t>(stream);
++  // Padding word, read with the table's own endianness
++  (void)(littleEndian ? Io::ReadLE<uint16_t>(stream)
++                      : Io::ReadBE<uint16_t>(stream));
+ 
+   const int64_t tocEnd = 4 + 4 * static_cast<int64_t>(VoiceFileCount);
+   if (tocEnd > stream->Meta.Size) {
+@@ -25,7 +30,8 @@ bool VoiceTable::LoadSync(uint32_t id) {
+   }
+ 
+   for (size_t i = 0; i < VoiceFileCount; ++i) {
+-    uint16_t dataIndex = Io::ReadBE<uint16_t>(stream);
++    uint16_t dataIndex = littleEndian ? Io::ReadLE<uint16_t>(stream)
++                                      : Io::ReadBE<uint16_t>(stream);
+     uint16_t voiceLengthSecTimes6 = Io::ReadLE<uint16_t>(stream);
+     VoiceMeta voiceMeta{dataIndex, voiceLengthSecTimes6};
+     TableOfContents[i] = voiceMeta;

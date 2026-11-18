@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "comment": "Every profile id the host launches (ImpactoRequest.PROFILES must equal this list). source: upstream = defined by pinned upstream impacto; tyn-patch = defined by engine/impacto/patches. detect: files that must exist relative to the game folder for the Tyranor Next app to offer the profile (null = the app's own ImpactoGameCatalog decides; not restated here). language: UI/text language of the profile (null = not a language variant).",
+  "profiles": [
+    {"id": "chlcc", "source": "upstream", "name": "CHAOS;HEAD Love Chu☆Chu!", "language": null, "detect": null},
+    {"id": "cclcc", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (PS4)", "language": null, "detect": null},
+    {"id": "cclcc-switch", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (Switch)", "language": null, "detect": null},
+    {"id": "mo6tw", "source": "upstream", "name": "Memories Off 6 ~T-Wave~ (PS3)", "language": null,
+     "detect": {"layout": "ps3", "allOf": ["SCRIPT.cls"]}},
+    {"id": "mo6tw-pc", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Japanese)", "language": "ja",
+     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes00.cpk"},
+     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "mo6tw-pc-zhs", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Simplified Chinese)", "language": "zh-Hans",
+     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes02.cpk"},
+     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "mo6tw-pc-zht", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Traditional Chinese)", "language": "zh-Hant",
+     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes01.cpk"},
+     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "darling", "source": "upstream", "name": "STEINS;GATE: My Darling's Embrace", "language": null, "detect": null},
+    {"id": "dash", "source": "upstream", "name": "ROBOTICS;NOTES DaSH", "language": null, "detect": null},
+    {"id": "rne", "source": "upstream", "name": "ROBOTICS;NOTES ELITE", "language": null, "detect": null}
+  ]
+}

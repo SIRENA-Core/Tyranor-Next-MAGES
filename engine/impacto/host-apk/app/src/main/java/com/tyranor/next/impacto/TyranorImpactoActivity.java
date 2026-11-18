@@ -10,8 +10,8 @@ import com.committeeofzero.impacto.ImpactoActivity;
 import java.io.File;
 
 /**
- * Tyranor host for the unmodified upstream {@link ImpactoActivity}. It only overrides methods upstream already
- * exposes as public or protected hooks:
+ * Tyranor host around upstream's {@link ImpactoActivity} (its Java layer is used as shipped; engine changes live in the
+ * patch series, not here). It only overrides methods upstream already exposes as public or protected hooks:
  * <ul>
  *   <li>{@code getArguments()}: the engine's own {@code -g -bp -gc -uc} command line, no {@code args.txt};</li>
  *   <li>{@code getChosenDirectory()}: the per-game data root instead of the user-picked folder;</li>

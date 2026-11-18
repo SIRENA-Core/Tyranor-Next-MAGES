@@ -32,3 +32,31 @@ reject 'explicit missing Ninja is not silently replaced' "$TEST_TEMP/sdk/cmake" 
 reject 'missing Ninja explains setup' "$TEST_TEMP/standalone/cmake" '' "$TEST_TEMP/empty"
 reject 'missing CMake' "$TEST_TEMP/missing-cmake" '' "$TEST_TEMP/path"
 printf 'PASS: 8 Impacto CMake/Ninja resolution cases\n'
+
+# --- dev-build lock ownership ---
+LOCKDIR="$TEST_TEMP/lock"
+if impacto_process_start $$ > /dev/null 2>&1; then HAVE_PROC=1; else HAVE_PROC=0; fi
+sleep 30 &
+LIVE=$!
+trap 'kill "$LIVE" 2>/dev/null || true; rm -rf "$TEST_TEMP"' EXIT
+impacto_lock_acquire "$LOCKDIR" $$ || { echo 'FAIL: fresh lock not acquired' >&2; exit 1; }
+[[ $(cut -d' ' -f1 "$LOCKDIR/owner") == "$$" ]] || { echo 'FAIL: owner pid not recorded' >&2; exit 1; }
+# a live owner keeps the lock
+if (impacto_lock_acquire "$LOCKDIR" 4242) 2>/dev/null; then echo 'FAIL: live lock was taken over' >&2; exit 1; fi
+# dead owner: the stale lock is removed and taken
+dead=$(sh -c 'echo $$')
+printf '%s\n' "$dead 1" > "$LOCKDIR/owner"
+impacto_lock_acquire "$LOCKDIR" $$ 2> "$TEST_TEMP/stale.log" || { echo 'FAIL: stale lock not removed' >&2; exit 1; }
+grep -q 'stale build lock' "$TEST_TEMP/stale.log" || { echo 'FAIL: no stale-lock message' >&2; exit 1; }
+[[ $(cut -d' ' -f1 "$LOCKDIR/owner") == "$$" ]] || { echo 'FAIL: stale lock owner not replaced' >&2; exit 1; }
+# recycled pid: a live process with a different start time is not the owner
+if [[ $HAVE_PROC == 1 ]]; then
+    printf '%s\n' "$LIVE 1" > "$LOCKDIR/owner"
+    impacto_lock_acquire "$LOCKDIR" $$ 2> /dev/null || { echo 'FAIL: recycled pid kept the lock' >&2; exit 1; }
+fi
+# owner file missing: a young lock is left alone, an old one is stale
+rm -f "$LOCKDIR/owner"
+if (impacto_lock_acquire "$LOCKDIR" $$) 2>/dev/null; then echo 'FAIL: young ownerless lock was taken' >&2; exit 1; fi
+touch -d '2000-01-01' "$LOCKDIR"
+impacto_lock_acquire "$LOCKDIR" $$ 2> /dev/null || { echo 'FAIL: old ownerless lock not removed' >&2; exit 1; }
+printf 'PASS: Impacto dev-build lock ownership cases\n'
