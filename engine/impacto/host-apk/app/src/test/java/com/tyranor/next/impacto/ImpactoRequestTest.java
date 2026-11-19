@@ -85,9 +85,10 @@ public class ImpactoRequestTest {
 
     @Test
     public void profileListMatchesTheAppCatalog() {
-        // Seven upstream game profiles plus the three Windows/Steam MO6TW language profiles (defined by this
-        // repository's patch series); viewers are not games.
-        assertEquals(10, ImpactoRequest.PROFILES.size());
+        // Seven upstream game profiles plus the three Windows/Steam MO6TW language profiles and the experimental
+        // STEINS;GATE (Steam) profile (all defined by this repository's patch series); viewers are not games.
+        assertEquals(11, ImpactoRequest.PROFILES.size());
+        assertTrue(ImpactoRequest.PROFILES.contains("sg-pc"));
         assertTrue(ImpactoRequest.PROFILES.contains("mo6tw"));
         assertTrue(ImpactoRequest.PROFILES.contains("mo6tw-pc"));
         assertTrue(ImpactoRequest.PROFILES.contains("mo6tw-pc-zhs"));

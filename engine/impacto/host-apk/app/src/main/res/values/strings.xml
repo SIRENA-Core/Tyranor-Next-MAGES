@@ -7,4 +7,32 @@
     <string name="game_dir_unreadable">The game folder cannot be read. Check that all files access is granted and the folder still exists.</string>
     <string name="storage_unavailable">Could not prepare this game\'s data folder.</string>
     <string name="another_game_running">Another game is running. Exit it before starting a different one.</string>
+    <!-- On-screen keys and mouse (TouchControls) -->
+    <string name="touch_hint_ok">OK</string>
+    <string name="touch_hint_back">Back</string>
+    <string name="touch_hint_auto">Auto</string>
+    <string name="touch_hint_skip">Skip</string>
+    <string name="touch_hint_ff">FF</string>
+    <string name="touch_hint_log">Log</string>
+    <string name="touch_hint_menu">Menu</string>
+    <string name="touch_hint_qsave">QSave</string>
+    <string name="touch_page_main">Main</string>
+    <string name="touch_page_nav">Nav</string>
+    <string name="touch_page_fn">F1–F12</string>
+    <string name="touch_page_az">A–Z</string>
+    <string name="touch_page_digits">0–9</string>
+    <string name="touch_page_mouse">Mouse</string>
+    <string name="touch_settings">Set</string>
+    <string name="touch_set_title">On-screen controls</string>
+    <string name="touch_set_opacity">Opacity</string>
+    <string name="touch_set_size">Size</string>
+    <string name="touch_set_expand">Expand</string>
+    <string name="touch_set_horizontal">Sideways</string>
+    <string name="touch_set_vertical">Up/down</string>
+    <string name="touch_set_hints">Show what each key does</string>
+    <string name="touch_set_fade">Fade when idle</string>
+    <string name="touch_set_fold">Fold automatically</string>
+    <string name="touch_set_mouse">Virtual mouse</string>
+    <string name="touch_set_reset">Reset position</string>
+    <string name="touch_set_done">Done</string>
 </resources>

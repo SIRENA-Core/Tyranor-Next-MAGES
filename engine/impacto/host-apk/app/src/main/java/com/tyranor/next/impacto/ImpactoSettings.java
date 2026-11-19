@@ -18,6 +18,8 @@ import java.util.Set;
  */
 final class ImpactoSettings {
     static final String EXTRA_SETTINGS = "com.tyranor.next.impacto.extra.SETTINGS";
+    /** Set by ImpactoLaunchActivity on the (non-exported) game activity's intent; the validated {@link #touchControls}. */
+    static final String EXTRA_TOUCH_CONTROLS = "com.tyranor.next.impacto.extra.TOUCH_CONTROLS";
 
     /** Upstream {@code LogLevel} names, lowercase as sent by the app. */
     static final Set<String> LOG_LEVELS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -40,9 +42,16 @@ final class ImpactoSettings {
     final Boolean closeBacklogAtEnd;
     final Boolean delusionMouse;
     final String logLevel;
+    /** Host-only (not an engine option): show the on-screen touch buttons. {@code null} means the default, on. */
+    final Boolean touchControls;
 
     ImpactoSettings(Boolean swapConfirmCancel, Boolean vsync, Boolean videoPlayback, String subtitles,
                     Boolean closeBacklogAtEnd, Boolean delusionMouse, String logLevel) {
+        this(swapConfirmCancel, vsync, videoPlayback, subtitles, closeBacklogAtEnd, delusionMouse, logLevel, null);
+    }
+
+    ImpactoSettings(Boolean swapConfirmCancel, Boolean vsync, Boolean videoPlayback, String subtitles,
+                    Boolean closeBacklogAtEnd, Boolean delusionMouse, String logLevel, Boolean touchControls) {
         this.swapConfirmCancel = swapConfirmCancel;
         this.vsync = vsync;
         this.videoPlayback = videoPlayback;
@@ -50,10 +59,11 @@ final class ImpactoSettings {
         this.closeBacklogAtEnd = closeBacklogAtEnd;
         this.delusionMouse = delusionMouse;
         this.logLevel = logLevel;
+        this.touchControls = touchControls;
     }
 
     static ImpactoSettings none() {
-        return new ImpactoSettings(null, null, null, null, null, null, null);
+        return new ImpactoSettings(null, null, null, null, null, null, null, null);
     }
 
     /** @return the accepted settings; never throws, and an unusable payload yields {@link #none()}. */
@@ -75,7 +85,8 @@ final class ImpactoSettings {
                 choice(root, "subtitles", SUBTITLES),
                 bool(root, "closeBacklogAtEnd"),
                 bool(root, "delusionMouse"),
-                choice(root, "logLevel", LOG_LEVELS));
+                choice(root, "logLevel", LOG_LEVELS),
+                bool(root, "touchControls"));
     }
 
     /** Only a real JSON boolean counts: strings, numbers and nulls are rejected rather than coerced. */
