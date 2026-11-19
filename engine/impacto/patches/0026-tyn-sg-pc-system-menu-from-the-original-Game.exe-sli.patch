@@ -1,0 +1,261 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 06:36:04 -0800
+Subject: [PATCH] tyn: sg-pc system menu from the original Game.exe (sliding
+ labels, slide-in)
+
+Replaces the estimated layout of patch 0022 with what the original STEINS;GATE (Steam) Game.exe draws (system
+menu routine around 0x43cd20, drawSprite 0x432230; 1280x720 units drawn at x1.5), all from DATA01.DDS:
+- the panel (1261.5, 37.5, 82.5 x 750) at (93, 163.5) (0022: 61 x 708 at (66, 176));
+- per row i the icon (78 x 61.5 at sheet y 1.5 + 66 i) at (96, 178.5 + 57 i): grey sheet x 832.5, white x 913.5
+  when focused;
+- the label (sheet, right-aligned at x 1258.5, up to 264 x 61.5) drawn before the panel at x 153: revealed from its
+  right edge over 8 frames while the row has focus, so it slides out from behind the panel;
+- the menu slides in from the left by (256 - SW_SYSMENUALPHA) / 2 * 1.5 (192 at alpha 0);
+- hit areas from the original's table (Game.exe .data 0x129adc): rows of 321 x 57 from (96, 177).
+
+Generic (MO6TW system menu class), all optional profile fields, absent = previous behaviour (memo06 PC):
+MenuEntriesLabelSprites / MenuEntriesLabelX / MenuEntriesLabelRevealDuration (sliding labels), SlideInDistance,
+MenuEntriesHoverBounds (hit area relative to the entry).
+
+Not reproduced yet: the dark icon (sheet x 751.5) the original uses for entries that are unavailable.
+
+Checked on MuMu: sg-pc menu at the original positions, the focused row shows its label sliding out, SAVE / CONFIG /
+CLOSE MENU work by tap, Back from SAVE returns to the menu; mo6tw-pc-zhs system menu unchanged.
+
+diff --git a/profiles/sg-pc/hud/systemmenu.lua b/profiles/sg-pc/hud/systemmenu.lua
+index de265594e8c50ef3936abb4ab13ab99a0546f5d5..ca538a017f22b686cb6db0f734cfc35a373f3ab4 100644
+--- a/profiles/sg-pc/hud/systemmenu.lua
++++ b/profiles/sg-pc/hud/systemmenu.lua
+@@ -1,53 +1,66 @@
+ -- STEINS;GATE (Steam) system menu: twelve entries in the order of the script's JumpTable on SW_SYSMENUCNO (3338):
+ -- BACK LOG, QUICK SAVE, QUICK LOAD, SAVE, LOAD, TIPS LIST, CONFIG, FULL SCREEN, HELP, RETURN TITLE, CLOSE MENU,
+--- EXIT GAME. Uses the generic SystemMenuType.MO6TW class (it follows SW_SYSMENUALPHA and writes SW_SYSMENUCNO),
+--- with one focused sprite per entry (MenuEntriesHighlightedSprites).
+--- Sprites measured on DATA01.DDS (3072x1788): per row a dark icon (x 767), a grey icon (x 845, the normal state),
+--- a white icon (x 924) and the italic label (x 1003..1230); rows are 65.6px apart starting at y = 32 (icon centre);
+--- the tall rounded bar (1272,43, 61x708) is the panel behind the icon column.
+--- NOT measurable from the sheet: where the game places the panel on screen. The panel sits at the left edge with
+--- twelve rows of 59px (708 / 12); only the focused row shows its label, to the right of the panel.
+-local panelX = 66;
+-local panelY = 176;
+-local rowPitch = 59;
+-local cellHeight = 66;
++-- EXIT GAME. Drawn by the generic SystemMenuType.MO6TW class.
++-- Layout taken from the original Game.exe (system menu draw routine around 0x43cd20, drawSprite 0x432230; 1280x720
++-- units drawn at x1.5), all from DATA01.DDS:
++--   * per row i a label (sheet x right-aligned at 1258.5, y 1.5 + 66 i, up to 264 x 61.5) drawn first at
++--     x 153, y 178.5 + 57 i; it is revealed from its right edge over 8 frames while the row has focus, so it slides
++--     out from behind the panel;
++--   * the panel (1261.5, 37.5, 82.5 x 750) at (93, 163.5);
++--   * the icon (78 x 61.5, y 1.5 + 66 i) at (96, 178.5 + 57 i): grey x 832.5 normally, white x 913.5 when focused
++--     (dark x 751.5 when the entry is unavailable; not reproduced yet);
++--   * the whole menu slides in from the left by (256 - SW_SYSMENUALPHA) / 2 * 1.5, i.e. 192 at alpha 0.
++-- Hit areas: the original's table (Game.exe .data 0x129adc) has rows of 321 x 57 at (96, 177 + 57 i).
++local rowPitch = 57;
++local firstY = 178.5;
+ 
+ root.SystemMenu = {
+     Type = SystemMenuType.MO6TW,
+     DrawType = DrawComponentType.SystemMenu,
+     SystemMenuBackgroundSprite = "SystemMenuBackground",
+-    SystemMenuX = panelX,
+-    SystemMenuY = panelY,
++    SystemMenuX = 93,
++    SystemMenuY = 163.5,
+     MenuEntriesSprites = {},
+     MenuEntriesHighlightedSprites = {},
++    MenuEntriesLabelSprites = {},
+     MenuEntriesHighlightedSprite = "MenuEntriesHSprite",
+     MenuEntriesNum = 12,
+     MenuEntriesHNum = 12,
+-    MenuEntriesX = panelX + 3,
++    MenuEntriesX = 96,
+     MenuEntriesXOffset = 0,
+-    MenuEntriesFirstY = panelY - 3,
++    MenuEntriesFirstY = firstY,
+     MenuEntriesYPadding = rowPitch,
+-    MenuEntriesTargetWidth = 62,
++    MenuEntriesTargetWidth = 78,
++    MenuEntriesLabelX = 153,
++    MenuEntriesLabelRevealDuration = 8 / 60,
++    SlideInDistance = 192,
++    MenuEntriesHoverBounds = { X = 0, Y = -1.5, Width = 321, Height = 57 },
+     FadeInDuration = 0.2,
+     FadeOutDuration = 0.2
+ };
+ 
+ for i = 0, 11 do
+-    local cellY = math.max(0, math.floor(32 + 65.6 * i - cellHeight / 2 + 0.5));
++    local srcY = 1.5 + 66 * i;
+     root.Sprites["SystemMenuEntry" .. i] = {
+         Sheet = "Data",
+-        Bounds = { X = 841, Y = cellY, Width = 62, Height = cellHeight }
++        Bounds = { X = 832.5, Y = srcY, Width = 78, Height = 61.5 }
+     };
+     root.SystemMenu.MenuEntriesSprites[#root.SystemMenu.MenuEntriesSprites + 1] = "SystemMenuEntry" .. i;
+ 
+     root.Sprites["SystemMenuEntryFocused" .. i] = {
+         Sheet = "Data",
+-        Bounds = { X = 920, Y = cellY, Width = 316, Height = cellHeight }
++        Bounds = { X = 913.5, Y = srcY, Width = 78, Height = 61.5 }
+     };
+     root.SystemMenu.MenuEntriesHighlightedSprites[#root.SystemMenu.MenuEntriesHighlightedSprites + 1] = "SystemMenuEntryFocused" .. i;
++
++    root.Sprites["SystemMenuLabel" .. i] = {
++        Sheet = "Data",
++        Bounds = { X = 1258.5 - 264, Y = srcY, Width = 264, Height = 61.5 }
++    };
++    root.SystemMenu.MenuEntriesLabelSprites[#root.SystemMenu.MenuEntriesLabelSprites + 1] = "SystemMenuLabel" .. i;
+ end
+ 
+--- No highlight bar in the sheet: a transparent patch.
++-- The original draws no highlight bar: a transparent patch.
+ root.Sprites["MenuEntriesHSprite"] = {
+     Sheet = "Data",
+     Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+@@ -55,5 +68,5 @@ root.Sprites["MenuEntriesHSprite"] = {
+ 
+ root.Sprites["SystemMenuBackground"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1272, Y = 43, Width = 61, Height = 708 }
++    Bounds = { X = 1261.5, Y = 37.5, Width = 82.5, Height = 750 }
+ };
+diff --git a/src/games/mo6tw/systemmenu.cpp b/src/games/mo6tw/systemmenu.cpp
+index 0ed07042a46620e902ccbe011b9538e165257b91..7cd50f58e220efd5255577b90c72d5c3afb61800 100644
+--- a/src/games/mo6tw/systemmenu.cpp
++++ b/src/games/mo6tw/systemmenu.cpp
+@@ -41,7 +41,10 @@ SystemMenu::SystemMenu() {
+     const glm::vec2 pos(*MenuEntriesX,
+                         *MenuEntriesFirstY + (*MenuEntriesYPadding * i));
+     RectF hoverBounds{};
+-    if (hasFocusedSprites) {
++    if (MenuEntriesHoverBounds.Width > 0.0f) {
++      hoverBounds = MenuEntriesHoverBounds;
++      hoverBounds.Translate(pos);
++    } else if (hasFocusedSprites) {
+       hoverBounds = RectF(pos.x, pos.y,
+                           std::max(MenuEntriesSprites[i].ScaledWidth(),
+                                    focusedSprite.ScaledWidth()),
+@@ -56,6 +59,8 @@ SystemMenu::SystemMenu() {
+     MainItems->Add(menuButton, FDIR_DOWN);
+   }
+ 
++  LabelProgress.assign(MenuEntriesLabelNum, 0.0f);
++
+   FadeAnimation.Direction = AnimationDirection::In;
+   FadeAnimation.LoopMode = AnimationLoopMode::Stop;
+   FadeAnimation.DurationIn = FadeInDuration;
+@@ -120,13 +125,46 @@ void SystemMenu::Update(float dt) {
+     MainItems->Update(dt);
+     MainItems->UpdateInput(dt);
+   }
++
++  // Sliding labels: grow while the entry has focus, shrink otherwise.
++  for (int i = 0; i < MenuEntriesLabelNum; i++) {
++    const bool focused = State != Hidden && MainItems->Children[i]->HasFocus;
++    const float step = MenuEntriesLabelRevealDuration > 0.0f ? dt / MenuEntriesLabelRevealDuration : 1.0f;
++    LabelProgress[i] = std::clamp(LabelProgress[i] + (focused ? step : -step), 0.0f, 1.0f);
++  }
++
++  // Slide-in: move the entries with the menu.
++  const float slide = SlideOffset();
++  if (slide != AppliedSlide) {
++    MainItems->Move(glm::vec2(slide - AppliedSlide, 0.0f));
++    AppliedSlide = slide;
++  }
++}
++
++float SystemMenu::SlideOffset() const {
++  if (SlideInDistance == 0.0f) return 0.0f;
++  const int alpha = std::clamp(ScrWork[SW_SYSMENUALPHA], 0, 256);
++  return -SlideInDistance * (float)(256 - alpha) / 256.0f;
+ }
+ 
+ void SystemMenu::Render() {
+   if (State != Hidden && ScrWork[SW_SYSMENUALPHA] > 0) {
+     glm::vec4 col(1.0f, 1.0f, 1.0f, FadeAnimation.Progress);
++    const float slide = SlideOffset();
++    // Labels first: they come out from behind the background.
++    for (int i = 0; i < MenuEntriesLabelNum; i++) {
++      if (LabelProgress[i] <= 0.0f) continue;
++      Sprite label = MenuEntriesLabelSprites[i];
++      const float w = label.Bounds.Width * LabelProgress[i];
++      label.Bounds.X += label.Bounds.Width - w;
++      label.Bounds.Width = w;
++      Renderer->DrawSprite(label,
++                           glm::vec2(MenuEntriesLabelX + slide,
++                                     *MenuEntriesFirstY + *MenuEntriesYPadding * i),
++                           col);
++    }
+     Renderer->DrawSprite(SystemMenuBackgroundSprite,
+-                         glm::vec2(SystemMenuX, SystemMenuY), col);
++                         glm::vec2(SystemMenuX + slide, SystemMenuY), col);
+     MainItems->Tint = col;
+     MainItems->Render();
+   }
+diff --git a/src/games/mo6tw/systemmenu.h b/src/games/mo6tw/systemmenu.h
+index 0013f2f6d6c36f68a17d4375ef46ebaf80ae45ea..89756c67e689eb94e5b11b6c3b95c2189d688be0 100644
+--- a/src/games/mo6tw/systemmenu.h
++++ b/src/games/mo6tw/systemmenu.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <optional>
++#include <vector>
+ #include "../../ui/menu.h"
+ #include "../../ui/widgets/group.h"
+ #include "../../ui/widgets/button.h"
+@@ -24,6 +25,9 @@ class SystemMenu : public Menu {
+   Widgets::Group* MainItems;
+   Animation FadeAnimation;
+   std::optional<int> LastFocusedButtonId;
++  std::vector<float> LabelProgress;  // 0..1 per entry (sliding labels)
++  float AppliedSlide = 0.0f;
++  float SlideOffset() const;
+ };
+ 
+ }  // namespace MO6TW
+diff --git a/src/profile/games/mo6tw/systemmenu.cpp b/src/profile/games/mo6tw/systemmenu.cpp
+index 7949aeb1b71039c9408c96f17332ca47d90a58b0..1b82dbc4d04fc1b41d1e5b5a7f3aaf2f93fa7788 100644
+--- a/src/profile/games/mo6tw/systemmenu.cpp
++++ b/src/profile/games/mo6tw/systemmenu.cpp
+@@ -20,6 +20,15 @@ void Configure() {
+   MenuEntriesTargetWidth = EnsureGetMember<float>("MenuEntriesTargetWidth");
+   SystemMenuX = EnsureGetMember<float>("SystemMenuX");
+   SystemMenuY = EnsureGetMember<float>("SystemMenuY");
++  if (TryPushMember("MenuEntriesLabelSprites")) {
++    Pop();
++    MenuEntriesLabelNum = Profile::SystemMenu::MenuEntriesNum;
++    GetMemberArray<Sprite>(std::span(MenuEntriesLabelSprites, MenuEntriesLabelNum), "MenuEntriesLabelSprites");
++  }
++  TryGetMember<float>("MenuEntriesLabelX", MenuEntriesLabelX);
++  TryGetMember<float>("MenuEntriesLabelRevealDuration", MenuEntriesLabelRevealDuration);
++  TryGetMember<float>("SlideInDistance", SlideInDistance);
++  TryGetMember<RectF>("MenuEntriesHoverBounds", MenuEntriesHoverBounds);
+ 
+   auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
+ 
+diff --git a/src/profile/games/mo6tw/systemmenu.h b/src/profile/games/mo6tw/systemmenu.h
+index fbcafb1b1c0be316c0dd68d4dd49448e53488801..5c8c12a71add6a37058e207c0a9fe5c613eca731 100644
+--- a/src/profile/games/mo6tw/systemmenu.h
++++ b/src/profile/games/mo6tw/systemmenu.h
+@@ -13,6 +13,18 @@ inline Sprite SystemMenuBackgroundSprite;
+ inline Sprite MenuEntriesHighlightedSprite;
+ 
+ inline float MenuEntriesTargetWidth;
++
++// Optional, for menus like STEINS;GATE's (all absent = previous behaviour):
++// one label per entry, drawn behind the background at MenuEntriesLabelX and revealed from the right edge of its
++// sprite while the entry has focus (MenuEntriesLabelRevealDuration seconds for the full width);
++inline Sprite MenuEntriesLabelSprites[64];
++inline int MenuEntriesLabelNum = 0;
++inline float MenuEntriesLabelX = 0.0f;
++inline float MenuEntriesLabelRevealDuration = 0.0f;
++// the whole menu slides in from the left by this distance while SW_SYSMENUALPHA rises from 0 to 256;
++inline float SlideInDistance = 0.0f;
++// hover / click area of an entry relative to its position (width 0 = derived from the sprites).
++inline RectF MenuEntriesHoverBounds{};
+ inline float SystemMenuX;
+ inline float SystemMenuY;
+ 
