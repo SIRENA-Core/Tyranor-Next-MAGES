@@ -110,6 +110,10 @@
       {
         "file": "0026-tyn-sg-pc-system-menu-from-the-original-Game.exe-sli.patch",
         "sha256": "2953a8c3c8902015513a1006a93f2b09cc6f1bfe95b2a99fa2d2f03a618dfaab"
+      },
+      {
+        "file": "0027-tyn-sg-pc-CONFIG-screen-from-the-original-Game.exe-O.patch",
+        "sha256": "d0e4c8ee56e4ae1285b46c4910e8c9a8afec0d5408caea138c1dc47bb7855ed5"
       }
     ]
   },

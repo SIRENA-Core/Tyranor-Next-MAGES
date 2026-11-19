@@ -1,0 +1,896 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 12:06:39 -0800
+Subject: [PATCH] tyn: sg-pc CONFIG screen from the original Game.exe
+ (OptionsMenuType.SGHD)
+
+The STEINS;GATE (Steam) CONFIG screen as the original draws and handles it, instead of the 0023 fallback that left
+CONFIG at once. All layout, art, value ranges, steps and behaviour come from the original Game.exe: the page draw
+routines (basic / text 0x438ef0, sound 0x438240, character voices 0x438a60, tabs 0x43b490; drawSprite 0x432230,
+stretched draw 0x432710), the input routine (0x439b00..) and the defaults (0x438030..). Texts are part of the
+(localised) CONFIG.DDS sheet, so translated data shows its own language.
+
+- New generic class UI::SGHD::OptionsMenu + Profile::SGHD::OptionsMenu (OptionsMenuType.SGHD): pages, rows
+  (toggle, slider, choice, radio, character voice) and tabs are all profile data; no layout in the code.
+- Behaviour as the original: shown while the script fades submenu 5 in (SW_SYSSUBMENUNO / SW_SYSSUBMENUALPHA, from
+  the title or the system menu); the screen owns the input while fully shown; Back raises SF_SUBMENUEXIT and writes
+  the system data (the original keeps these values in it); every page has its own cursor, starting with none; up /
+  down wrap; Q / E (L1 / R1) and the tabs change page with the original 32 frame sideways slide; sliders show a half
+  transparent knob at the value the screen opened with; text speed 256..4096 step 30, auto wait 256..2048 step 14,
+  volumes 0..128 step 1; mouse / touch: hover or tap moves the cursor, tap toggles, drag sets a slider; the
+  original's hit areas (labels column for on / off rows).
+- Settings: phone trigger skip release, TIPS notification, auto quick save (scene), skip mode, text and auto speed,
+  voice / BGM / SE / movie volume, voice sync, skip voice, the 12 per-character voice volumes and on / off marks.
+  Window mode and resolution show the fixed state (full screen, 1920x1080) as they have no meaning here.
+- CC title menu: does not take input while another screen opened from the title has the menu focus (it is updated
+  before the options screen and swallowed its clicks).
+- 0023's CONFIG fallback (raise SF_SUBMENUEXIT at once) now only applies when the profile has no options menu.
+
+Checked on MuMu (Android 15, original English data): CONFIG from the title and from the system menu shows the
+original pages (layout matches screenshots of the original game), page slide with E / Q, taps toggle, slider drag,
+Backspace returns to the title / system menu, the screen can be reopened, a changed setting survives a restart;
+mo6tw-pc-zhs title, new game and system menu unchanged.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -168,6 +168,7 @@ set(Impacto_Src
+     src/profile/games/mo6tw/titlemenu.cpp
+     src/profile/games/mo6tw/savemenu.cpp
+     src/profile/games/mo6twpc/savemenu.cpp
++    src/profile/games/sghd/optionsmenu.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -257,6 +258,7 @@ set(Impacto_Src
+     src/games/mo8/titlemenu.cpp
+     src/games/mo8/systemmenu.cpp
+     src/games/mo8/optionsmenu.cpp
++    src/games/sghd/optionsmenu.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -548,6 +550,7 @@ set(Impacto_Header
+     src/profile/games/mo6tw/titlemenu.h
+     src/profile/games/mo6tw/savemenu.h
+     src/profile/games/mo6twpc/savemenu.h
++    src/profile/games/sghd/optionsmenu.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -629,6 +632,7 @@ set(Impacto_Header
+     src/games/mo8/titlemenu.h
+     src/games/mo8/systemmenu.h
+     src/games/mo8/optionsmenu.h
++    src/games/sghd/optionsmenu.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index 1a802bd982a39c133552f398e651817e8b754983..440d968107d228bf491fe028d02bf8f6ef4f2ac9 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -60,6 +60,7 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/datedisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/titlemenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/systemmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/savemenu.lua');
++include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/optionsmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/backlogmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/sysmesboxdisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/selectiondisplay.lua');
+diff --git a/profiles/sg-pc/hud/optionsmenu.lua b/profiles/sg-pc/hud/optionsmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2267318f55a5e33ef487103ddf8e64c88e1b9ae
+--- /dev/null
++++ b/profiles/sg-pc/hud/optionsmenu.lua
+@@ -0,0 +1,117 @@
++-- STEINS;GATE (Steam) CONFIG screen, OptionsMenuType.SGHD. Everything below is taken from the original Game.exe:
++-- the page draw routines (page 0 basic / text 0x438ef0, page 1 sound 0x438240, page 2 character voices 0x438a60,
++-- common tabs 0x43b490; drawSprite 0x432230, stretched draw 0x432710), the input routine (0x439b00..) and the
++-- defaults (0x438030..). All art is on CONFIG.DDS (system.mpk id 5); its texts are part of the (localised) sheet.
++-- The game computes in 1280x720 units and draws at x1.5; values below are already in 1920x1080 units.
++--   * a background (0, 0, 1920 x 1080), per page a paper sheet (954 x 916) at (83, 95) and a button guide at (97, 987);
++--   * the focused row gets a red underline (sheet 1921.5, 1.5, 664.5 x 33, drawn stretched);
++--   * on / off values are text sprites 237 x 33 (sheet x 1921.5): y 156 yes, 192 no, 300 read only, 336 all,
++--     408 every scene;
++--   * slider knobs (2589, 1.5, 33 x 33): a half transparent one at the value the screen opened with, a solid one at
++--     the current value. Text speed 256..4096 (step 30 per frame), auto wait 256..2048 (step 14), volumes 0..128
++--     (step 1); knob x = (337 + (v - 256) * 240 / range) * 1.5 resp. (348 + v * 244 / 128) * 1.5;
++--   * page tabs at y 916, highlighted (+88 on the sheet) under the mouse, a check mark at (723 + 46 * page, 922);
++--   * pages slide sideways in 32 frames, 32 px per frame.
++-- Window mode and resolution have no meaning on this platform: they show the fixed state (full screen, 1920x1080).
++-- Row hit areas: the original's table (Game.exe .data, hit-area group 11); rows 3 / 4 of page 0 use the underline.
++
++root.SpriteSheets["Config"] = {
++    Path = { Mount = "system", Id = 5 },
++    DesignWidth = 3072,
++    DesignHeight = 2048
++};
++
++local function sprite(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "Config", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
++
++local yes = sprite("ConfigYes", 1921.5, 156, 237, 33);
++local no = sprite("ConfigNo", 1921.5, 192, 237, 33);
++local readOnly = sprite("ConfigReadOnly", 1921.5, 300, 237, 33);
++local all = sprite("ConfigAll", 1921.5, 336, 237, 33);
++local everyScene = sprite("ConfigEveryScene", 1921.5, 408, 237, 33);
++
++local function underline(x1, y1, x2, y2) return { X = x1, Y = y1, Width = x2 - x1, Height = y2 - y1 }; end
++
++local function toggle(setting, x, y, trueSprite, falseSprite, ul, hit)
++    return { Type = "Toggle", Setting = setting, Position = { X = x, Y = y }, TrueSprite = trueSprite,
++             FalseSprite = falseSprite, Underline = ul, HitArea = hit };
++end
++
++local function slider(setting, knobX, knobRange, knobY, min, max, step, ul, hit)
++    return { Type = "Slider", Setting = setting, KnobX = knobX, KnobRange = knobRange, KnobY = knobY, Min = min,
++             Max = max, Step = step, Underline = ul, HitArea = hit, DragArea = hit, DragInset = 16.5 };
++end
++
++-- page 0: basic / text settings
++local page0Rows = {
++    toggle("TriggerStopSkip", 766.5, 264, yes, no, underline(153, 279, 955.5, 312), { X = 153, Y = 263, Width = 742, Height = 33 }),
++    toggle("ShowTipsNotification", 766.5, 325.5, yes, no, underline(153, 340.5, 955.5, 373.5), { X = 153, Y = 324, Width = 742, Height = 33 }),
++    toggle("AutoQuickSaveScene", 766.5, 385.5, everyScene, no, underline(153, 402, 955.5, 435), { X = 153, Y = 384, Width = 742, Height = 33 }),
++    { Type = "Choice", Setting = "WindowMode", FixedValue = 1, Sprite = sprite("ConfigWindowModeFocus", 1930, 576, 224, 88),
++      Positions = { { X = 499, Y = 418 }, { X = 693, Y = 418 } },
++      Underline = underline(153, 462, 955.5, 495), HitArea = underline(153, 462, 955.5, 495) },
++    { Type = "Radio", Setting = "Resolution", FixedValue = 2, Sprite = sprite("ConfigResolution", 1930, 520, 394, 56),
++      Position = { X = 518, Y = 435 }, Positions = { { X = 563, Y = 502.5 }, { X = 693, Y = 502.5 }, { X = 824, Y = 502.5 } },
++      Underline = underline(153, 522, 955.5, 555), HitArea = underline(153, 522, 955.5, 555) },
++    slider("TextSpeed", 505.5, 360, 672, 256, 4096, 30, underline(153, 690, 967.5, 723), { X = 504, Y = 664, Width = 393, Height = 49 }),
++    slider("AutoSpeed", 505.5, 360, 727.5, 256, 2048, 14, underline(153, 744, 967.5, 777), { X = 504, Y = 719, Width = 393, Height = 49 }),
++    toggle("SkipAll", 766.5, 787.5, all, readOnly, underline(153, 805.5, 967.5, 838.5), { X = 153, Y = 789, Width = 742, Height = 33 }),
++};
++
++-- page 1: sound settings (voice, BGM, sound effects, movie volume, voice sync, skip voice)
++local page1Rows = {};
++local volumes = { "VoiceVolume", "BGMVolume", "SEVolume", "MovieVolume" };
++for i = 0, 3 do
++    page1Rows[#page1Rows + 1] = slider(volumes[i + 1], 522, 366, 262.5 + 60 * i, 0, 128, 1,
++        underline(153, 283.5 + 60 * i, 997.5, 316.5 + 60 * i), { X = 520, Y = 253 + 60 * i, Width = 399, Height = 49 });
++end
++page1Rows[#page1Rows + 1] = toggle("SyncVoice", 615, 502.5, yes, no, underline(153, 523.5, 997.5, 556.5), { X = 153, Y = 506, Width = 742, Height = 33 });
++page1Rows[#page1Rows + 1] = toggle("SkipVoice", 615, 562.5, yes, no, underline(153, 583.5, 997.5, 616.5), { X = 153, Y = 566, Width = 742, Height = 33 });
++
++-- page 2: character voices; row i edits the engine's (script mapped) character id below
++local characterIds = { 0, 1, 4, 3, 5, 2, 6, 7, 8, 9, 10, 11 };
++local page2Rows = {};
++for i = 0, 11 do
++    local y = (160 + 31 * i) * 1.5;
++    local hitY = 256 + 46.5 * i;
++    page2Rows[#page2Rows + 1] = {
++        Type = "Voice", CharacterId = characterIds[i + 1],
++        CursorSprite = sprite("ConfigVoiceCursor" .. i, 2265, 37.5, 66, 75), CursorPosition = { X = 159, Y = y },
++        OnSprite = sprite("ConfigVoiceOn" .. i, 2334, 37.5, 72, 75), OnPosition = { X = 156, Y = y },
++        KnobX = 526.5, KnobRange = 366, KnobY = (160 + 31 * i + 16) * 1.5, Min = 0, Max = 128, Step = 1,
++        Underline = underline(204, (160 + 31 * i + 29) * 1.5, 1011, (160 + 31 * i + 51) * 1.5),
++        HitArea = { X = 525, Y = hitY, Width = 399, Height = 49 }, DragArea = { X = 525, Y = hitY, Width = 399, Height = 49 },
++        DragInset = 16.5, ToggleArea = { X = 172, Y = hitY, Width = 40, Height = 40 }
++    };
++end
++
++root.OptionsMenu = {
++    Type = OptionsMenuType.SGHD,
++    DrawType = DrawComponentType.SystemMenu,
++    FadeInDuration = 16 / 60,
++    FadeOutDuration = 16 / 60,
++    BackgroundSprite = sprite("ConfigBackground", 0, 0, 1920, 1080),
++    UnderlineSprite = sprite("ConfigUnderline", 1921.5, 1.5, 664.5, 33),
++    KnobSprite = sprite("ConfigKnob", 2589, 1.5, 33, 33),
++    TabCheckSprite = sprite("ConfigTabCheck", 2154, 628, 64, 36),
++    PageSlideFrames = 32,
++    PageSlideDistance = 1024,
++    Pages = {
++        { PaperSprite = sprite("ConfigPaper0", 1, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
++          GuideSprite = sprite("ConfigGuide0", 1361, 1081, 1038, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page0Rows },
++        { PaperSprite = sprite("ConfigPaper1", 957, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
++          GuideSprite = sprite("ConfigGuide1", 1361, 1081, 1038, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page1Rows },
++        { PaperSprite = sprite("ConfigPaper2", 1913, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
++          GuideSprite = sprite("ConfigGuide2", 1, 1081, 1358, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page2Rows },
++    },
++    Tabs = {
++        { Sprite = sprite("ConfigTab0", 2154, 576, 60, 52), HighlightedSprite = sprite("ConfigTab0H", 2154, 664, 60, 52),
++          Position = { X = 721, Y = 916 }, CheckPosition = { X = 723, Y = 922 }, HitArea = { X = 721, Y = 916, Width = 60, Height = 52 } },
++        { Sprite = sprite("ConfigTab1", 2214, 576, 48, 52), HighlightedSprite = sprite("ConfigTab1H", 2214, 664, 48, 52),
++          Position = { X = 781, Y = 916 }, CheckPosition = { X = 769, Y = 922 }, HitArea = { X = 781, Y = 916, Width = 48, Height = 52 } },
++        { Sprite = sprite("ConfigTab2", 2262, 576, 62, 52), HighlightedSprite = sprite("ConfigTab2H", 2262, 664, 62, 52),
++          Position = { X = 829, Y = 916 }, CheckPosition = { X = 815, Y = 922 }, HitArea = { X = 829, Y = 916, Width = 62, Height = 52 } },
++    }
++};
+diff --git a/src/games/cc/titlemenu.cpp b/src/games/cc/titlemenu.cpp
+index b0032e3e40792f602590fb3b45f2bf897fcc8019..a54728f94edb9c7a4fe1225c5735ee82bae42db5 100644
+--- a/src/games/cc/titlemenu.cpp
++++ b/src/games/cc/titlemenu.cpp
+@@ -221,6 +221,8 @@ void TitleMenu::Hide() {
+ }
+ 
+ void TitleMenu::UpdateInput(float dt) {
++  // A screen opened from the title (options, save, ...) owns the input while it has the menu focus.
++  if (UI::FocusedMenu != nullptr && UI::FocusedMenu != this) return;
+   Menu::UpdateInput(dt);
+   MainItems->UpdateInput(dt);
+   if (CurrentSubMenu) {
+diff --git a/src/games/sghd/optionsmenu.cpp b/src/games/sghd/optionsmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..9abdddeed150190e3f5905675c6af236973c5f63
+--- /dev/null
++++ b/src/games/sghd/optionsmenu.cpp
+@@ -0,0 +1,360 @@
++#include "optionsmenu.h"
++
++#include <algorithm>
++#include <cmath>
++
++#include "../../renderer/renderer.h"
++#include "../../mem.h"
++#include "../../inputsystem.h"
++#include "../../audio/audiosystem.h"
++#include "../../profile/scriptvars.h"
++#include "../../profile/configsystem.h"
++#include "../../vm/interface/input.h"
++#include "../../ui/ui.h"
++#include "../../data/savesystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++using namespace Impacto::Profile::SGHD::OptionsMenu;
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Vm::Interface;
++namespace Cfg = Impacto::Profile::ConfigSystem;
++namespace Layout = Impacto::Profile::SGHD::OptionsMenu;
++
++namespace {
++
++constexpr int SubMenuOptions = 5;
++
++void DrawStretched(const Sprite& sprite, const RectF& dest, glm::vec4 col) {
++  Renderer->DrawSprite(sprite, dest, col);
++}
++
++}  // namespace
++
++OptionsMenu::OptionsMenu() : UI::OptionsMenu() {
++  Cursor.assign(Layout::Pages.size(), 0);
++  OpenValues.resize(Layout::Pages.size());
++  for (size_t p = 0; p < Layout::Pages.size(); p++) OpenValues[p].assign(Layout::Pages[p].Rows.size(), 0.0f);
++}
++
++// ---------------------------------------------------------------- settings
++
++float OptionsMenu::GetValue(const Row& row) const {
++  const std::string& s = row.Setting;
++  if (row.Type == RowType::Voice) return Cfg::VoiceVolume[row.CharacterId] * 128.0f;
++  if (s == "TriggerStopSkip") return Cfg::TriggerStopSkip;
++  if (s == "ShowTipsNotification") return Cfg::ShowTipsNotification;
++  if (s == "AutoQuickSaveScene")
++    return (Cfg::AutoQuickSave & +Cfg::AutoQuickSaveType::OnScene) != 0;
++  if (s == "SkipAll") return !Cfg::SkipRead;
++  if (s == "SyncVoice") return Cfg::SyncVoice;
++  if (s == "SkipVoice") return Cfg::SkipVoice;
++  if (s == "TextSpeed") return Cfg::TextSpeed * 60.0f;
++  if (s == "AutoSpeed") return Cfg::AutoSpeed * 60.0f;
++  if (s == "VoiceVolume") return Audio::GroupVolumes[Audio::ACG_Voice] * 128.0f;
++  if (s == "BGMVolume") return Audio::GroupVolumes[Audio::ACG_BGM] * 128.0f;
++  if (s == "SEVolume") return Audio::GroupVolumes[Audio::ACG_SE] * 128.0f;
++  if (s == "MovieVolume") return Audio::GroupVolumes[Audio::ACG_Movie] * 128.0f;
++  return (float)row.FixedValue;
++}
++
++void OptionsMenu::SetValue(const Row& row, float value) {
++  value = std::clamp(value, row.Min, row.Max);
++  const std::string& s = row.Setting;
++  if (row.Type == RowType::Voice) {
++    Cfg::VoiceVolume[row.CharacterId] = value / 128.0f;
++    return;
++  }
++  const bool b = value != 0.0f;
++  if (s == "TriggerStopSkip") Cfg::TriggerStopSkip = b;
++  else if (s == "ShowTipsNotification") Cfg::ShowTipsNotification = b;
++  else if (s == "AutoQuickSaveScene")
++    Cfg::AutoQuickSave = b ? (Cfg::AutoQuickSave | +Cfg::AutoQuickSaveType::OnScene) : 0;
++  else if (s == "SkipAll") Cfg::SkipRead = !b;
++  else if (s == "SyncVoice") Cfg::SyncVoice = b;
++  else if (s == "SkipVoice") Cfg::SkipVoice = b;
++  else if (s == "TextSpeed") Cfg::TextSpeed = value / 60.0f;
++  else if (s == "AutoSpeed") Cfg::AutoSpeed = value / 60.0f;
++  else if (s == "VoiceVolume") Audio::GroupVolumes[Audio::ACG_Voice] = value / 128.0f;
++  else if (s == "BGMVolume") Audio::GroupVolumes[Audio::ACG_BGM] = value / 128.0f;
++  else if (s == "SEVolume") Audio::GroupVolumes[Audio::ACG_SE] = value / 128.0f;
++  else if (s == "MovieVolume") Audio::GroupVolumes[Audio::ACG_Movie] = value / 128.0f;
++  // rows without an engine setting (window mode, resolution) keep their fixed value
++}
++
++bool OptionsMenu::GetVoiceOn(const Row& row) const { return !Cfg::VoiceMuted[row.CharacterId]; }
++void OptionsMenu::SetVoiceOn(const Row& row, bool on) { Cfg::VoiceMuted[row.CharacterId] = !on; }
++
++void OptionsMenu::UpdateValues() {
++  for (size_t p = 0; p < Layout::Pages.size(); p++)
++    for (size_t r = 0; r < Layout::Pages[p].Rows.size(); r++) OpenValues[p][r] = GetValue(Layout::Pages[p].Rows[r]);
++}
++
++// ---------------------------------------------------------------- visibility
++
++int OptionsMenu::ScriptAlpha() const {
++  if (ScrWork[SW_SYSSUBMENUNO] != SubMenuOptions && ScrWork[SW_OPTIONALPHA] == 0) return 0;
++  return std::clamp(ScrWork[SW_SYSSUBMENUALPHA], 0, 256);
++}
++
++void OptionsMenu::Show() {
++  if (State == Shown || State == Showing) return;
++  State = Shown;
++  CurrentPage = 0;
++  TargetPage = 0;
++  SlideCounter = 0.0f;
++  // as the original in mouse mode: no row has the cursor until a direction key or the mouse picks one
++  std::fill(Cursor.begin(), Cursor.end(), -1);
++  UpdateValues();
++  if (UI::FocusedMenu != nullptr) {
++    LastFocusedMenu = UI::FocusedMenu;
++    LastFocusedMenu->IsFocused = false;
++  }
++  IsFocused = true;
++  UI::FocusedMenu = this;
++}
++
++void OptionsMenu::Hide() {
++  if (State == Hidden) return;
++  State = Hidden;
++  DraggedRow = -1;
++  if (LastFocusedMenu != nullptr) {
++    UI::FocusedMenu = LastFocusedMenu;
++    LastFocusedMenu->IsFocused = true;
++  } else {
++    UI::FocusedMenu = nullptr;
++  }
++  IsFocused = false;
++}
++
++void OptionsMenu::UpdateVisibility() {
++  const int alpha = ScriptAlpha();
++  if (alpha > 0 && State == Hidden) Show();
++  if (alpha == 0 && State != Hidden) Hide();
++  // keep the menu focus while shown (the title menu re-takes it every frame when it is shown under this screen)
++  if (State == Shown && UI::FocusedMenu != this) {
++    if (UI::FocusedMenu != nullptr && UI::FocusedMenu != LastFocusedMenu) {
++      LastFocusedMenu = UI::FocusedMenu;
++      LastFocusedMenu->IsFocused = false;
++    }
++    UI::FocusedMenu = this;
++    IsFocused = true;
++  }
++}
++
++void OptionsMenu::Update(float dt) {
++  UpdateVisibility();
++  if (SlideCounter != 0.0f) {
++    const float frames = dt * 60.0f;
++    SlideCounter += SlideCounter > 0.0f ? frames : -frames;
++    if (std::abs(SlideCounter) >= PageSlideFrames) {
++      CurrentPage = TargetPage;
++      SlideCounter = 0.0f;
++    }
++  }
++  // As in the original the screen owns the input while it is fully shown (the title menu keeps the engine's menu
++  // focus when CONFIG is opened from the title, so do not depend on it).
++  if (State == Shown && ScriptAlpha() == 256 && !GetFlag(SF_SUBMENUEXIT)) UpdateInput(dt);
++}
++
++// ---------------------------------------------------------------- input
++
++void OptionsMenu::ChangePage(int target, int direction) {
++  if (SlideCounter != 0.0f || target == (int)CurrentPage) return;
++  TargetPage = target;
++  SlideCounter = direction > 0 ? 1.0f : -1.0f;
++  Audio::PlayInGroup(Audio::ACG_SE, "sysse", 1, false, 0.0f);
++}
++
++void OptionsMenu::UpdateInput(float dt) {
++  if (SlideCounter != 0.0f) return;
++  const int page = (int)CurrentPage;
++  const int pages = (int)Layout::Pages.size();
++  std::vector<Row>& rows = Layout::Pages[page].Rows;
++  int& cursor = Cursor[page];
++  const bool useMouse = Input::CurrentInputDevice == Input::Device::Mouse ||
++                        Input::CurrentInputDevice == Input::Device::Touch;
++  const glm::vec2 mouse = Input::CurMousePos;
++  const bool mouseDown = (PADinputMouseIsDown & PAD1A) != 0;
++  const bool mouseClick = (PADinputMouseWentDown & PAD1A) != 0;
++
++  // Back: leave the screen (the script fades out on SF_SUBMENUEXIT)
++  if ((PADinputButtonWentDown & PAD1B) || (PADinputMouseWentDown & PAD1B)) {
++    Audio::PlayInGroup(Audio::ACG_SE, "sysse", 3, false, 0.0f);
++    SetFlag(SF_SUBMENUEXIT, true);
++    // the original keeps these values in its system data; write it now so they survive a restart
++    SaveSystem::SaveSystemData();
++    SaveSystem::WriteSaveFile();
++    PADinputButtonWentDown = PADinputMouseWentDown = 0;
++    return;
++  }
++
++  // Pages: L1 / R1 (Q / E) and the tabs
++  if (PADinputButtonWentDown & PAD1R1) ChangePage((page + 1) % pages, 1);
++  if (PADinputButtonWentDown & PAD1L1) ChangePage((page + pages - 1) % pages, -1);
++  HoveredTab = -1;
++  if (useMouse) {
++    for (int i = 0; i < (int)Layout::Tabs.size(); i++) {
++      if (!Layout::Tabs[i].HitArea.ContainsPoint(mouse)) continue;
++      HoveredTab = i;
++      if (mouseClick && i != page) ChangePage(i, i > page ? 1 : -1);
++    }
++  }
++  if (SlideCounter != 0.0f) {
++    PADinputButtonWentDown = PADinputMouseWentDown = 0;
++    return;
++  }
++
++  // Cursor
++  const int n = (int)rows.size();
++  if (PADinputButtonRepeatDown & (PAD1DOWN | PAD1UP)) {
++    if (cursor < 0) cursor = 0;  // original: from "none" both keys go to the first row
++    else if (PADinputButtonRepeatDown & PAD1DOWN) cursor = (cursor + 1) % n;
++    else cursor = (cursor + n - 1) % n;
++  }
++  if (useMouse && !mouseDown) DraggedRow = -1;
++  // hover (mouse) or tap (touch: the click is reported when the finger lifts) moves the cursor; while a press is
++  // held the row under its starting point keeps it
++  // the pointer moves the cursor when it moves, presses or clicks (as the original); a keyboard cursor stays
++  // otherwise
++  const bool pointerActive = mouseDown || mouseClick || Input::PrevMousePos != Input::CurMousePos ||
++                             mouse != LastPointer;
++  LastPointer = mouse;
++  if (useMouse && DraggedRow < 0 && pointerActive) {
++    const glm::vec2 probe = mouseDown ? Input::InitMousePos : mouse;
++    for (int r = 0; r < n; r++) {
++      if (rows[r].HitArea.ContainsPoint(probe) ||
++          (rows[r].ToggleArea.Width > 0 && rows[r].ToggleArea.ContainsPoint(probe)))
++        cursor = r;
++    }
++  }
++
++  if (cursor >= 0 && cursor < n) {
++    const Row& row = rows[cursor];
++    const float frames = dt * 60.0f;
++    const int dir = ((PADinputButtonIsDown & PAD1RIGHT) != 0) - ((PADinputButtonIsDown & PAD1LEFT) != 0);
++    const int dirPress = ((PADinputButtonWentDown & PAD1RIGHT) != 0) - ((PADinputButtonWentDown & PAD1LEFT) != 0);
++    switch (row.Type) {
++      case RowType::Toggle:
++        if (dirPress != 0 || (PADinputButtonWentDown & PAD1A) || (mouseClick && row.HitArea.ContainsPoint(mouse))) {
++          SetValue(row, GetValue(row) != 0.0f ? 0.0f : 1.0f);
++          Audio::PlayInGroup(Audio::ACG_SE, "sysse", 2, false, 0.0f);
++        }
++        break;
++      case RowType::Slider:
++      case RowType::Voice: {
++        if (dir != 0) SetValue(row, GetValue(row) + dir * row.Step * frames);
++        const RectF& area = row.DragArea.Width > 0 ? row.DragArea : row.HitArea;
++        // A drag starts where the press began (a touch only reports a press once it is held or moved, so the
++        // starting point is the place where the finger went down).
++        if (useMouse && mouseDown && DraggedRow < 0 && area.ContainsPoint(Input::InitMousePos)) DraggedRow = cursor;
++        if (useMouse && mouseClick && area.ContainsPoint(mouse)) {
++          const float w = area.Width - 2.0f * row.DragInset;
++          SetValue(row, row.Min + std::clamp((mouse.x - area.X - row.DragInset) / w, 0.0f, 1.0f) * (row.Max - row.Min));
++        }
++        if (useMouse && mouseDown && DraggedRow == cursor) {
++          const float w = area.Width - 2.0f * row.DragInset;
++          const float t = std::clamp((mouse.x - area.X - row.DragInset) / w, 0.0f, 1.0f);
++          SetValue(row, row.Min + t * (row.Max - row.Min));
++        }
++        if (row.Type == RowType::Voice &&
++            ((PADinputButtonWentDown & PAD1Y) ||
++             (mouseClick && row.ToggleArea.Width > 0 && row.ToggleArea.ContainsPoint(mouse)))) {
++          SetVoiceOn(row, !GetVoiceOn(row));
++          Audio::PlayInGroup(Audio::ACG_SE, "sysse", 2, false, 0.0f);
++        }
++      } break;
++      case RowType::Choice:
++      case RowType::Radio:
++        break;  // window mode / resolution: no engine setting on this platform
++    }
++  }
++
++  // The screen owns the input while it is shown.
++  PADinputButtonWentDown = 0;
++  PADinputMouseWentDown = 0;
++}
++
++// ---------------------------------------------------------------- drawing
++
++float OptionsMenu::KnobPosition(const Row& row, float value) const {
++  const float t = (std::clamp(value, row.Min, row.Max) - row.Min) / (row.Max - row.Min);
++  return row.KnobX + t * row.KnobRange;
++}
++
++void OptionsMenu::RenderPage(size_t page, float offsetX, float alpha) {
++  if (page >= Layout::Pages.size() || alpha <= 0.0f) return;
++  const Page& p = Layout::Pages[page];
++  const glm::vec4 col(1.0f, 1.0f, 1.0f, alpha);
++  const glm::vec4 half(1.0f, 1.0f, 1.0f, alpha * 0.5f);
++  const glm::vec2 off(offsetX, 0.0f);
++  Renderer->DrawSprite(p.Paper, p.PaperPosition + off, col);
++  Renderer->DrawSprite(p.Guide, p.GuidePosition + off, col);
++
++  for (size_t r = 0; r < p.Rows.size(); r++) {
++    const Row& row = p.Rows[r];
++    const bool focused = Cursor[page] == (int)r;
++    if (row.Type == RowType::Voice) {
++      if (focused) Renderer->DrawSprite(row.CursorSprite, row.CursorPosition + off, col);
++      if (GetVoiceOn(row)) Renderer->DrawSprite(row.OnSprite, row.OnPosition + off, col);
++    }
++    if (focused && row.Underline.Width > 0)
++      DrawStretched(UnderlineSprite,
++                    RectF(row.Underline.X + offsetX, row.Underline.Y, row.Underline.Width, row.Underline.Height),
++                    col);
++    const float value = GetValue(row);
++    switch (row.Type) {
++      case RowType::Toggle:
++        Renderer->DrawSprite(value != 0.0f ? row.TrueSprite : row.FalseSprite, row.Position + off, col);
++        break;
++      case RowType::Slider:
++      case RowType::Voice: {
++        const float y = row.KnobY;
++        Renderer->DrawSprite(KnobSprite, glm::vec2(KnobPosition(row, OpenValues[page][r]) + offsetX, y), half);
++        Renderer->DrawSprite(KnobSprite, glm::vec2(KnobPosition(row, value) + offsetX, y), col);
++      } break;
++      case RowType::Choice: {
++        const int v = std::clamp((int)value, 0, (int)row.Positions.size() - 1);
++        if (!row.Positions.empty()) Renderer->DrawSprite(row.Sprite_, row.Positions[v] + off, col);
++      } break;
++      case RowType::Radio: {
++        Renderer->DrawSprite(row.Sprite_, row.Position + off, col);
++        const int v = std::clamp((int)value, 0, (int)row.Positions.size() - 1);
++        if (!row.Positions.empty()) Renderer->DrawSprite(KnobSprite, row.Positions[v] + off, col);
++      } break;
++    }
++  }
++}
++
++void OptionsMenu::Render() {
++  if (State == Hidden) return;
++  const float alpha = ScriptAlpha() / 256.0f;
++  if (alpha <= 0.0f) return;
++  Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), glm::vec4(1.0f, 1.0f, 1.0f, alpha));
++
++  if (SlideCounter == 0.0f) {
++    RenderPage(CurrentPage, 0.0f, alpha);
++  } else {
++    // as the original: the old page moves out by SlideCounter * step and fades, the new one comes in from the side
++    const float ct = SlideCounter;
++    const float step = PageSlideDistance / PageSlideFrames;
++    const float progress = std::abs(ct) / PageSlideFrames;
++    RenderPage(CurrentPage, -ct * step, alpha * (1.0f - progress));
++    const float incoming = (ct > 0.0f ? PageSlideFrames - ct : -PageSlideFrames - ct) * step;
++    RenderPage((size_t)TargetPage, incoming, alpha * progress);
++  }
++
++  for (size_t i = 0; i < Layout::Tabs.size(); i++) {
++    const glm::vec4 col(1.0f, 1.0f, 1.0f, alpha);
++    Renderer->DrawSprite((int)i == HoveredTab ? Layout::Tabs[i].Highlighted : Layout::Tabs[i].Normal, Layout::Tabs[i].Position, col);
++  }
++  // the check mark follows the current page (it moves when the slide has finished)
++  if (CurrentPage < Layout::Tabs.size())
++    Renderer->DrawSprite(TabCheckSprite, Layout::Tabs[CurrentPage].CheckPosition, glm::vec4(1.0f, 1.0f, 1.0f, alpha));
++}
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/optionsmenu.h b/src/games/sghd/optionsmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5dc9ff67fbb6b969980d537c4cf2bf7c9bb35d04
+--- /dev/null
++++ b/src/games/sghd/optionsmenu.h
+@@ -0,0 +1,57 @@
++#pragma once
++
++#include <array>
++#include <vector>
++
++#include "../../ui/optionsmenu.h"
++#include "../../profile/games/sghd/optionsmenu.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++// Options (CONFIG) screen of the STEINS;GATE (Steam) engine generation. Layout, sprites, value ranges and steps
++// come from the profile (taken from the original Game.exe); this class only reproduces the original behaviour:
++// visible while the script shows submenu 5 (SW_SYSSUBMENUNO / SW_SYSSUBMENUALPHA), Back raises SF_SUBMENUEXIT, pages
++// slide sideways, every page keeps its own cursor, sliders draw a half transparent knob at the value they had when
++// the screen opened.
++class OptionsMenu : public UI::OptionsMenu {
++ public:
++  OptionsMenu();
++
++  void Show() override;
++  void Hide() override;
++  void Update(float dt) override;
++  void UpdateInput(float dt) override;
++  void Render() override;
++
++ protected:
++  void UpdateValues() override;
++  void UpdateVisibility() override;
++
++ private:
++  using Row = Profile::SGHD::OptionsMenu::Row;
++
++  float GetValue(const Row& row) const;
++  void SetValue(const Row& row, float value);
++  bool GetVoiceOn(const Row& row) const;
++  void SetVoiceOn(const Row& row, bool on);
++
++  void ChangePage(int target, int direction);
++  void RenderPage(size_t page, float offsetX, float alpha);
++  float KnobPosition(const Row& row, float value) const;
++
++  int ScriptAlpha() const;
++
++  std::vector<int> Cursor;                     // per page, -1 = none
++  std::vector<std::vector<float>> OpenValues;  // per page / row: value when the screen opened
++  int HoveredTab = -1;
++  int TargetPage = 0;
++  float SlideCounter = 0.0f;  // 0 = no slide; > 0 to the next page, < 0 to the previous one
++  int DraggedRow = -1;
++  glm::vec2 LastPointer{-1.0f, -1.0f};
++};
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/optionsmenu.cpp b/src/profile/games/sghd/optionsmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..1269c7ffaab77f36c2597ebdd3dfc9576272f47f
+--- /dev/null
++++ b/src/profile/games/sghd/optionsmenu.cpp
+@@ -0,0 +1,105 @@
++#include "optionsmenu.h"
++#include "../../profile_internal.h"
++#include "../../../ui/ui.h"
++#include "../../../game.h"
++#include "../../../games/sghd/optionsmenu.h"
++
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace OptionsMenu {
++
++namespace {
++
++RowType ParseType(const std::string& name) {
++  if (name == "Slider") return RowType::Slider;
++  if (name == "Choice") return RowType::Choice;
++  if (name == "Radio") return RowType::Radio;
++  if (name == "Voice") return RowType::Voice;
++  return RowType::Toggle;
++}
++
++std::vector<glm::vec2> GetPositions(char const* name) {
++  std::vector<glm::vec2> out;
++  if (!TryPushMember(name)) return out;
++  ForEachProfileArray([&](uint32_t) { out.push_back(EnsureGetArrayElement<glm::vec2>()); });
++  Pop();
++  return out;
++}
++
++Row ReadRow() {
++  Row row;
++  row.Type = ParseType(EnsureGetMember<std::string>("Type"));
++  TryGetMember<std::string>("Setting", row.Setting);
++  TryGetMember<int>("CharacterId", row.CharacterId);
++  TryGetMember<RectF>("Underline", row.Underline);
++  TryGetMember<RectF>("HitArea", row.HitArea);
++  TryGetMember<glm::vec2>("Position", row.Position);
++  TryGetMember<Sprite>("TrueSprite", row.TrueSprite);
++  TryGetMember<Sprite>("FalseSprite", row.FalseSprite);
++  TryGetMember<float>("KnobX", row.KnobX);
++  TryGetMember<float>("KnobY", row.KnobY);
++  TryGetMember<float>("KnobRange", row.KnobRange);
++  TryGetMember<float>("Min", row.Min);
++  TryGetMember<float>("Max", row.Max);
++  TryGetMember<float>("Step", row.Step);
++  TryGetMember<RectF>("DragArea", row.DragArea);
++  TryGetMember<float>("DragInset", row.DragInset);
++  TryGetMember<Sprite>("Sprite", row.Sprite_);
++  row.Positions = GetPositions("Positions");
++  TryGetMember<int>("FixedValue", row.FixedValue);
++  TryGetMember<Sprite>("CursorSprite", row.CursorSprite);
++  TryGetMember<glm::vec2>("CursorPosition", row.CursorPosition);
++  TryGetMember<Sprite>("OnSprite", row.OnSprite);
++  TryGetMember<glm::vec2>("OnPosition", row.OnPosition);
++  TryGetMember<RectF>("ToggleArea", row.ToggleArea);
++  return row;
++}
++
++}  // namespace
++
++void Configure() {
++  BackgroundSprite = EnsureGetMember<Sprite>("BackgroundSprite");
++  UnderlineSprite = EnsureGetMember<Sprite>("UnderlineSprite");
++  KnobSprite = EnsureGetMember<Sprite>("KnobSprite");
++  TabCheckSprite = EnsureGetMember<Sprite>("TabCheckSprite");
++  TryGetMember<float>("PageSlideFrames", PageSlideFrames);
++  TryGetMember<float>("PageSlideDistance", PageSlideDistance);
++
++  Pages.clear();
++  EnsurePushMemberOfType("Pages", LUA_TTABLE);
++  ForEachProfileArray([&](uint32_t) {
++    Page page;
++    page.Paper = EnsureGetMember<Sprite>("PaperSprite");
++    page.PaperPosition = EnsureGetMember<glm::vec2>("PaperPosition");
++    page.Guide = EnsureGetMember<Sprite>("GuideSprite");
++    page.GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
++    EnsurePushMemberOfType("Rows", LUA_TTABLE);
++    ForEachProfileArray([&](uint32_t) { page.Rows.push_back(ReadRow()); });
++    Pop();
++    Pages.push_back(std::move(page));
++  });
++  Pop();
++
++  Tabs.clear();
++  EnsurePushMemberOfType("Tabs", LUA_TTABLE);
++  ForEachProfileArray([&](uint32_t) {
++    Tab tab;
++    tab.Normal = EnsureGetMember<Sprite>("Sprite");
++    tab.Highlighted = EnsureGetMember<Sprite>("HighlightedSprite");
++    tab.Position = EnsureGetMember<glm::vec2>("Position");
++    tab.CheckPosition = EnsureGetMember<glm::vec2>("CheckPosition");
++    tab.HitArea = EnsureGetMember<RectF>("HitArea");
++    Tabs.push_back(tab);
++  });
++  Pop();
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++  UI::OptionsMenuPtr = new UI::SGHD::OptionsMenu();
++  UI::Menus[drawType].push_back(UI::OptionsMenuPtr);
++}
++
++}  // namespace OptionsMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/optionsmenu.h b/src/profile/games/sghd/optionsmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1d2033575b341ef2477236865f50440a574d212
+--- /dev/null
++++ b/src/profile/games/sghd/optionsmenu.h
+@@ -0,0 +1,85 @@
++#pragma once
++
++#include <string>
++#include <vector>
++
++#include "../../../spritesheet.h"
++#include "../../../util.h"
++
++// Options screen of the STEINS;GATE (Steam, 2016) generation of the MAGES. PC engine, described entirely by the
++// profile: every page, row, sprite and position is taken from the original Game.exe (see the sg-pc profile).
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace OptionsMenu {
++
++enum class RowType { Toggle, Slider, Choice, Radio, Voice };
++
++struct Row {
++  RowType Type = RowType::Toggle;
++  // Engine setting the row edits (see UI::SGHD::OptionsMenu::GetValue)
++  std::string Setting;
++  int CharacterId = 0;  // Voice rows: index into ConfigSystem::VoiceVolume / VoiceMuted
++
++  RectF Underline{};  // drawn stretched while the row has the cursor
++  RectF HitArea{};    // mouse: hover = cursor, click = change, drag = slider value
++
++  // Toggle: value sprite at Position
++  glm::vec2 Position{};
++  Sprite TrueSprite;
++  Sprite FalseSprite;
++
++  // Slider / Voice: knob centre line and value range (values in the original's integer units)
++  float KnobX = 0.0f;
++  float KnobY = 0.0f;
++  float KnobRange = 0.0f;
++  float Min = 0.0f;
++  float Max = 1.0f;
++  float Step = 1.0f;  // per 1/60 s while left / right is held
++  RectF DragArea{};   // slider: value = (mouse x - DragArea.X - DragInset) / (DragArea.Width - 2 * DragInset)
++  float DragInset = 0.0f;
++
++  // Choice (one sprite moved to Positions[value]) / Radio (Sprite at Position, knob at Positions[value])
++  Sprite Sprite_;
++  std::vector<glm::vec2> Positions;
++  int FixedValue = 0;  // Choice / Radio rows that have no engine setting on this platform
++
++  // Voice: cursor frame and "voice on" mark
++  Sprite CursorSprite;
++  glm::vec2 CursorPosition{};
++  Sprite OnSprite;
++  glm::vec2 OnPosition{};
++  RectF ToggleArea{};
++};
++
++struct Page {
++  Sprite Paper;
++  glm::vec2 PaperPosition{};
++  Sprite Guide;
++  glm::vec2 GuidePosition{};
++  std::vector<Row> Rows;
++};
++
++struct Tab {
++  Sprite Normal;
++  Sprite Highlighted;
++  glm::vec2 Position{};
++  glm::vec2 CheckPosition{};
++  RectF HitArea{};
++};
++
++inline Sprite BackgroundSprite;
++inline Sprite UnderlineSprite;
++inline Sprite KnobSprite;
++inline Sprite TabCheckSprite;
++inline std::vector<Page> Pages;
++inline std::vector<Tab> Tabs;
++inline float PageSlideFrames = 32.0f;
++inline float PageSlideDistance = 1024.0f;
++
++void Configure();
++
++}  // namespace OptionsMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/optionsmenu.cpp b/src/profile/ui/optionsmenu.cpp
+index cd81f12060c3231758f5e590fa78d09d51724019..b7c2704a219f24e96e750c95c2886b882f097a96 100644
+--- a/src/profile/ui/optionsmenu.cpp
++++ b/src/profile/ui/optionsmenu.cpp
+@@ -4,6 +4,7 @@
+ #include "../games/mo8/optionsmenu.h"
+ #include "../games/chlcc/optionsmenu.h"
+ #include "../games/cclcc/optionsmenu.h"
++#include "../games/sghd/optionsmenu.h"
+ #include "../../ui/ui.h"
+ #include "../../log.h"
+ 
+@@ -39,6 +40,10 @@ void Configure() {
+         CCLCC::OptionsMenu::Configure();
+         break;
+ 
++      case OptionsMenuType::SGHD:
++        SGHD::OptionsMenu::Configure();
++        break;
++
+       case OptionsMenuType::None:
+         break;
+     }
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index 6745afd76cd406b861506ef374aa01e93e97571b..9c2eeb5871155b4c4cc0d725fab0cedd1d390ab5 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -60,6 +60,7 @@ enum class OptionsMenuType : int {
+   MO8,
+   CHLCC,
+   CCLCC,
++  SGHD,
+ };
+ enum class TipsMenuType : int {
+   None,
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index a488f1cc92135e58c318e90e06997333c347b659..5cee1585c93bdf1b26de5452bf7c6d13f2a2ed3b 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -105,7 +105,7 @@ inline void InstSghdMenuSignal(Sc3VmThread* thread, float dt) {
+ // the MO6TW options menu). The script then fades out and returns to where CONFIG was chosen.
+ inline void InstSghdOption(Sc3VmThread* thread, float dt) {
+   const int type = thread->GetIp()[2];
+-  if (type == 1) {
++  if (type == 1 && !UI::OptionsMenuPtr) {
+     using namespace Impacto::Profile::ScriptVars;
+     if (ScrWork[SW_SYSSUBMENUALPHA] >= 256) SetFlag(SF_SUBMENUEXIT, true);
+   } else if (type == 4 && !UI::OptionsMenuPtr) {
