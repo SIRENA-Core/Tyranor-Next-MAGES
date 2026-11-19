@@ -86,6 +86,10 @@
       {
         "file": "0020-tyn-calibrate-the-sg-pc-profile-for-STEINS-GATE-Stea.patch",
         "sha256": "b27b15b1165a71dc8e074b7b883dbae6f4a7bfc32685a077210541ba664de3db"
+      },
+      {
+        "file": "0021-tyn-show-the-backlog-and-fix-the-font-metrics-in-the.patch",
+        "sha256": "88e6ae75ef78bfa3caba580e63842318b20267ca646b75e71fde10e631c4a34a"
       }
     ]
   },
