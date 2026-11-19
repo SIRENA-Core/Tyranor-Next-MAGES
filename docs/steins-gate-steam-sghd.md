@@ -1,8 +1,9 @@
 # Steins;Gate（Steam／PC 版）：`sg-pc` profile 与 SGHD 指令集
 
-状态：**实验性，能进剧情并读下去，不能完整游玩。** 在 MuMu 模拟器（Android 15）上、用原版英文数据实测到：厂商 Logo → 标题画面（Press Enter）→ 主菜单 →
+状态：**实验性，能进剧情并读下去、能存档读档，不能完整游玩。** 在 MuMu 模拟器（Android 15）上、用原版英文数据实测到：厂商 Logo → 标题画面（Press Enter）→ 主菜单 →
 START → 序章：秋叶原车站、7F、天台、讲座会场的背景，椎名真由理与牧濑红莉栖的立绘和 CG，背景里行人在动；对话逐句显示、字形与间距正确、按词换行；
-向下轻扫（或鼠标滚轮向下、屏幕按键的 `Ins`）打开日志（BACKLOG：章节标题、人名、台词、语音图标、滚动条）。连续点按约 450 次读过序章前半，没有崩溃。
+向下轻扫（或鼠标滚轮向下、屏幕按键的 `Ins`）打开日志（BACKLOG：章节标题、人名、台词、语音图标、滚动条）；菜单键（`1`）打开系统菜单（十二个图标，聚焦的那一行显示名称），
+BACK LOG、CLOSE MENU 可用；SAVE 画面存一格后显示缩略图、游玩时间和日期，LOAD 画面选格后弹出确认框，确认后回到存档的那一句。连续点按约 450 次读过序章前半，没有崩溃。
 **没有验证**：真机、语音／BGM／音效的实际播放、日文版和汉化版数据、序章之后的内容（电话触发、分支）。
 Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用一侧加一条检测，见下文「接入」）。
 
@@ -44,15 +45,25 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 
 ## 已知的缺口
 
-- **没有存档系统**：`SaveDataType.None`。启动脚本把 `Save(4)`（读系统数据）的失败当致命错误，所以现在 `LoadSystemData` 对 SGHD 报告 OK（当作全新安装）。存档、读档、快速存档、已读标记都没有（`IsLineRead` 恒为否，所以引擎默认「只快进已读」的快进几乎不动，强制快进可用）。
-- **没有系统菜单**：S;G 的系统菜单、存档／读档、选项、TIPS、手机（`10:37` 组只是跳过操作数的桩，电话／邮件触发点会走不通）、相册等界面都没有，图集（`SAVEMENU`、`LOADMENU`、`CONFIG`、`PHONE*`、`TIPSCHIPS`、`MUSIC`、`ALBUM`、`CLEARLIST` 等在 `system.mpk` 里都有）还没有量。
+- **存档**：用 `SaveDataType.MO6TWPC`（S;G 的脚本用的是 Chaos;Child 风格的存档协议和 CC 的 ScrWork／标志位布局，memo06 PC 的存档实现已经按这套写好；自己的文件格式，不兼容 Steam 的存档）。
+  已验证存一格、读一格（缩略图、游玩时间、日期、确认框）；快速存档菜单项只验证到「不卡」，快速读档没有走完（需要 QLOADMENU 画面里选格）；已读标记走同一套实现，没有单独验证。
+  存档画面的格子布局、PREV／NEXT（隐形的点击区）、页码文字是估的：这些图集里没有卡片、高亮和按钮的美术。**从存档画面里按返回退不出来**：脚本在轮询 `00:53`（sc3ntist 叫它 `Useless0053`，引擎里当作 `ClickOnJump` 桩），这个指令还没有实现。
+- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE 走存档；QUICK LOAD、TIPS LIST、CONFIG、FULL SCREEN、HELP、RETURN TITLE、EXIT GAME 的界面都还没有（TIPS、选项等图集在 `system.mpk` 里都有，还没有量）；
+  手机（`10:37` 组只是跳过操作数的桩，电话／邮件触发点会走不通）、相册等也没有。面板位置（屏幕左缘）是估的，没有原版画面对照。
 - 其余界面的**精灵坐标**：标题已经按 `TITLE_CHIP.DDS` 量过（背景 1920x1080 在 (0,0)；主菜单项成对放在 x=1922／2123；子菜单项 249x37 在 x=1957／2245；橙色指针；「Press Enter」）。
   菜单项在屏幕上的位置是我估的，没有 Windows 版的原图对照。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位）。存档图标、读盘中、日期、系统消息框、选项、TIPS、系统菜单、等待图标目前都指向透明块（占位）。
 - 日志的背景是一整张渐变图，引擎按 CC 的做法让它随滚动平铺，所以滚动时在平铺接缝处会有一道暗度跳变。
 - 人名固定在对话框右下（`SetMesModeFormat` 的名字显示模式是「固定位置、居中」，坐标按 1.5 倍放大后落在 (1620,1011)），这是脚本的设计，不是排版错误；没有与原版画面对照。名牌美术没有。
 - 视频是 Bink 2，FFmpeg 不解；脚本里的片头／过场会在日志里报 `Failed to open movie`，目前不阻塞。
-- `ClickOnJump`（Logo 期间点击跳过）是桩；`sysse`（系统音效）没有挂载，日志里会报找不到音频。
+- `ClickOnJump`（`00:53`；sc3ntist 叫它 `Useless0053`，`10:3F` 旁边的 Logo 跳过和存档画面里的退出都轮询它）是桩，实现它要先弄清 `arg1`／`arg2`（出现的值是 1／80）的含义；`sysse`（系统音效）没有挂载，日志里会报找不到音频。
 - 简体中文汉化过的 `script.mpk` 让 sc3ntist 抛 `End of expression expected`（汉化补丁改过脚本），没有在引擎里测过。
+
+## 通用化：S;G 复用了哪些类
+
+S;G 的系统菜单、存档画面、系统消息框都没有写 S;G 专用的 C++，只是 profile 指向正确的美术，复用 memo06 PC 已经在用的类：
+`SystemMenuType.MO6TW`（跟随 `SW_SYSMENUALPHA`、写 `SW_SYSMENUCNO`，S;G 脚本用的正是 2143／3338）、`SaveMenuType.MO6TWPC` + `SaveDataType.MO6TWPC`、`SysMesBoxType.MO6TW`。
+为此补了两处向后兼容的通用扩展：MO6TW 系统菜单现在认 `MenuEntriesHighlightedSprites`（每个入口各有一个聚焦时的精灵，hover 区域覆盖两张）；MO6TWPC 存档菜单认可选的
+`SaveBackgroundSprite`／`LoadBackgroundSprite`／`QuickLoadBackgroundSprite`（三个画面各有一张背景）。memo06 PC 的 profile 不设这些字段，行为不变。
 
 ## 字体、换行与日志的几个细节
 

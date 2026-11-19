@@ -90,6 +90,10 @@
       {
         "file": "0021-tyn-show-the-backlog-and-fix-the-font-metrics-in-the.patch",
         "sha256": "88e6ae75ef78bfa3caba580e63842318b20267ca646b75e71fde10e631c4a34a"
+      },
+      {
+        "file": "0022-tyn-add-the-sg-pc-system-menu-save-load-screens-and-.patch",
+        "sha256": "24265383aa57eb3a88460265b0f149a4891b1f494e3894fefd18287083373d5f"
       }
     ]
   },

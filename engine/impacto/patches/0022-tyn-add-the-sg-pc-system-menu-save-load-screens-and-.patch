@@ -1,0 +1,613 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 20:41:53 -0800
+Subject: [PATCH] tyn: add the sg-pc system menu, save/load screens and message
+ box, enable saving
+
+Profile data plus two small generic extensions of the MO6TW/MO6TWPC UI classes; no S;G-specific C++.
+
+STEINS;GATE (Steam) speaks the same script protocol as the classes the memo06 PC profile already uses, so the
+profile only has to point at the right art:
+  - System menu (SystemMenuType.MO6TW): SW_SYSMENUALPHA/SW_SYSMENUCNO are the numbers the S;G scripts use (2143, 3338),
+    the twelve entries are the order of the script's JumpTable (BACK LOG, QUICK SAVE, QUICK LOAD, SAVE, LOAD, TIPS LIST,
+    CONFIG, FULL SCREEN, HELP, RETURN TITLE, CLOSE MENU, EXIT GAME). The sprites are measured on DATA01.DDS (grey icon,
+    white icon and italic label per row, the rounded panel behind the icons).
+  - Saving: SaveDataType.MO6TWPC. The S;G scripts use the Chaos;Child style Save/AutoSave protocol and the CC ScrWork/
+    flag layout that implementation persists; own file format. The SGHD special case in LoadSystemData (OK without a
+    save system) is no longer reached.
+  - Save, Load and Quick Load screens (SaveMenuType.MO6TWPC) over SAVEMENU/LOADMENU/QLOADMENU (system.mpk 26/12/25).
+  - System message box (SysMesBoxType.MO6TW): "Load this Data?" with OK / Cancel. SYSMESSWINDOW/GSYSMES are fully
+    transparent 128x128 sheets (the game draws its box procedurally), so the box pieces are cut from a dark part of
+    the Data sheet.
+  - charset.lua gets the ASCII -> glyph id map the engine needs for text it lays out itself (slot numbers, dates).
+
+Generic extensions (backward compatible, memo06 PC unchanged):
+  - MO6TW SystemMenu: when the profile lists one focused sprite per entry (MenuEntriesHighlightedSprites, which the
+    loader already read for other menu types) it is drawn for the focused entry and the hover area covers both
+    sprites; with MenuEntriesHNum 0 nothing changes.
+  - MO6TWPC SaveMenu: optional per-mode background sprites (SaveBackgroundSprite, LoadBackgroundSprite,
+    QuickLoadBackgroundSprite) for games whose three screens are separate pictures; they fall back to
+    SaveMenuBackgroundSprite.
+
+Checked on MuMu (Android 15) with original English data: the menu key opens the system menu with the twelve icons, the
+focused row shows its label, BACK LOG opens the backlog and CLOSE MENU closes the menu; Save shows six slots with
+thumbnails, play time and date after saving slot 1; Load shows the confirmation box and restores the saved line.
+Not done: the slot highlight and PREV/NEXT art (the sheets have none; PREV/NEXT are invisible tap areas), CONFIG,
+TIPS, HELP, RETURN TITLE and EXIT GAME screens, and leaving the save screen with Back (in the test the script kept polling the 00:53 instruction, which the engine
+stubs as ClickOnJump).
+
+diff --git a/profiles/sg-pc/charset.lua b/profiles/sg-pc/charset.lua
+index 5b9524909a573f66d541f0c4a0b606dc9713a716..cd82ecfcbb8ce5261dd45e3d3fb46de673ac9481 100644
+--- a/profiles/sg-pc/charset.lua
++++ b/profiles/sg-pc/charset.lua
+@@ -1,5 +1,21 @@
++-- ASCII -> glyph id for the text the engine lays out from UTF-8 strings itself (save menu entries); script strings
++-- already carry glyph ids. The small Latin set in rows 0-1 of the font atlas has the same ids as the PS3 font.
+ root.Charset = {
+-    Flags = {}
++    Flags = {},
++    CharacterToSc3 = {
++        [" "] = 0x803F, ["0"] = 0x8001, ["1"] = 0x8002, ["2"] = 0x8003, ["3"] = 0x8004, ["4"] = 0x8005, ["5"] = 0x8006,
++        ["6"] = 0x8007, ["7"] = 0x8008, ["8"] = 0x8009, ["9"] = 0x800A, ["A"] = 0x800B, ["B"] = 0x800C, ["C"] = 0x800D,
++        ["D"] = 0x800E, ["E"] = 0x800F, ["F"] = 0x8010, ["G"] = 0x8011, ["H"] = 0x8012, ["I"] = 0x8013, ["J"] = 0x8014,
++        ["K"] = 0x8015, ["L"] = 0x8016, ["M"] = 0x8017, ["N"] = 0x8018, ["O"] = 0x8019, ["P"] = 0x801A, ["Q"] = 0x801B,
++        ["R"] = 0x801C, ["S"] = 0x801D, ["T"] = 0x801E, ["U"] = 0x801F, ["V"] = 0x8020, ["W"] = 0x8021, ["X"] = 0x8022,
++        ["Y"] = 0x8023, ["Z"] = 0x8024, ["a"] = 0x8025, ["b"] = 0x8026, ["c"] = 0x8027, ["d"] = 0x8028, ["e"] = 0x8029,
++        ["f"] = 0x802A, ["g"] = 0x802B, ["h"] = 0x802C, ["i"] = 0x802D, ["j"] = 0x802E, ["k"] = 0x802F, ["l"] = 0x8030,
++        ["m"] = 0x8031, ["n"] = 0x8032, ["o"] = 0x8033, ["p"] = 0x8034, ["q"] = 0x8035, ["r"] = 0x8036, ["s"] = 0x8037,
++        ["t"] = 0x8038, ["u"] = 0x8039, ["v"] = 0x803A, ["w"] = 0x803B, ["x"] = 0x803C, ["y"] = 0x803D, ["z"] = 0x803E,
++        ["　"] = 0x803F, ["/"] = 0x8040, [":"] = 0x8041, ["-"] = 0x8042, [";"] = 0x8043, ["!"] = 0x8044, ["?"] = 0x80C4,
++        ["'"] = 0x8046, ["."] = 0x80C1, ["@"] = 0x8048, ["#"] = 0x8049, ["%"] = 0x8112, ["~"] = 0x805B, ["*"] = 0x805C,
++        ["【"] = 0x80E0, ["】"] = 0x80E1
++    }
+ };
+ 
+ for i = 0, (64 * 117) - 1 do root.Charset.Flags[i] = 0; end
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index 3d52859bbb25db0049400be66f25b072b6fa2357..1a802bd982a39c133552f398e651817e8b754983 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -58,7 +58,8 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/saveicon.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/loadingdisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/datedisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/titlemenu.lua');
+---include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/systemmenu.lua');
++include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/systemmenu.lua');
++include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/savemenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/backlogmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/sysmesboxdisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/selectiondisplay.lua');
+diff --git a/profiles/sg-pc/hud/savemenu.lua b/profiles/sg-pc/hud/savemenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..28e6ba708f0822a497574df843c4a2f72d18a279
+--- /dev/null
++++ b/profiles/sg-pc/hud/savemenu.lua
+@@ -0,0 +1,98 @@
++-- STEINS;GATE (Steam) save / load / quick load screens, drawn by the generic SaveMenuType.MO6TWPC class (six entries per
++-- page, PREV/NEXT, thumbnail, number, play time and date text) over the three pictures SAVEMENU (system.mpk id 26),
++-- LOADMENU (12) and QLOADMENU (25). Each is a 3072x1080 sheet: the screen at (0, 0, 1920x1080) with its title baked in
++-- (a big dark panel at x 85..1840, y 108..978), and at x >= 1920 a banner (1920,0, 791x165), the "NO DATA" thumbnail
++-- (2713,1, 241x136), the page digits (y 175..226, "/6" after them), three coloured bars and two lock icons (y 283).
++-- The sheet has no card, highlight or button art, so those use a transparent patch (x >= 1950, y >= 500 is empty) and
++-- the engine draws the numbers, times and dates as text; the thumbnails are 240x135 like the NO DATA one.
++-- NOT measurable from the sheet: where the native game puts the entries. Two columns of three rows inside the panel,
++-- PREV / NEXT as invisible 280x60 tap areas at the bottom of the panel with the page text between them, are estimates.
++root.SpriteSheets["SaveMenu"] = {
++    Path = { Mount = "system", Id = 26 },
++    DesignWidth = 3072,
++    DesignHeight = 1080
++};
++root.SpriteSheets["LoadMenu"] = {
++    Path = { Mount = "system", Id = 12 },
++    DesignWidth = 3072,
++    DesignHeight = 1080
++};
++root.SpriteSheets["QuickLoadMenu"] = {
++    Path = { Mount = "system", Id = 25 },
++    DesignWidth = 3072,
++    DesignHeight = 1080
++};
++
++root.SaveMenu = {
++    Type = SaveMenuType.MO6TWPC,
++    DrawType = DrawComponentType.SystemMenu,
++    SaveMenuBackgroundSprite = "SaveMenuBackground",
++    SaveBackgroundSprite = "SaveMenuBackground",
++    LoadBackgroundSprite = "LoadMenuBackground",
++    QuickLoadBackgroundSprite = "QuickLoadMenuBackground",
++    EmptyThumbnailSprite = "EmptyThumbnail",
++    QuickLoadTextSprite = "SaveMenuTransparent",
++    LoadTextSprite = "SaveMenuTransparent",
++    SaveTextSprite = "SaveMenuTransparent",
++    MenuTitleTextPos = { X = 0, Y = 0 },
++    QuickLoadEntrySprite = "SaveMenuCard",
++    QuickLoadEntryHighlightedSprite = "SaveMenuCard",
++    SaveEntrySprite = "SaveMenuCard",
++    SaveEntryHighlightedSprite = "SaveMenuCard",
++    LoadEntrySprite = "SaveMenuCard",
++    LoadEntryHighlightedSprite = "SaveMenuCard",
++    PrevButtonSprite = "SaveMenuButton",
++    PrevButtonHighlightedSprite = "SaveMenuButton",
++    NextButtonSprite = "SaveMenuButton",
++    NextButtonHighlightedSprite = "SaveMenuButton",
++    LockIconSprite = "SaveLock",
++    EntryStartX = 130,
++    EntryXPadding = 870,
++    EntryStartY = 185,
++    EntryYPadding = 215,
++    PrevButtonPosition = { X = 560, Y = 880 },
++    NextButtonPosition = { X = 1080, Y = 880 },
++    PageTextCentre = { X = 960, Y = 905 },
++    ThumbnailOffset = { X = 10, Y = 22 },
++    ThumbnailSize = { X = 240, Y = 135 },
++    LockIconOffset = { X = 12, Y = 24 },
++    NumberTextOffset = { X = 270, Y = 20 },
++    PlayTimeTextOffset = { X = 270, Y = 70 },
++    DateTextOffset = { X = 270, Y = 112 },
++    EntryFontSize = 28,
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2
++};
++
++root.Sprites["SaveMenuBackground"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++root.Sprites["LoadMenuBackground"] = {
++    Sheet = "LoadMenu",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++root.Sprites["QuickLoadMenuBackground"] = {
++    Sheet = "QuickLoadMenu",
++    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 }
++};
++root.Sprites["EmptyThumbnail"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 2713, Y = 1, Width = 241, Height = 136 }
++};
++root.Sprites["SaveLock"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 1933, Y = 283, Width = 28, Height = 32 }
++};
++root.Sprites["SaveMenuTransparent"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 1950, Y = 500, Width = 8, Height = 8 }
++};
++root.Sprites["SaveMenuCard"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 1950, Y = 500, Width = 760, Height = 180 }
++};
++root.Sprites["SaveMenuButton"] = {
++    Sheet = "SaveMenu",
++    Bounds = { X = 1950, Y = 500, Width = 280, Height = 60 }
++};
+diff --git a/profiles/sg-pc/hud/sysmesboxdisplay.lua b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+index 3e9e0d0d0af156577fd9ceb57fc9d2879cd421d5..4c036b6505f41aaa5a0d74284fe84ee2672a20d0 100644
+--- a/profiles/sg-pc/hud/sysmesboxdisplay.lua
++++ b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+@@ -1,101 +1,63 @@
+-local sheet = "SysMesBox";
++-- STEINS;GATE (Steam) system message box (confirmations such as "Load this data?" with Yes / No), drawn by the generic
++-- SysMesBoxType.MO6TW class: a box of three sprite pieces whose width follows the longest message line, the message
++-- lines and the choices as text. SYSMESSWINDOW.DDS / GSYSMES.DDS in system.mpk are 128x128 and fully transparent, so
++-- the game draws its box procedurally; the pieces here are cut from a flat dark part of the Data sheet (the blurred
++-- dark panel at x 10..780, y 1274..1526) instead. Sizes and positions are estimates, there is no reference screen.
++local sheet = "Data";
+ local name = "SysMesBox";
+ 
+ root.SysMesBoxDisplay = {
+-    Type = SysMesBoxType.CC,
++    Type = SysMesBoxType.MO6TW,
+     DrawType = DrawComponentType.SystemMessage,
+-    SumoSealSprites = {},
+-    SumoSealCenterPosX = {
+-        1175, 1269, 542, 1386, 970, 813, 725, 997
+-    },
+-    SumoSealCenterPosY = {
+-        612, 454, 520, 606, 625, 425, 584, 461
+-    },
+-    ButtonYesCenterPosX = 1098,
+-    ButtonYesCenterPosY = 846,
+-    ButtonNoCenterPosX = 1211,
+-    ButtonNoCenterPosY = 736,
+-    ButtonOKCenterPosX = 1170,
+-    ButtonOKCenterPosY = 824,
+-    TextFontSize = 32,
+-    TextMiddleY = 1096,
+-    TextX = 1920,
+-    TextLineHeight = 32,
+-    TextMarginY = 48,
+-    SpriteMargin = 3,
+-    AnimationSpeed = 25,
+-    AnimationProgressWidgetsStartOffset = 9,
+-    WidgetsAlphaMultiplier = 0.0625,
+-    ButtonYesAnimationProgressEnd = 12,
+-    ButtonNoDisplayStart = 4,
+-    ButtonNoAnimationProgressOffset = 13,
+-    ButtonYesNoScaleMultiplier = 0.0416,
+-    ButtonYesNoAlphaDivider = 12,
+-    ButtonOKScaleMultiplier = 0.03125,
+-    ButtonScaleMax = 1.5,
+-    FadeInDuration = 0.4,
+-    FadeOutDuration = 0.4,
+-
+-    ButtonYesHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    ButtonNoHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    ButtonOkHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+-};
+-
+-root.Sprites[name .. "ButtonYes"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
++    BoxX = 960,
++    BoxY = 370,
++    BoxMiddleBaseX = 1060,
++    BoxMinimumWidth = 900,
++    BoxMiddleBaseWidth = 210,
++    BoxMiddleRemainBase = 100,
++    BoxRightBaseX = 700,
++    BoxRightRemainPad = 1,
++    TextFontSize = 40,
++    TextMiddleY = 410,
++    TextX = 960,
++    TextLineHeight = 54,
++    TextMarginY = 21,
++    ChoicePadding = 80,
++    ChoiceY = 530,
++    ChoiceXBase = 660,
++    MinMaxMesWidth = 900,
++    AnimationSpeed = 83,
++    FadeInDuration = 0.256,
++    FadeOutDuration = 0.256
+ };
+-root.SysMesBoxDisplay.ButtonYes = name .. "ButtonYes";
+ 
+-root.Sprites[name .. "ButtonNo"] = {
++-- No highlight bar in the sheet: a transparent patch.
++root.Sprites["SelectionHighlight"] = {
+     Sheet = sheet,
+     Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+-root.SysMesBoxDisplay.ButtonNo = name .. "ButtonNo";
++root.SysMesBoxDisplay.SelectionHighlight = "SelectionHighlight";
+ 
+-root.Sprites[name .. "ButtonOK"] = {
++root.Sprites[name .. "BoxPartLeft"] = {
+     Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
++    Bounds = { X = 40, Y = 1290, Width = 100, Height = 220 }
+ };
+-root.SysMesBoxDisplay.ButtonOK = name .. "ButtonOK";
++root.SysMesBoxDisplay.BoxPartLeft = name .. "BoxPartLeft";
+ 
+-root.Sprites[name .. "ButtonYesHighlighted"] = {
++root.Sprites[name .. "BoxPartRight"] = {
+     Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
++    Bounds = { X = 600, Y = 1290, Width = 100, Height = 220 }
+ };
+-root.SysMesBoxDisplay.ButtonYesHighlighted = name .. "ButtonYesHighlighted";
++root.SysMesBoxDisplay.BoxPartRight = name .. "BoxPartRight";
+ 
+-root.Sprites[name .. "ButtonNoHighlighted"] = {
++root.Sprites[name .. "BoxPartMiddle"] = {
+     Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
++    Bounds = { X = 140, Y = 1290, Width = 210, Height = 220 }
+ };
+-root.SysMesBoxDisplay.ButtonNoHighlighted = name .. "ButtonNoHighlighted";
++root.SysMesBoxDisplay.BoxPartMiddle = name .. "BoxPartMiddle";
+ 
+-root.Sprites[name .. "ButtonOKHighlighted"] = {
++root.Sprites[name .. "BoxDecoration"] = {
+     Sheet = sheet,
+     Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+-root.SysMesBoxDisplay.ButtonOKHighlighted = name .. "ButtonOKHighlighted";
+-
+-local sealX = 0;
+-local sealY = 0;
+-
+-for i = 0, 7 do
+-    root.Sprites[name .. "SumoSeal" .. i] = {
+-        Sheet = sheet,
+-        Bounds = {
+-            X = sealX,
+-            Y = sealY,
+-            Width = 478,
+-            Height = 538
+-        }
+-    };
+-
+-    sealX = sealX + 480;
+-    if sealX == 1920 then
+-        sealX = 0;
+-        sealY = sealY + 540;
+-    end
+-
+-    root.SysMesBoxDisplay.SumoSealSprites[#root.SysMesBoxDisplay.SumoSealSprites + 1] = name .. "SumoSeal" .. i;
+-end
+\ No newline at end of file
++root.SysMesBoxDisplay.BoxDecoration = name .. "BoxDecoration";
+diff --git a/profiles/sg-pc/hud/systemmenu.lua b/profiles/sg-pc/hud/systemmenu.lua
+index d513ba82ce875fb1e818691a72c5dafd6366971c..de265594e8c50ef3936abb4ab13ab99a0546f5d5 100644
+--- a/profiles/sg-pc/hud/systemmenu.lua
++++ b/profiles/sg-pc/hud/systemmenu.lua
+@@ -1,109 +1,59 @@
++-- STEINS;GATE (Steam) system menu: twelve entries in the order of the script's JumpTable on SW_SYSMENUCNO (3338):
++-- BACK LOG, QUICK SAVE, QUICK LOAD, SAVE, LOAD, TIPS LIST, CONFIG, FULL SCREEN, HELP, RETURN TITLE, CLOSE MENU,
++-- EXIT GAME. Uses the generic SystemMenuType.MO6TW class (it follows SW_SYSMENUALPHA and writes SW_SYSMENUCNO),
++-- with one focused sprite per entry (MenuEntriesHighlightedSprites).
++-- Sprites measured on DATA01.DDS (3072x1788): per row a dark icon (x 767), a grey icon (x 845, the normal state),
++-- a white icon (x 924) and the italic label (x 1003..1230); rows are 65.6px apart starting at y = 32 (icon centre);
++-- the tall rounded bar (1272,43, 61x708) is the panel behind the icon column.
++-- NOT measurable from the sheet: where the game places the panel on screen. The panel sits at the left edge with
++-- twelve rows of 59px (708 / 12); only the focused row shows its label, to the right of the panel.
++local panelX = 66;
++local panelY = 176;
++local rowPitch = 59;
++local cellHeight = 66;
++
+ root.SystemMenu = {
+-    Type = SystemMenuType.RNE,
++    Type = SystemMenuType.MO6TW,
+     DrawType = DrawComponentType.SystemMenu,
+-    Background = {
+-        DurationIn = 0.75,
+-        DurationOut = 1.0,
+-        Sprite = "SystemMenuBackground",
+-        Seed = 0,
+-        Rows = 7,
+-        Columns = 12,
+-        CenterY = 0.7,
+-        VanishingPointX = 0.66,
+-        Depth = 2,
+-        MaxAngle = 3.141592653 / 2  -- pi / 2
+-    },
+-    ButtonBackgroundSprite = "SystemMenuButtonBackground",
+-    SkyBackgroundSprite = "SystemMenuSkyBackground",
+-    SkyArrowSprite = "SystemMenuSkyArrow",
+-    SkyTextSprite = "SystemMenuSkyText",
+-    ButtonPromptsSprite = "SystemMenuButtonPrompts",
+-    SkyBackgroundBeginX = -80,
+-    SkyBackgroundY = 0,
+-    SkyTextBeginX = 287,
+-    SkyTextY = 69,
+-    ButtonBackgroundStartX = 1257,
+-    ButtonBackgroundX = 0,
+-    ButtonBackgroundY = 681,
+-    ButtonBackgroundTargetWidth = 943,
+-    ButtonBackgroundSprStartX = 1499,
++    SystemMenuBackgroundSprite = "SystemMenuBackground",
++    SystemMenuX = panelX,
++    SystemMenuY = panelY,
+     MenuEntriesSprites = {},
+     MenuEntriesHighlightedSprites = {},
+-    MenuEntriesX = 0,
+-    MenuEntriesXSkew = 20,
+-    MenuEntriesXOffset = 100,
+-    MenuEntriesFirstY = 220,
+-    MenuEntriesYPadding = 50,
+-    MenuEntriesTargetWidth = 417,
+-    SkyInStartProgress = 0.285,
+-    SkyOutStartProgress = 0.715,
+-    SkyMoveDurationIn = 0.415,
+-    SkyMoveDurationOut = 0.415,
+-    EntriesMoveDurationIn = 0.4,
+-    EntriesMoveDurationOut = 0.4,
+-    HighlightDurationIn = 0.15,
+-    HighlightDurationOut = 0.15
++    MenuEntriesHighlightedSprite = "MenuEntriesHSprite",
++    MenuEntriesNum = 12,
++    MenuEntriesHNum = 12,
++    MenuEntriesX = panelX + 3,
++    MenuEntriesXOffset = 0,
++    MenuEntriesFirstY = panelY - 3,
++    MenuEntriesYPadding = rowPitch,
++    MenuEntriesTargetWidth = 62,
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2
+ };
+ 
+-for i = 0, 7 do
++for i = 0, 11 do
++    local cellY = math.max(0, math.floor(32 + 65.6 * i - cellHeight / 2 + 0.5));
+     root.Sprites["SystemMenuEntry" .. i] = {
+         Sheet = "Data",
+-        Bounds = {
+-            X = 964,
+-            Y = 296 + i * 38,
+-            Width = root.SystemMenu.MenuEntriesTargetWidth,
+-            Height = 26
+-        },
+-        BaseScale = { X = 1280 / 960, Y = 720 / 544 }
++        Bounds = { X = 841, Y = cellY, Width = 62, Height = cellHeight }
+     };
+     root.SystemMenu.MenuEntriesSprites[#root.SystemMenu.MenuEntriesSprites + 1] = "SystemMenuEntry" .. i;
+-end
+ 
+-for i = 0, 7 do
+-    root.Sprites["SystemMenuEntryHighlighted" .. i] = {
++    root.Sprites["SystemMenuEntryFocused" .. i] = {
+         Sheet = "Data",
+-        Bounds = {
+-            X = 964,
+-            Y = 2 + i * 38,
+-            Width = root.SystemMenu.MenuEntriesTargetWidth,
+-            Height = 26
+-        },
+-        BaseScale = { X = 1280 / 960, Y = 720 / 544 }
++        Bounds = { X = 920, Y = cellY, Width = 316, Height = cellHeight }
+     };
+-    root.SystemMenu.MenuEntriesHighlightedSprites[#root.SystemMenu.MenuEntriesHighlightedSprites + 1] = "SystemMenuEntryHighlighted" .. i;
++    root.SystemMenu.MenuEntriesHighlightedSprites[#root.SystemMenu.MenuEntriesHighlightedSprites + 1] = "SystemMenuEntryFocused" .. i;
+ end
+ 
+-root.Sprites["SystemMenuBackground"] = {
+-    Sheet = "Menu",
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-};
+-
+-root.Sprites["SystemMenuButtonBackground"] = {
+-    Sheet = "Menu",
+-    Bounds = { X = root.SystemMenu.ButtonBackgroundSprStartX, Y = 975, Width = 0, Height = 30 },
+-    BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+-};
+-
+-root.Sprites["SystemMenuSkyBackground"] = {
+-    Sheet = "Data",
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+-};
+-
+-root.Sprites["SystemMenuSkyArrow"] = {
++-- No highlight bar in the sheet: a transparent patch.
++root.Sprites["MenuEntriesHSprite"] = {
+     Sheet = "Data",
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    BaseScale = { X = 1280 / 960, Y = 720 / 544 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+-root.Sprites["SystemMenuSkyText"] = {
++root.Sprites["SystemMenuBackground"] = {
+     Sheet = "Data",
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    BaseScale = { X = 1280 / 960, Y = 720 / 544 }
++    Bounds = { X = 1272, Y = 43, Width = 61, Height = 708 }
+ };
+-
+-root.Sprites["SystemMenuButtonPrompts"] = {
+-    Sheet = "Menu",
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+-    BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+-};
+\ No newline at end of file
+diff --git a/profiles/sg-pc/savedata.lua b/profiles/sg-pc/savedata.lua
+index fc6f39296a6f8b8d87d5b77e209d77acba7fafcf..8378f5d6db493c61f2fd08f854c614d7ee2e3007 100644
+--- a/profiles/sg-pc/savedata.lua
++++ b/profiles/sg-pc/savedata.lua
+@@ -1,4 +1,8 @@
++-- STEINS;GATE (Steam) speaks the Chaos;Child (PS4) style save protocol (Save 4/70/71/16/60/61/80/81, AutoSave
++-- 0xff/10/5 and the QuickSave/SaveState group, LoadData 0/1), which the MO6TWPC save system implements: it persists
++-- the CC layout ScrWork/flag ranges (see src/games/mo6twpc/savesystem.cpp). Own file format; compatibility with the
++-- Steam save files is a non-goal.
+ root.SaveData = {
+-    Type = SaveDataType.None,
+-    SaveFilePath = root.BasePaths.RootSavesDir .. "/cc/jpn/SYSTEM.DAT",
+-};
+\ No newline at end of file
++    Type = SaveDataType.MO6TWPC,
++    SaveFilePath = root.BasePaths.RootSavesDir .. "/sg-pc/SYSTEM.DAT",
++};
+diff --git a/src/games/mo6tw/systemmenu.cpp b/src/games/mo6tw/systemmenu.cpp
+index ec8ae32ff8a816c0edb8e18c822e93c7ab1d79f6..0ed07042a46620e902ccbe011b9538e165257b91 100644
+--- a/src/games/mo6tw/systemmenu.cpp
++++ b/src/games/mo6tw/systemmenu.cpp
+@@ -1,5 +1,7 @@
+ #include "systemmenu.h"
+ 
++#include <algorithm>
++
+ #include "../../profile/ui/systemmenu.h"
+ #include "../../profile/games/mo6tw/systemmenu.h"
+ #include "../../renderer/renderer.h"
+@@ -30,11 +32,25 @@ SystemMenu::SystemMenu() {
+   auto onClick = [this](auto* btn) { return MenuButtonOnClick(btn); };
+ 
+   for (int i = 0; i < MenuEntriesNum; i++) {
++    // A profile may give every entry its own focused sprite (an icon that
++    // lights up and a label that appears, e.g. STEINS;GATE): then the hover
++    // area has to cover both sprites, not just the normal one.
++    const bool hasFocusedSprites = MenuEntriesHNum >= MenuEntriesNum;
++    const Sprite& focusedSprite =
++        hasFocusedSprites ? MenuEntriesHSprites[i] : MenuEntriesSprites[i];
++    const glm::vec2 pos(*MenuEntriesX,
++                        *MenuEntriesFirstY + (*MenuEntriesYPadding * i));
++    RectF hoverBounds{};
++    if (hasFocusedSprites) {
++      hoverBounds = RectF(pos.x, pos.y,
++                          std::max(MenuEntriesSprites[i].ScaledWidth(),
++                                   focusedSprite.ScaledWidth()),
++                          std::max(MenuEntriesSprites[i].ScaledHeight(),
++                                   focusedSprite.ScaledHeight()));
++    }
+     Button* menuButton =
+-        new Button(i, MenuEntriesSprites[i], MenuEntriesSprites[i],
+-                   MenuEntriesHighlightedSprite,
+-                   glm::vec2(*MenuEntriesX,
+-                             *MenuEntriesFirstY + (*MenuEntriesYPadding * i)));
++        new Button(i, MenuEntriesSprites[i], focusedSprite,
++                   MenuEntriesHighlightedSprite, pos, hoverBounds);
+ 
+     menuButton->OnClickHandler = onClick;
+     MainItems->Add(menuButton, FDIR_DOWN);
+diff --git a/src/games/mo6twpc/savemenu.cpp b/src/games/mo6twpc/savemenu.cpp
+index 1f684e600935dc2b3c0eaa0646b00000293c1046..c2f2d922822c935fad457e0f929b43e19d3c7f0e 100644
+--- a/src/games/mo6twpc/savemenu.cpp
++++ b/src/games/mo6twpc/savemenu.cpp
+@@ -320,15 +320,23 @@ void SaveMenu::Update(float dt) {
+ void SaveMenu::Render() {
+   if (State == Hidden || !ActiveMenuType || !MainItems) return;
+   glm::vec4 col(1.0f, 1.0f, 1.0f, FadeAnimation.Progress);
+-  Renderer->DrawSprite(SaveMenuBackgroundSprite, glm::vec2(0.0f), col);
+   switch (*ActiveMenuType) {
+     case SaveMenuPageType::QuickLoad:
++      Renderer->DrawSprite(
++          QuickLoadBackgroundSprite.value_or(SaveMenuBackgroundSprite),
++          glm::vec2(0.0f), col);
+       Renderer->DrawSprite(QuickLoadTextSprite, MenuTitleTextPos, col);
+       break;
+     case SaveMenuPageType::Save:
++      Renderer->DrawSprite(
++          SaveBackgroundSprite.value_or(SaveMenuBackgroundSprite),
++          glm::vec2(0.0f), col);
+       Renderer->DrawSprite(SaveTextSprite, MenuTitleTextPos, col);
+       break;
+     case SaveMenuPageType::Load:
++      Renderer->DrawSprite(
++          LoadBackgroundSprite.value_or(SaveMenuBackgroundSprite),
++          glm::vec2(0.0f), col);
+       Renderer->DrawSprite(LoadTextSprite, MenuTitleTextPos, col);
+       break;
+   }
+diff --git a/src/profile/games/mo6twpc/savemenu.cpp b/src/profile/games/mo6twpc/savemenu.cpp
+index de59a6ec1d1c415357e5fe186b2886c80019296a..6e883d784c729630e69b17116a9c9c172309db8a 100644
+--- a/src/profile/games/mo6twpc/savemenu.cpp
++++ b/src/profile/games/mo6twpc/savemenu.cpp
+@@ -16,6 +16,11 @@ void Configure() {
+   SaveMenuBackgroundSprite =
+       EnsureGetMember<Sprite>("SaveMenuBackgroundSprite");
+ 
++  QuickLoadBackgroundSprite =
++      TryGetMember<Sprite>("QuickLoadBackgroundSprite");
++  LoadBackgroundSprite = TryGetMember<Sprite>("LoadBackgroundSprite");
++  SaveBackgroundSprite = TryGetMember<Sprite>("SaveBackgroundSprite");
++
+   QuickLoadTextSprite = EnsureGetMember<Sprite>("QuickLoadTextSprite");
+   LoadTextSprite = EnsureGetMember<Sprite>("LoadTextSprite");
+   SaveTextSprite = EnsureGetMember<Sprite>("SaveTextSprite");
+diff --git a/src/profile/games/mo6twpc/savemenu.h b/src/profile/games/mo6twpc/savemenu.h
+index 8ac4d3289c96fbc81074397124c809a8f6d0ab6d..db930581ecdf1925ea1669d23b778de774884825 100644
+--- a/src/profile/games/mo6twpc/savemenu.h
++++ b/src/profile/games/mo6twpc/savemenu.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include <optional>
++
+ #include "../../../spritesheet.h"
+ 
+ namespace Impacto {
+@@ -12,6 +14,11 @@ int constexpr RowsPerPage = 3;
+ int constexpr EntriesPerPage = EntriesPerRow * RowsPerPage;
+ 
+ inline Sprite SaveMenuBackgroundSprite;
++// Games whose save, load and quick load screens are separate pictures (STEINS;GATE)
++// set these; the others use SaveMenuBackgroundSprite for all three.
++inline std::optional<Sprite> QuickLoadBackgroundSprite;
++inline std::optional<Sprite> LoadBackgroundSprite;
++inline std::optional<Sprite> SaveBackgroundSprite;
+ 
+ inline Sprite QuickLoadTextSprite;
+ inline Sprite LoadTextSprite;
