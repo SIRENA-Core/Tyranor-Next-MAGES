@@ -16,3 +16,7 @@
 0014-tyn-end-the-PC-options-submenu-as-soon-as-it-has-fad.patch
 0015-tyn-show-the-backlog-in-the-MO6TWPC-profiles.patch
 0016-tyn-use-the-measured-PC-backlog-sheet-bounds-for-the.patch
+0017-tyn-add-an-experimental-sg-pc-profile-for-STEINS-GAT.patch
+0018-tyn-make-the-DDS-loader-state-thread-local.patch
+0019-tyn-add-the-SGHD-instruction-set-STEINS-GATE-Steam.patch
+0020-tyn-calibrate-the-sg-pc-profile-for-STEINS-GATE-Stea.patch

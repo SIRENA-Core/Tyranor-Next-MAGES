@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 16:07:52 -0800
+Subject: [PATCH] tyn: make the DDS loader state thread local
+
+Can be submitted upstream: general engine fix.
+
+ddsloader.cpp keeps the parsed header, the channel count and the bit shifts in file scope globals. Sprite
+sheets are decoded on several loader threads at once, so two threads overwrote each other's m_dds between
+Texture::Init (sized from one header) and internal_readimg (which re-reads the dimensions): squish wrote past
+the end of the buffer and the process died with SIGSEGV in squish::DecompressImage (seen on Android with
+STEINS;GATE's DXT5 system sheets, ten of them decoded within 30 ms).
+
+Make the state thread_local; the functions are otherwise unchanged.
+
+diff --git a/src/texture/ddsloader.cpp b/src/texture/ddsloader.cpp
+index 7810919e3d7a3cdbc1ea5ef62ba41020e6f87f26..621184d1379db51e38dca54c369869500245e9e6 100644
+--- a/src/texture/ddsloader.cpp
++++ b/src/texture/ddsloader.cpp
+@@ -103,15 +103,18 @@ typedef struct {
+   dds_caps caps;      ///< DirectDraw Surface caps
+ } dds_header;
+ 
+-std::vector<uint8_t> m_buf;  ///< Buffer the image pixels
+-int m_nchans;                ///< Number of colour channels in image
+-int m_nfaces;                ///< Number of cube map sides in image
+-int m_Bpp;                   ///< Number of bytes per pixel
+-int m_redL, m_redR;          ///< Bit shifts to extract red channel
+-int m_greenL, m_greenR;      ///< Bit shifts to extract green channel
+-int m_blueL, m_blueR;        ///< Bit shifts to extract blue channel
+-int m_alphaL, m_alphaR;      ///< Bit shifts to extract alpha channel
+-dds_header m_dds;
++// Textures are decoded from several loader threads at once, so this state must not be shared between them: with
++// plain globals two threads overwrote each other's header and one decoded past the end of its buffer (SIGSEGV in
++// squish::DecompressImage while a profile loaded its sprite sheets).
++thread_local std::vector<uint8_t> m_buf;  ///< Buffer the image pixels
++thread_local int m_nchans;                ///< Number of colour channels in image
++thread_local int m_nfaces;                ///< Number of cube map sides in image
++thread_local int m_Bpp;                   ///< Number of bytes per pixel
++thread_local int m_redL, m_redR;          ///< Bit shifts to extract red channel
++thread_local int m_greenL, m_greenR;      ///< Bit shifts to extract green channel
++thread_local int m_blueL, m_blueR;        ///< Bit shifts to extract blue channel
++thread_local int m_alphaL, m_alphaR;      ///< Bit shifts to extract alpha channel
++thread_local dds_header m_dds;
+ 
+ inline void calc_shifts(int mask, int& left, int& right) {
+   if (mask == 0) {

@@ -70,6 +70,22 @@
       {
         "file": "0016-tyn-use-the-measured-PC-backlog-sheet-bounds-for-the.patch",
         "sha256": "03957b1ecc68b9a1d6ce3765cd0756cdfac8b7e0b775ae5c51aa842263ab5797"
+      },
+      {
+        "file": "0017-tyn-add-an-experimental-sg-pc-profile-for-STEINS-GAT.patch",
+        "sha256": "1648069c15f2ee80162653d4859ff203e33960f087a8fcd98e561cdbb780d9e1"
+      },
+      {
+        "file": "0018-tyn-make-the-DDS-loader-state-thread-local.patch",
+        "sha256": "8845a0e64e2ebfc732978dfe0648d44adbbc58dbd2d6ae72b23212922717c69c"
+      },
+      {
+        "file": "0019-tyn-add-the-SGHD-instruction-set-STEINS-GATE-Steam.patch",
+        "sha256": "474aad0e54dee32b2761d8ddc7a89824053e1a7bc5819bdf58708e22d692fff3"
+      },
+      {
+        "file": "0020-tyn-calibrate-the-sg-pc-profile-for-STEINS-GATE-Stea.patch",
+        "sha256": "b27b15b1165a71dc8e074b7b883dbae6f4a7bfc32685a077210541ba664de3db"
       }
     ]
   },

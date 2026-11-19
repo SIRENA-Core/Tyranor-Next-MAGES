@@ -1,75 +1,61 @@
-# Steins;Gate（Steam／PC 版）与 impacto 的差距分析
+# Steins;Gate（Steam／PC 版）：`sg-pc` profile 与 SGHD 指令集
 
-状态：**分析，不是支持。** 宿主目前**不能**运行这个游戏，也没有对应的 profile。本文记录 2026-11 对一份真实游戏目录的调查结果，
-说明为什么它不是「再加一个 profile」就能解决的，以及如果要做，应该怎么分步走。结论都来自对游戏文件的实际解析，没有靠猜；
-没有验证的地方会写明。
+状态：**实验性，能进剧情，不能完整游玩。** 在 MuMu 模拟器（Android 15）上、用原版英文数据实测到：厂商 Logo → 标题画面（Press Enter）→ 主菜单 →
+START → 序章（秋叶原车站，背景里的行人在动）→ 对话文字逐句显示。**没有验证**：真机、语音、BGM、音效、立绘（序章之后的内容）、日文版和汉化版数据。
+Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用一侧加一条检测，见下文「接入」）。
 
 ## 这个游戏是什么
 
-- Steam 上的 *STEINS;GATE*（MAGES.，2016，Steam AppID 412830），不是 2009 年的原版 PC 版，也不是 PS3 版。
-  目录布局：根目录 `Game.exe`、`Launcher.exe`、`steam_api.dll` 等，数据在 `USRDIR/*.mpk`（`bg`、`bgm`、`chara`、`mask`、`script`、`se`、`system`、`voice`、`shader`、`mgsshader`、`manual`）和 `USRDIR/movie/`。
-- 与已支持的 `mo6tw-pc*` 完全不同：后者是 CRI `.cpk` 加 `data/` 目录，前者是 MAGES. 自己的 **MPK v2** 档案。
-  impacto 的 `MpkArchive` 已经能读 v2（头 `MPK\0`，版本 2.0，目录从 `0x40` 起每项 `0x100` 字节，压缩类型 0／1），所以**档案层不是问题**。
+- Steam 上的 *STEINS;GATE*（MAGES.，2016，AppID 412830），不是 2009 年的原版 PC 版，也不是 PS3 版。
+  目录：根目录 `Game.exe`、`Launcher.exe`、`steam_api.dll`……，数据在 `USRDIR/*.mpk`（`script`、`system`、`bg`、`chara`、`bgm`、`se`、`voice`、`mask`、`shader`、`mgsshader`、`manual`）和 `USRDIR/movie/`（Bink 2 的 `.bk2`）。
+- 档案是 MAGES. 的 **MPK v2**，impacto 的 `MpkArchive` 已能读（头 `MPK\0`，版本 2.0，目录从 `0x40` 起每项 `0x100` 字节）。
+- 素材：背景 1920x1080 PNG；立绘 PNG 加 `.lay`；`system.mpk` 里原版的图集是 DXT5 的 `.DDS`（汉化过的版本里有的 `.DDS` 其实是 PNG）；语音、BGM、音效是 OGG；字体 `FONT.PNG`／`FONT2.PNG` 是 3072x6000、每格 48 像素的 64x125 网格。
 
-## 档案与素材
+## 结论：它和 Chaos;Child（PC）是同一代引擎
 
-| 档案 | 内容（抽样） | 备注 |
-| --- | --- | --- |
-| `script.mpk`（190 个文件） | `_STARTUP_WIN.SCX`（档案内编号 2，起始脚本）、`_SYSTEM`、`_TIPS`、`_ATCH`、`_MAIL`、`MACROSYS`、`MACROSYS2`、`SGxx_yy.SCX` | SC3 格式（魔数 `SC3\0`，`[4]` 字符串表偏移，`[8]` 返回表偏移，标号表从 `+12` 起） |
-| `bg.mpk`（507） | `BG01A.PNG` 等，1920x1080 PNG | |
-| `chara.mpk`（330） | `CRS_ALA.png` + `CRS_ALA_.lay` | 立绘 PNG 加 `.lay` |
-| `system.mpk`（32） | `DATA01.DDS`、`FONT.PNG`、`TITLE_CHIP.DDS`…… | **扩展名是 `.DDS`，但 `DATA01.DDS` 实际是 3072x1788 的 PNG**；`DATA03.DDS`、`GSYSMES.DDS` 等才是真 DDS（A8R8G8B8）。图集里没有任何精灵坐标信息 |
-| `voice.mpk`（14512） / `bgm.mpk` / `se.mpk` | `.OGG` | impacto 已能播 |
-| `movie/` | `.bk2`（Bink 2） | FFmpeg 不解 Bink 2，视频要关（`videoPlayback=false`） |
-| `shader.mpk`、`mgsshader.mpk` | `.cg` 着色器 | 原版用，impacto 不用 |
+最初我按脚本反汇编里的指令名（CoZ 的 sc3ntist 里 `SGHDDisassembler` 的命名）判断它「与 impacto 的任何指令集都不同」，**这个判断是错的**。把脚本里的 `GlobalVars`
+编号和 impacto 的 Chaos;Child 变量表对照后发现：
 
-设计分辨率是 1920x1080（背景、图集都是 PS3 版 1280x720 的 1.5 倍）。
+- 启动脚本用 `GlobalVars[4400/4401/4402]` 做淡入遮罩，正好是 CC 的 `SW_MASK1COLOR/ALPHA/PRI`；`GlobalVars[4363]` 是 CC 的 `SW_MESMODE0`；`3333` 是 `SW_SAVEERRORCODE`；
+  系统子菜单变量 `2147/2148/2149` 也与我们已经做过的 MO6TW PC 版一致。
+- 按操作数形状逐个比较，约三分之二的操作码和 impacto 的 CC 表一致（对话指令 `Mes`／`MesMain`／`MessWindow` 的类型位都一样）。
+- 字体图集和 CC 一样是 3072x6000 的 64 列网格。
 
-## 为什么不是「加个 profile」：指令集不同
+所以做法是：新增 `InstructionSet::SGHD`（补丁「add the SGHD instruction set」），`opcodetables_sghd.h` 从 CC 表复制，只覆盖操作数或含义不同的几个操作码；
+再用 `sg-pc` profile 把 CC 的标题菜单类等界面类接到 S;G 的图集上。
 
-impacto 的指令集表（`src/vm/opcodetables_*.h`）覆盖 CHLCC、CC、MO6TW、MO7、MO8、CHN、RNE、Dash、Darling、LCCSwitch、SGPS3 以及我们加的 MO6TWPC。
-这个游戏用的是另一代：CoZ 的 [sc3ntist](https://github.com/CommitteeOfZero/sc3ntist) 里的 `SGHDDisassembler`（SGHD = Steins;Gate HD）。它和 Steins;Gate 0（PC）同一代，
-[compendium](https://github.com/CommitteeOfZero/compendium) 的 `scripting/` 描述的就是这一代的脚本引擎。
+## 怎么发现哪些操作码不同
 
-用 sc3ntist 的 `SCXParser`（独立命令行，g++ 可编，不需要 Qt）反汇编了全部 190 个脚本：
+用与 impacto 无关的参考解码器（sc3ntist 的 `SCXParser`，独立命令行，g++ 可编，目录路径里不能有空格）把全部 190 个脚本反汇编，并让它打印每条指令的地址和长度；
+再在 impacto 里开 `logLevel: trace`，每条执行的指令会打印 `Address / TID / Opcode / ScriptBuffer`。逐线程比较「引擎实际前进的字节数」和「参考解码器给出的指令长度」
+（表达式语句 `0xFE` 不打印，算进间隙），任何不一致就是一个操作数形状不同的操作码。从启动一直跑到序章（约 23 万条指令）只剩两个需要处理的：
 
-- 一共 **252 404 条指令，151 种指令名**；sc3ntist 自己的解码器对 284 处标「未识别」（集中在 `MACROSYS`／`MACROSYS2`）。
-- 三个指令组：`00`（系统）、`01`（图形）、`10`（用户），与 impacto 一样；但组内的操作码含义**全部不同**。例如 `01:00 CreateSurface`、`01:02 LoadTexture`、`01:0C GroupLoadDialogue`、`01:0D GroupDisplayDialogue`、
-  `10:01 LoadBackground`、`10:05 LoadCharacter`、`10:37 Group1037`（一个带十几个子类型的特效组）。
-- 对话不是 `Mes*` 指令，而是 `ShowCurrentDialogueBox` → `ClearDialogueBox` → `LoadVoicedDialogue(audioId, animationId, characterId, line)` → `DisplayDialogue`（每句 5 条指令），
-  文字带 `[name]…[line]…[%p]` 标记，字符集是 SGHD 自己的（`SGHDCharset`）。
-- 出现频率最高的指令：`DisplayDialogue`／`ShowCurrentDialogueBox`／`ClearDialogueBox`／`Checkpoint00`（各约 3.07 万）、`CallFar`（2.19 万）、`LoadDialogue`（1.6 万）、`LoadVoicedDialogue`（1.4 万）、`ResetFlag`（1.06 万）、`LoadCharacter`（5563）、`LoadBackground`（2137）。
+| 操作码 | S;G | CC | 处理 |
+| --- | --- | --- | --- |
+| `00:4C` | 类型字节，类型为 0 时一个表达式 | Dummy | 跳过操作数的桩 |
+| `10:1B`、`10:3F` | 一个字节 | Dummy（Dummy 不前进，启动脚本在标题前执行 `10:3F`，线程直接挂死） | 跳过一个字节的桩 |
+| `10:37` | 手机／邮件组，按类型有不同操作数 | MapSystem | 按类型跳过操作数的桩 |
+| `10:38` | 类型字节，类型 0 时带一个标号 | Mtrg | 桩 |
+| `10:33` 类型 0 | 两个标号 | 一个标号 | 与 MO8／CHN／MO6TWPC 同样处理 |
 
-impacto 里最接近的 `SGPS3` 表是 PS3 版的方言，且 765 项里 602 项是 `InstDummy`（上游自己也没做完，`sgps3` profile 还是照着 CHLCC 抄的占位，没注册进 `gamedefinitions.lua`）。
+另外几处要识别 S;G：`SelInit` 的存档点 id、`NameID` 的名牌标号、`MSinit` 清零大小、CC 标题菜单状态机的「按任意键」检测、三处背景滤色读取。
 
-## 为什么更难：原生一侧是写死的
+## 已知的缺口
 
-脚本只是状态机：`GlobalVars[n]` 在引擎里就是 `ScrWork[n]`，`FlagRef(n)` 是标志；图形由 Game.exe 读这些变量来画。
-- 贴图通过 `LoadTexture(surfaceId, archiveId, fileId)` 绑到**表面编号**，之后 UI 怎么用哪个表面、哪块区域，全写在 Game.exe 里；数据里没有精灵表。
-- 标题、系统菜单、存档、日志、TIPS、手机界面、各种提示框的布局与逻辑都是原生实现，需要自己从图集量坐标、从脚本推行为。
-- 脚本里大量 `GlobalVars[4400..4402]` 之类的变量就是在驱动渐变、位置、遮罩；没有变量名表，要靠读 `MACROSYS` 推断。
-- 内嵌 `.sdb`、`BGMASK00..29`、`WAVTABLE.DAT`（口型）等格式在 Game.exe 里出现，impacto 没有对应实现。
+- **没有存档系统**：`SaveDataType.None`。启动脚本把 `Save(4)`（读系统数据）的失败当致命错误，所以现在 `LoadSystemData` 对 SGHD 报告 OK（当作全新安装）。存档、读档、快速存档、已读标记都没有。
+- 所有界面的**精灵坐标**：标题已经按 `TITLE_CHIP.DDS` 量过（背景 1920x1080 在 (0,0)；主菜单项成对放在 x=1922／2123；子菜单项 249x37 在 x=1957／2245；橙色指针；「Press Enter」）。
+  菜单项在屏幕上的位置是我估的，没有 Windows 版的原图对照。对话框用了 `DATA01` 里量出的 ADV 框。存档图标、读盘中、日期、系统消息框、选项、日志、TIPS、系统菜单、名牌、等待图标目前都指向透明块（占位）。
+- 对话里人名的位置不对（序章的 `???` 出现在右下）。
+- 视频是 Bink 2，FFmpeg 不解；脚本里的片头／过场会在日志里报 `Failed to open movie`，目前不阻塞。
+- `ClickOnJump`（Logo 期间点击跳过）是桩。
+- 简体中文汉化过的 `script.mpk` 让 sc3ntist 抛 `End of expression expected`（汉化补丁改过脚本），没有在引擎里测过。
 
-## 建议的分步路线（没有做）
+## 接入（Tyranor Next）
 
-1. **只让虚拟机跑起来**：新增 `InstructionSet::SGHD` 与表 `opcodetables_sghd.h`（只加新文件，对上游文件只改 `vm.h`／`vm.cpp`／`CMakeLists.txt` 各一处），
-   操作数形状直接照 sc3ntist 的解码器（它已验证过 190 个脚本），先把每条指令按形状正确跳过并记日志，保证 `_STARTUP_WIN` → 标题循环不跑偏。
-2. **能看到内容**：`LoadBackground`、`LoadCharacter`、对话五件套、`PlayBgm`／`PlaySoundEffect`／`PlayVoice`，用最朴素的对话框和固定位置先出画面和声音。
-3. **标题与系统菜单**：按图集量坐标。
-4. 之后才是存档、日志、TIPS、手机、特效组 `Group1037`。
+宿主已接受 profile `sg-pc`（`ImpactoRequest.PROFILES`、`engine/impacto/profiles.json`）。游戏目录是含 `Game.exe` 的那一层（宿主在 `gamedata/sg-pc` 建符号链接，档案按 `USRDIR/*.mpk` 找）。
+主应用的目录检测（`Game.exe` 加 `USRDIR/script.mpk`、`USRDIR/system.mpk`）在另一个仓库，还没有做。
 
-补丁系列的原则不变：新增文件为主，对上游已有文件只做小而集中的改动，这样上游升级时基本不冲突。
+## 复现工具
 
-## 复现这份分析的工具链
-
-不含任何游戏内容，只有读你自己文件的脚本：
-
-- `tools/impacto/sghd/mpk_tool.py`：列出／解出 MPK v2 档案里的文件。
-- `sc3ntist` 的 `src/SCXParser.cpp` 加 `src/parser/*.cpp`，`g++ -std=c++17` 直接编；它从标准输入读「脚本目录」和「游戏名（`SGHD`）」，在每个 `.SCX` 旁写 `.txt`。目录路径里不能有空格。
-- 简体中文汉化补丁过的 `script.mpk` 会让 sc3ntist 抛 `End of expression expected`（汉化补丁改过脚本），日文／英文原版 `script_bak.mpk` 可以完整反汇编。
-
-## 没有验证的
-
-- 没有在设备上跑过任何 SGHD 相关代码；以上全是静态分析。
-- 没有查过 Game.exe 里的原生实现细节，也没有运行 Windows 版做对照。
-- 工作量只是估计：第 1、2 步是以天计的，第 3 步以后是以周计的。
+- `tools/impacto/sghd/mpk_tool.py`：列出／解出 MPK v2 里的文件（读你自己的游戏文件，不含游戏内容）。
+- 参考反汇编器：sc3ntist（`src/SCXParser.cpp` 加 `src/parser/*.cpp`，`g++ -std=c++17`）。它没有许可证文件，所以这里**不复制它的代码或表**，操作数形状是对着数据自己核对的。

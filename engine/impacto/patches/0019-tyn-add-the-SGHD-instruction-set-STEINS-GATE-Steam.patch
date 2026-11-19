@@ -1,0 +1,313 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 16:07:52 -0800
+Subject: [PATCH] tyn: add the SGHD instruction set (STEINS;GATE Steam)
+
+TYN-only. The Steam release of STEINS;GATE (2016) speaks the Chaos;Child PC dialect of the SC3 virtual
+machine: the system/graphics/user tables agree in about two thirds of the opcodes by operand shape, and the
+ScrWork layout is the CC one (the startup script fades through GlobalVars 4400/4401/4402 = SW_MASK1COLOR/
+ALPHA/PRI, SW_MESMODE0 = 4363, SW_SAVEERRORCODE = 3333). Running the 190 scripts against a reference
+disassembly (instruction lengths of every executed opcode compared with an independent decoder: ~230,000
+instructions from boot through the first scene) shows no other operand mismatch than the ones fixed here.
+
+Add InstructionSet::SGHD. opcodetables_sghd.h starts from copies of the CC tables and overrides the opcodes
+that differ (inst_sghd.h, header only like the tables):
+  - 00:4C   type byte, one expression when the type is 0 (CC: Dummy)
+  - 10:1B, 10:3F  one byte, no known effect (CC: Dummy, which hangs the thread: the startup script executes
+            10:3F before the title)
+  - 10:37   phone/mail group (CC: MapSystem): type byte and per-type operands, stubbed
+  - 10:38   type byte, a label when the type is 0 (CC: Mtrg), stubbed
+Every GameInstructionSet == CC site that applies is extended: SelInit savepoint id, NameID name plate label,
+Tips data init (two labels), MSinit memset sizes, the CC title menu state machine (press-to-start check), and
+the three background tint reads. ReportsSaveErrors() is deliberately not extended; until an S;G save system
+exists SaveSystem::LoadSystemData reports OK for SGHD (the startup script treats Failed as fatal).
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 74eaf22fae146a6d2adfec18ee352696d09272d5..aeddf143e502b557b87cb1162659e311e83d6f49 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -769,6 +769,7 @@ set(Impacto_Header
+     src/vm/opcodetables_mo6twpc.h
+     src/vm/opcodetables_rne.h
+     src/vm/opcodetables_sgps3.h
++    src/vm/opcodetables_sghd.h
+ 
+     src/vm/interface/scene3d.h
+     src/vm/interface/input.h
+diff --git a/src/background2d.cpp b/src/background2d.cpp
+index f48d8dfc5f034b15300bd56d0fd5a28f8e32c86a..5fcfdcb9949bbea7e7767ee7cbafe4e424a1fe5f 100644
+--- a/src/background2d.cpp
++++ b/src/background2d.cpp
+@@ -466,6 +466,7 @@ void Background2D::UpdateState(const int bgId) {
+ 
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
++    case Vm::InstructionSet::SGHD:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_BG1FILTER + structOffset);
+       break;
+@@ -633,6 +634,7 @@ void Capture2D::UpdateState(const int capId) {
+ 
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
++    case Vm::InstructionSet::SGHD:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_CAP1FILTER + structOffset);
+       break;
+@@ -733,6 +735,7 @@ void BackgroundEffect2D::UpdateState(const int bgId) {
+   // Set tint
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
++    case Vm::InstructionSet::SGHD:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_BGEFF1_FILTER + structOffset);
+       break;
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 5b478964d7b70ed22909e45e553a1b2ff85171fb..8bfa04580a9522784eb44fa56f7e659173fda868 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -196,7 +196,10 @@ void SaveSystemData() {
+ }
+ 
+ SaveError LoadSystemData() {
+-  return Implementation ? Implementation->LoadSystemData() : SaveError::Failed;
++  if (Implementation) return Implementation->LoadSystemData();
++  // STEINS;GATE (Steam) has no save implementation yet: its startup script treats Failed as fatal ("It failed to load
++  // system data"), so report a fresh install instead.
++  return Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD ? SaveError::OK : SaveError::Failed;
+ }
+ 
+ void SaveThumbnailData() {
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index 15afbc1cd521398bd45c6297f2841e8f90752527..3df65607e9960aa60ebe05ca0afc972bf53a5f44 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -954,6 +954,7 @@ VmInstruction(InstSel) {
+           Profile::Vm::GameInstructionSet == InstructionSet::CC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC) {
+         PopUint16(savepointid);
+         // SF_MESSAVEPOINT_SSP + dialog page's field 5 in decompile?
+@@ -1139,6 +1140,7 @@ VmInstruction(InstNameID) {
+           Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(namePlateDataBlock);
+         Sc3Stream namePlateData(
+@@ -1174,6 +1176,7 @@ VmInstruction(InstTips) {
+           ScriptGetLabelAddress(thread->ScriptBufferId, tipsLabelNum);
+       if (Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(tipsDataAdr1);
+         (void)tipsDataAdr1;
+diff --git a/src/vm/inst_misc.cpp b/src/vm/inst_misc.cpp
+index a9761a76aac6bf99b1b6534f2bdade0ff0ce1a0e..0d3c7165443c71176b7b658d3b2372f1ad456b92 100644
+--- a/src/vm/inst_misc.cpp
++++ b/src/vm/inst_misc.cpp
+@@ -552,6 +552,7 @@ VmInstruction(InstTitleMenuNew) {
+           break;
+         case InstructionSet::LCCSwitch:
+         case InstructionSet::CC:
++        case InstructionSet::SGHD:
+         case InstructionSet::CHN: {
+           int mainState;
+           int startTransitionState;
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..78916c34fa58c2df04f842fe2ae5e39b82ce3753
+--- /dev/null
++++ b/src/vm/inst_sghd.h
+@@ -0,0 +1,99 @@
++#pragma once
++// STEINS;GATE (Steam) instructions whose operands differ from the Chaos;Child PC dialect they otherwise share.
++// Header-only on purpose (like the opcode tables): vm.cpp is the only user.
++#include "vm.h"
++#include "thread.h"
++#include "expression.h"
++#include "../log.h"
++
++namespace Impacto {
++
++namespace Vm {
++
++namespace SghdDetail {
++
++// Operand kinds: b = u8, h = u16 (labels, return ids, strings), E = expression.
++inline void SkipOperands(Sc3VmThread* thread, const char* shape) {
++  for (; *shape; ++shape) {
++    switch (*shape) {
++      case 'b':
++        thread->IpOffset += 1;
++        break;
++      case 'h':
++        thread->IpOffset += 2;
++        break;
++      case 'E':
++        (void)ExpressionEval(thread);
++        break;
++    }
++  }
++}
++
++struct SubShape {
++  int type;
++  const char* shape;
++};
++
++// Group instructions: one type byte, then operands that depend on the type. Unknown types cannot be skipped safely
++// (the stream would desynchronize), so they are logged once and the operand-less form is assumed.
++template <size_t N>
++inline void RunGroup(Sc3VmThread* thread, const char* name, const SubShape (&shapes)[N]) {
++  [[maybe_unused]] const uint8_t group = *thread->GetIp() & 0x7F;
++  [[maybe_unused]] const uint8_t op = thread->GetIp()[1];
++  thread->IpOffset += 2;
++  const int type = *thread->GetIp();
++  thread->IpOffset += 1;
++  for (const SubShape& s : shapes) {
++    if (s.type == type) {
++      SkipOperands(thread, s.shape);
++      ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction {:s}(type: {:#x}) ({:02x}:{:02x})\n",
++                 name, type, group, op);
++      return;
++    }
++  }
++  ImpLogSlow(LogLevel::Error, LogChannel::VM, "SGHD instruction {:s} has unknown type {:#x} ({:02x}:{:02x})\n", name,
++             type, group, op);
++}
++
++}  // namespace SghdDetail
++
++// 10:37: phone / mail / @channel group.
++inline void InstSghdGroup1037(Sc3VmThread* thread, float dt) {
++  static constexpr SghdDetail::SubShape shapes[] = {
++      {0x00, "bE"},  {0x01, "bE"},  {0x02, "bEh"}, {0x03, "bEh"}, {0x04, "hhhhhh"}, {0x05, ""},    {0x06, ""},
++      {0x07, ""},    {0x08, ""},    {0x09, ""},    {0x0A, ""},    {0x0F, "E"},      {0x10, "E"},  {0x11, ""},
++      {0x12, "EE"},  {0x13, ""},    {0x14, "EEEE"}, {0x15, "EEEE"}, {0x16, ""},      {0x17, ""},   {0x18, ""},
++      {0x19, ""},    {0x1A, "E"},   {0x1E, ""},
++  };
++  SghdDetail::RunGroup(thread, "Group1037", shapes);
++}
++
++// Instructions that take one byte and have no other effect that is understood yet (10:1B, 10:3F).
++inline void InstSghdSkipByte(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  [[maybe_unused]] const int arg = *thread->GetIp();
++  thread->IpOffset += 1;
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD one-byte instruction (arg: {:#x})\n", arg);
++}
++
++// 00:4C: type byte, one expression when the type is 0.
++inline void InstSghdUnk004C(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const int type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 0) (void)ExpressionEval(thread);
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction 00:4C(type: {:#x})\n", type);
++}
++
++// 10:38: type byte, a label when the type is 0.
++inline void InstSghdGroup1038(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const int type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 0) thread->IpOffset += 2;
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction Group1038(type: {:#x})\n", type);
++}
++
++}  // namespace Vm
++
++}  // namespace Impacto
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index c522388cfe7b9ce2b956d3a959c74265f08f1fa7..d4f952b403f9c1fd2c083faee7230038f258b7ab 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -1027,7 +1027,8 @@ VmInstruction(InstMSinit) {
+         Profile::Vm::GameInstructionSet == InstructionSet::CHLCC) {
+       memset(&FlagWork, 0, 500);
+       memset(&ScrWork, 0, 24000);
+-    } else if (Profile::Vm::GameInstructionSet == InstructionSet::CC) {
++    } else if (Profile::Vm::GameInstructionSet == InstructionSet::CC ||
++               Profile::Vm::GameInstructionSet == InstructionSet::SGHD) {
+       memset(&FlagWork, 0, 1000);
+       memset(&ScrWork, 0, 32000);
+     } else if (Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch) {
+diff --git a/src/vm/opcodetables_sghd.h b/src/vm/opcodetables_sghd.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5033ef397459a88198d6ce6dcbfcd980db70463b
+--- /dev/null
++++ b/src/vm/opcodetables_sghd.h
+@@ -0,0 +1,30 @@
++#pragma once
++// STEINS;GATE (Steam, 2016) runs the Chaos;Child PC dialect of the SC3 virtual machine, with a few opcodes whose
++// operands or meaning differ. The tables start as copies of the CC ones; Configure_SGHD() applies the overrides.
++// vm.cpp includes this after opcodetables_cc.h (which has no include guard).
++#include "inst_sghd.h"
++
++namespace Impacto {
++
++namespace Vm {
++
++inline InstructionProc OpcodeTableSystem_SGHD[256];
++inline InstructionProc OpcodeTableGraph_SGHD[256];
++inline InstructionProc OpcodeTableUser1_SGHD[256];
++
++inline void Configure_SGHD() {
++  for (int i = 0; i < 256; i++) {
++    OpcodeTableSystem_SGHD[i] = OpcodeTableSystem_CC[i];
++    OpcodeTableGraph_SGHD[i] = OpcodeTableGraph_CC[i];
++    OpcodeTableUser1_SGHD[i] = OpcodeTableUser1_CC[i];
++  }
++  OpcodeTableSystem_SGHD[0x4c] = InstSghdUnk004C;  // type byte, an expression when the type is 0 (CC: Dummy)
++  OpcodeTableUser1_SGHD[0x1b] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy)
++  OpcodeTableUser1_SGHD[0x37] = InstSghdGroup1037;  // phone / mail group (CC: MapSystem)
++  OpcodeTableUser1_SGHD[0x38] = InstSghdGroup1038;  // type byte, a label when the type is 0 (CC: Mtrg)
++  OpcodeTableUser1_SGHD[0x3f] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy, which hangs the thread)
++}
++
++}  // namespace Vm
++
++}  // namespace Impacto
+diff --git a/src/vm/vm.cpp b/src/vm/vm.cpp
+index 8d2b49121422e542d9bea9a23ba14e589213faa9..c96f3c97b0321bb49ef2f219f83a905bee88d46a 100644
+--- a/src/vm/vm.cpp
++++ b/src/vm/vm.cpp
+@@ -20,6 +20,7 @@
+ #include "opcodetables_sgps3.h"
+ #include "opcodetables_chn.h"
+ #include "opcodetables_lccswitch.h"
++#include "opcodetables_sghd.h"
+ #include "../profile/game.h"
+ #include "../profile/vm.h"
+ #include "../profile/scriptinput.h"
+@@ -142,6 +143,13 @@ void Init() {
+       OpcodeTableUser1 = OpcodeTableUser1_CHN;
+       break;
+     }
++    case InstructionSet::SGHD: {
++      Configure_SGHD();
++      OpcodeTableSystem = OpcodeTableSystem_SGHD;
++      OpcodeTableGraph = OpcodeTableGraph_SGHD;
++      OpcodeTableUser1 = OpcodeTableUser1_SGHD;
++      break;
++    }
+     case InstructionSet::LCCSwitch: {
+       OpcodeTableSystem = OpcodeTableSystem_LCCSwitch;
+       OpcodeTableGraph = OpcodeTableGraph_LCCSwitch;
+diff --git a/src/vm/vm.h b/src/vm/vm.h
+index 442a6fd5eb16de6fc4ac480d9a63b1e806d4e0f0..46fe643d4f7df870e1a50189f41328a01bd649c2 100644
+--- a/src/vm/vm.h
++++ b/src/vm/vm.h
+@@ -23,6 +23,7 @@ enum class InstructionSet : int {
+   CHN,
+   LCCSwitch,
+   MO6TWPC,
++  SGHD,
+ };
+ using InstructionProc = auto (*)(Sc3VmThread* thread, float dt) -> void;
+ 

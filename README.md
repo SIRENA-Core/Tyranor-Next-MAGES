@@ -26,6 +26,7 @@
   `mo6tw-pc-zhs` 能进到标题画面，选「New Game」进入第一段对话，背景、名牌、简体中文文字和语音播放都正常，存档→强制停止→重启→读档能回到同一句。
   在 MuMu 模拟器（Android 15，x86_64 加 arm64 转译，**不是真机**）上，`mo6tw-pc`（日文）、`mo6tw-pc-zhs`、`mo6tw-pc-zht` 三个变体都能进标题、New Game 并显示第一段对话，选项分支、两指轻点打开系统菜单、向下轻扫打开日志（两指轻点关闭）、存档菜单存一格再重启后从 Continue → Load 读出（缩略图、游玩时长、时间都在）也都正常；系统菜单的「オプション」在 PC 版目前没有可用的界面（选项画面的 PS3 布局与 PC 图集对不上），点了会直接回到系统菜单，「エンサイクロペディア」（TIPS）同样没有界面，点了没有可见反应、按返回才退出；「タイトルに戻る」的确认对话框也不显示（脚本在等一个看不见的确认），同样要按返回。除此之外都没有验证：非对话菜单（坐标为近似）、附加内容菜单（占位图集）、输入与性能（真机）。
   存档代码审查发现的问题已修复，并在同一台真机上复测了翻页连点、强制停止后读回、快速存档连点；Windows 构建与非 ASCII 路径、其他游戏的回归没有验证。Tyranor Next 主应用识别 PC 版目录布局（根目录 `game.exe` + `data/` 里的 `script.cpk`、`mes00.cpk`；见 [Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效）：添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。更早的主应用版本不识别，只能由外部 Intent 指定 profile。主应用一侧在真机上只验证了识别、变体选择与版本提示，「主应用启动宿主进入游戏」这一整段还没有验证。
+- **实验性：Windows／Steam 版 STEINS;GATE（`sg-pc`，补丁系列提供）**：在 MuMu 模拟器（Android 15，**不是真机**）上、用原版英文数据能走到标题、主菜单、START，并显示序章的背景和对话文字。它与 Chaos;Child（PC）是同一代引擎（新的 `InstructionSet::SGHD` 从 CC 表复制再覆盖几个操作码）。**没有**存档（当作全新安装）、没有系统菜单／日志／TIPS／选项的真实界面，语音、BGM、序章之后的内容没有验证；主应用还不识别这个游戏的目录。细节见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)。
 - 全部可启动 profile 的机器可读清单见 [`engine/impacto/profiles.json`](engine/impacto/profiles.json)。
 - 宿主 0.1.2 起支持接收 Tyranor Next 传来的引擎设置（见下文 `SETTINGS`）。
 
@@ -37,7 +38,7 @@
 | --- | --- |
 | 包名 / Action | `com.tyranor.next.impacto` / `com.tyranor.next.impacto.action.RUN` |
 | Extras | `com.tyranor.next.impacto.extra.` + `GAME_DIR`、`PROFILE`、`GAME_KEY`、`TITLE`、`SETTINGS`（0.1.2 起，扁平 JSON，见下） |
-| profile | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht`、`darling`、`dash`、`rne`（`mo6tw-pc*` 为 Windows／Steam 版 Memories Off 6 T-Wave，依次为日文、简体、繁体，profile 定义由补丁系列提供；清单见 `engine/impacto/profiles.json`） |
+| profile | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht`、`sg-pc`、`darling`、`dash`、`rne`（`sg-pc` 为 Steam 版 STEINS;GATE，实验性，需要之后的宿主版本；`mo6tw-pc*` 为 Windows／Steam 版 Memories Off 6 T-Wave，依次为日文、简体、繁体，profile 定义由补丁系列提供；清单见 `engine/impacto/profiles.json`） |
 | `GAME_KEY` | `SHA-256(profile + NUL + 游戏目录)` 前 12 字节的小写十六进制；宿主会重算，不符即拒绝 |
 | 下载地址 | `releases/latest/download/Tyranor-Next-MAGES.apk`（资产名固定，版本在标签与 APK 内）；Tyranor Next 期望的 `versionCode` 不得高于最新发布 |
 | 最低版本 | Tyranor Next 要求宿主 `versionCode` ≥ 3（0.1.2）；`mo6tw-pc*` 三个 profile 需要 `versionCode` ≥ 4（0.2.0），更早的宿主会拒绝这些 profile；Tyranor Next 只对这三个 profile 按 ≥ 4 提示更新宿主，其余 profile 仍只要求 ≥ 3 |
