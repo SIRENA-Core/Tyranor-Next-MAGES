@@ -102,6 +102,10 @@
       {
         "file": "0024-tyn-open-the-CC-title-menu-sub-lists-configurable-ti.patch",
         "sha256": "3753a99901f2f18a4710d7f0ef3318bd9d731c61b8542151b460994fe7e6c024"
+      },
+      {
+        "file": "0025-tyn-sg-pc-save-load-layout-from-the-original-Game.ex.patch",
+        "sha256": "257579054ca5fa8980199732b56d6cc1bca61d16d50ad563087242228731083b"
       }
     ]
   },

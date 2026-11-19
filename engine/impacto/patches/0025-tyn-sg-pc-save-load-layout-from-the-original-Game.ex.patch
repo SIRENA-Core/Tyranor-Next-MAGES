@@ -1,0 +1,189 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 06:02:34 -0800
+Subject: [PATCH] tyn: sg-pc save / load layout from the original Game.exe,
+ configurable save grid
+
+Replaces estimated values of patch 0022 with the layout the original STEINS;GATE (Steam) Game.exe draws (save menu
+draw routine around 0x43b661, drawSprite 0x432230; the game works in 1280x720 units and draws at x1.5):
+- 8 slots per page in 2 columns x 4 rows (0022 guessed 6). 1280-space loop x0 = 86 (+579), y0 = 162 (+127); the
+  slot card is the sheet's own (1921.5, 1.5, 789 x 166.5) drawn at ((x0 - 10) * 1.5, (y0 - 75) * 1.5), i.e.
+  x 114 / 982.5, y 130.5 / 321 / 511.5 / 702 (0022 took that card for a banner and drew an invisible patch).
+- Thumbnail 240 x 135 at card + (15, 15); "NO DATA" is the sheet's (2713.5, 1.5, 240 x 135).
+- 48 slots / 8 = 6 pages, which is also the "/6" page art of the sheets.
+
+Generic (MO6TWPC save menu): the grid size is read from the optional profile fields EntriesPerRow / RowsPerPage
+(defaults 2 x 3, the Memories Off 6 PC layout, so that profile is unchanged); the page count follows from it.
+
+Not yet from the original: the slot texts (the original draws "No." + two digits at card + (180, 13) * 1.5, the
+scene title lines from a text table at (416, 13) / (180, 41) and more at (258, 73) in 1280 units), the lock icon
+and the 85 x 36 page tabs at y 934; those still use the 0022 estimates.
+
+Checked on MuMu: sg-pc load screen shows 8 original cards with thumbnails and "1 / 6", loading slot 4 works;
+mo6tw-pc-zhs load screen unchanged (2 x 3, "1 / 8").
+
+diff --git a/profiles/sg-pc/hud/savemenu.lua b/profiles/sg-pc/hud/savemenu.lua
+index 28e6ba708f0822a497574df843c4a2f72d18a279..141cb639e7f93fc33dee7301ffe116918ead64ed 100644
+--- a/profiles/sg-pc/hud/savemenu.lua
++++ b/profiles/sg-pc/hud/savemenu.lua
+@@ -1,12 +1,15 @@
+--- STEINS;GATE (Steam) save / load / quick load screens, drawn by the generic SaveMenuType.MO6TWPC class (six entries per
+--- page, PREV/NEXT, thumbnail, number, play time and date text) over the three pictures SAVEMENU (system.mpk id 26),
+--- LOADMENU (12) and QLOADMENU (25). Each is a 3072x1080 sheet: the screen at (0, 0, 1920x1080) with its title baked in
+--- (a big dark panel at x 85..1840, y 108..978), and at x >= 1920 a banner (1920,0, 791x165), the "NO DATA" thumbnail
+--- (2713,1, 241x136), the page digits (y 175..226, "/6" after them), three coloured bars and two lock icons (y 283).
+--- The sheet has no card, highlight or button art, so those use a transparent patch (x >= 1950, y >= 500 is empty) and
+--- the engine draws the numbers, times and dates as text; the thumbnails are 240x135 like the NO DATA one.
+--- NOT measurable from the sheet: where the native game puts the entries. Two columns of three rows inside the panel,
+--- PREV / NEXT as invisible 280x60 tap areas at the bottom of the panel with the page text between them, are estimates.
++-- STEINS;GATE (Steam) save / load / quick load screens, drawn by the generic SaveMenuType.MO6TWPC class over the three
++-- pictures SAVEMENU (system.mpk id 26), LOADMENU (12) and QLOADMENU (25), 3072x1080 each.
++-- Layout taken from the original Game.exe (save menu draw routine around 0x43b661, drawSprite 0x432230; the game
++-- works in 1280x720 units and draws at x1.5):
++--   * background: the sheet's (0, 0, 1920 x 1080) at (0, 0);
++--   * 8 slots per page, 2 columns x 4 rows; 1280-space loop x0 = 86 (+579 per column), y0 = 162 (+127 per row);
++--     the slot card is the sheet's (1921.5, 1.5, 789 x 166.5) drawn at ((x0 - 10) * 1.5, (y0 - 75) * 1.5),
++--     i.e. x 114 / 982.5, y 130.5 / 321 / 511.5 / 702;
++--   * thumbnail 240 x 135 at (x0 * 1.5, (y0 - 65) * 1.5) = card + (15, 15); "NO DATA" is the sheet's
++--     (2713.5, 1.5, 240 x 135).
++-- Not yet taken from the original (still estimates): slot number / play time / date text positions, the lock icon,
++-- the page tabs (the original has 85 x 36 tabs at y 934 instead of PREV / NEXT).
+ root.SpriteSheets["SaveMenu"] = {
+     Path = { Mount = "system", Id = 26 },
+     DesignWidth = 3072,
+@@ -35,25 +38,27 @@ root.SaveMenu = {
+     LoadTextSprite = "SaveMenuTransparent",
+     SaveTextSprite = "SaveMenuTransparent",
+     MenuTitleTextPos = { X = 0, Y = 0 },
+-    QuickLoadEntrySprite = "SaveMenuCard",
+-    QuickLoadEntryHighlightedSprite = "SaveMenuCard",
++    QuickLoadEntrySprite = "QuickLoadMenuCard",
++    QuickLoadEntryHighlightedSprite = "QuickLoadMenuCard",
+     SaveEntrySprite = "SaveMenuCard",
+     SaveEntryHighlightedSprite = "SaveMenuCard",
+-    LoadEntrySprite = "SaveMenuCard",
+-    LoadEntryHighlightedSprite = "SaveMenuCard",
++    LoadEntrySprite = "LoadMenuCard",
++    LoadEntryHighlightedSprite = "LoadMenuCard",
+     PrevButtonSprite = "SaveMenuButton",
+     PrevButtonHighlightedSprite = "SaveMenuButton",
+     NextButtonSprite = "SaveMenuButton",
+     NextButtonHighlightedSprite = "SaveMenuButton",
+     LockIconSprite = "SaveLock",
+-    EntryStartX = 130,
+-    EntryXPadding = 870,
+-    EntryStartY = 185,
+-    EntryYPadding = 215,
++    EntriesPerRow = 2,
++    RowsPerPage = 4,
++    EntryStartX = 114,
++    EntryXPadding = 868.5,
++    EntryStartY = 130.5,
++    EntryYPadding = 190.5,
+     PrevButtonPosition = { X = 560, Y = 880 },
+     NextButtonPosition = { X = 1080, Y = 880 },
+     PageTextCentre = { X = 960, Y = 905 },
+-    ThumbnailOffset = { X = 10, Y = 22 },
++    ThumbnailOffset = { X = 15, Y = 15 },
+     ThumbnailSize = { X = 240, Y = 135 },
+     LockIconOffset = { X = 12, Y = 24 },
+     NumberTextOffset = { X = 270, Y = 20 },
+@@ -78,7 +83,7 @@ root.Sprites["QuickLoadMenuBackground"] = {
+ };
+ root.Sprites["EmptyThumbnail"] = {
+     Sheet = "SaveMenu",
+-    Bounds = { X = 2713, Y = 1, Width = 241, Height = 136 }
++    Bounds = { X = 2713.5, Y = 1.5, Width = 240, Height = 135 }
+ };
+ root.Sprites["SaveLock"] = {
+     Sheet = "SaveMenu",
+@@ -90,7 +95,15 @@ root.Sprites["SaveMenuTransparent"] = {
+ };
+ root.Sprites["SaveMenuCard"] = {
+     Sheet = "SaveMenu",
+-    Bounds = { X = 1950, Y = 500, Width = 760, Height = 180 }
++    Bounds = { X = 1921.5, Y = 1.5, Width = 789, Height = 166.5 }
++};
++root.Sprites["LoadMenuCard"] = {
++    Sheet = "LoadMenu",
++    Bounds = { X = 1921.5, Y = 1.5, Width = 789, Height = 166.5 }
++};
++root.Sprites["QuickLoadMenuCard"] = {
++    Sheet = "QuickLoadMenu",
++    Bounds = { X = 1921.5, Y = 1.5, Width = 789, Height = 166.5 }
+ };
+ root.Sprites["SaveMenuButton"] = {
+     Sheet = "SaveMenu",
+diff --git a/src/games/mo6twpc/savemenu.cpp b/src/games/mo6twpc/savemenu.cpp
+index c2f2d922822c935fad457e0f929b43e19d3c7f0e..aaf1e13ae0bf8cba745c88bb93a2989f345ed613 100644
+--- a/src/games/mo6twpc/savemenu.cpp
++++ b/src/games/mo6twpc/savemenu.cpp
+@@ -24,7 +24,7 @@ using namespace Impacto::Profile::ScriptVars;
+ 
+ namespace {
+ 
+-int constexpr MaxPages = SaveSystem::MaxSaveEntries / EntriesPerPage;
++int MaxPages() { return SaveSystem::MaxSaveEntries / EntriesPerPage; }
+ 
+ std::vector<ProcessedTextGlyph> LayoutText(const std::string& str,
+                                            glm::vec2 pos, float size,
+@@ -150,7 +150,7 @@ SaveMenu::SaveMenu() : UI::SaveMenu() {
+ 
+ void SaveMenu::ChangePage(int delta) {
+   const int page =
+-      std::clamp(static_cast<int>(ActivePage) + delta, 0, MaxPages - 1);
++      std::clamp(static_cast<int>(ActivePage) + delta, 0, MaxPages() - 1);
+   if (page == ActivePage) return;
+   ActivePage = static_cast<uint8_t>(page);
+   Rebuild();
+@@ -181,7 +181,8 @@ void SaveMenu::Rebuild() {
+   MainItems->WrapFocus = false;
+   auto onClick = [this](auto* btn) { return MenuButtonOnClick(btn); };
+ 
+-  SaveEntryButton* grid[RowsPerPage][EntriesPerRow];
++  std::vector<std::vector<SaveEntryButton*>> grid(
++      RowsPerPage, std::vector<SaveEntryButton*>(EntriesPerRow));
+   for (int i = 0; i < RowsPerPage; i++) {
+     for (int j = 0; j < EntriesPerRow; j++) {
+       const int slot = ActivePage * EntriesPerPage + i * EntriesPerRow + j;
+@@ -226,7 +227,7 @@ void SaveMenu::Rebuild() {
+   MainItems->Add(next);
+ 
+   // Centred by hand: TextAlignment::Center does not centre on the position
+-  const std::string pageStr = fmt::format("{} / {}", ActivePage + 1, MaxPages);
++  const std::string pageStr = fmt::format("{} / {}", ActivePage + 1, MaxPages());
+   PageText = LayoutText(pageStr, glm::vec2(0.0f), EntryFontSize + 4,
+                         TextAlignment::Left);
+   PageText = LayoutText(
+diff --git a/src/profile/games/mo6twpc/savemenu.cpp b/src/profile/games/mo6twpc/savemenu.cpp
+index 6e883d784c729630e69b17116a9c9c172309db8a..54859849bf728f296c41139bf0c77f3e880e6e09 100644
+--- a/src/profile/games/mo6twpc/savemenu.cpp
++++ b/src/profile/games/mo6twpc/savemenu.cpp
+@@ -44,6 +44,9 @@ void Configure() {
+       EnsureGetMember<Sprite>("NextButtonHighlightedSprite");
+   LockIconSprite = EnsureGetMember<Sprite>("LockIconSprite");
+ 
++  TryGetMember<int>("EntriesPerRow", EntriesPerRow);
++  TryGetMember<int>("RowsPerPage", RowsPerPage);
++  EntriesPerPage = EntriesPerRow * RowsPerPage;
+   EntryStartX = EnsureGetMember<float>("EntryStartX");
+   EntryXPadding = EnsureGetMember<float>("EntryXPadding");
+   EntryStartY = EnsureGetMember<float>("EntryStartY");
+diff --git a/src/profile/games/mo6twpc/savemenu.h b/src/profile/games/mo6twpc/savemenu.h
+index db930581ecdf1925ea1669d23b778de774884825..354a997dee4bcb4e29bdf455b0259ea24e714ad3 100644
+--- a/src/profile/games/mo6twpc/savemenu.h
++++ b/src/profile/games/mo6twpc/savemenu.h
+@@ -9,9 +9,10 @@ namespace Profile {
+ namespace MO6TWPC {
+ namespace SaveMenu {
+ 
+-int constexpr EntriesPerRow = 2;
+-int constexpr RowsPerPage = 3;
+-int constexpr EntriesPerPage = EntriesPerRow * RowsPerPage;
++// Slots per page: columns x rows. Optional profile fields; the defaults are the Memories Off 6 PC layout.
++inline int EntriesPerRow = 2;
++inline int RowsPerPage = 3;
++inline int EntriesPerPage = EntriesPerRow * RowsPerPage;
+ 
+ inline Sprite SaveMenuBackgroundSprite;
+ // Games whose save, load and quick load screens are separate pictures (STEINS;GATE)
