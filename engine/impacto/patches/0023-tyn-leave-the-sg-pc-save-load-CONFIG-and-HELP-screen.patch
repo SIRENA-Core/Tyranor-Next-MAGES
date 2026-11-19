@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 00:05:38 -0800
+Subject: [PATCH] tyn: leave the sg-pc save, load, CONFIG and HELP screens
+ again
+
+STEINS;GATE (Steam) only, in the SGHD instruction files (inst_sghd.h, opcodetables_sghd.h).
+
+- 10:3F is the native engine's "menu opens / closes" signal; the scripts pair the values around each screen (3/4
+  save, load and quick load, 5/6 TIPS, 17/18 system menu, 21/22 options, 23/24 help). When the save, load or quick
+  load screen was opened from the system menu, the script sets SW_SYSSUBMENUALPHA to 256 and on Back only counts
+  SW_SYSSUBMENUCT down and returns, so the MO6TWPC save menu (which follows the alpha) stayed on top of the system
+  menu and kept the focus. Type 4 now clears the alpha. (The earlier note that the screen polled 00:53 was wrong: S;G
+  only uses 00:53 on the logo screens.)
+- 10:13 (Option) and 10:1A (Help): CONFIG and HELP wait for SF_SUBMENUEXIT, which only the native screens raise.
+  Neither screen exists for S;G yet, so the game waited forever behind an invisible screen; the exit is now raised
+  once SW_SYSSUBMENUALPHA has reached 256 (same idea as the MO6TWPC options fallback) and the script returns to the
+  system menu or the title. Option(ResetToDefault) is skipped while there is no options menu instead of
+  dereferencing a null pointer.
+
+Checked on MuMu (Android 15) with original English data: from the system menu SAVE, LOAD and QUICK LOAD open and
+Back returns to the menu; CONFIG and HELP return to the menu (and from the title to the title) instead of hanging.
+
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index 78916c34fa58c2df04f842fe2ae5e39b82ce3753..a488f1cc92135e58c318e90e06997333c347b659 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -5,6 +5,10 @@
+ #include "thread.h"
+ #include "expression.h"
+ #include "../log.h"
++#include "../mem.h"
++#include "inst_misc.h"
++#include "../ui/ui.h"
++#include "../profile/scriptvars.h"
+ 
+ namespace Impacto {
+ 
+@@ -68,7 +72,7 @@ inline void InstSghdGroup1037(Sc3VmThread* thread, float dt) {
+   SghdDetail::RunGroup(thread, "Group1037", shapes);
+ }
+ 
+-// Instructions that take one byte and have no other effect that is understood yet (10:1B, 10:3F).
++// Instructions that take one byte and have no other effect that is understood yet (10:1B).
+ inline void InstSghdSkipByte(Sc3VmThread* thread, float dt) {
+   thread->IpOffset += 2;
+   [[maybe_unused]] const int arg = *thread->GetIp();
+@@ -76,6 +80,52 @@ inline void InstSghdSkipByte(Sc3VmThread* thread, float dt) {
+   ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD one-byte instruction (arg: {:#x})\n", arg);
+ }
+ 
++// 10:3F: one byte that tells the native engine a menu opens or closes. The scripts pair the values around each screen:
++// 3/4 save, load and quick load, 5/6 TIPS, 17/18 system menu, 21/22 options, 19 backlog.
++// Only 4 matters here: when the save or load screen was opened from the system menu, the script sets
++// SW_SYSSUBMENUALPHA to 256 and on Back only counts SW_SYSSUBMENUCT down and returns, leaving the alpha at 256 (the
++// native engine closes the screen on this signal). The MO6TWPC save menu follows the alpha, so clear it here; the
++// paths that fade the alpha themselves have already done so, and the title screen path uses SW_FILEALPHA instead.
++inline void InstSghdMenuSignal(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const int type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 4) {
++    using namespace Impacto::Profile::ScriptVars;
++    const int no = ScrWork[SW_SYSSUBMENUNO];
++    if (no == 0 || no == 3 || no == 4) ScrWork[SW_SYSSUBMENUALPHA] = 0;
++  }
++  ImpLogSlow(LogLevel::Debug, LogChannel::VM, "SGHD instruction 10:3F(type: {:d})\n", type);
++}
++
++// 10:13 (Option, operands as in CC). The scripts open CONFIG through SW_SYSSUBMENUALPHA (0 -> 256 in 16 frames, from
++// the system menu and from the title) and then call Option(Main) every frame until SF_SUBMENUEXIT, which only the
++// native options screen raises. There is no S;G options screen yet, so without an exit the game would wait forever
++// behind an invisible screen: raise the exit as soon as the submenu has faded in (same idea as the MO6TWPC fallback in
++// the MO6TW options menu). The script then fades out and returns to where CONFIG was chosen.
++inline void InstSghdOption(Sc3VmThread* thread, float dt) {
++  const int type = thread->GetIp()[2];
++  if (type == 1) {
++    using namespace Impacto::Profile::ScriptVars;
++    if (ScrWork[SW_SYSSUBMENUALPHA] >= 256) SetFlag(SF_SUBMENUEXIT, true);
++  } else if (type == 4 && !UI::OptionsMenuPtr) {
++    thread->IpOffset += 3;  // ResetToDefault (the CONFIG "DEFAULT" dialog) needs an options screen
++    return;
++  }
++  InstOption(thread, dt);
++}
++
++// 10:1A (Help, operands as in CC). HELP has the same protocol as CONFIG: Help(Init), then Help(Main) every frame until
++// SF_SUBMENUEXIT. There is no S;G help screen yet, so end it once the submenu is fully shown (see InstSghdOption).
++inline void InstSghdHelp(Sc3VmThread* thread, float dt) {
++  const int type = thread->GetIp()[2];
++  if (type == 1) {
++    using namespace Impacto::Profile::ScriptVars;
++    if (ScrWork[SW_SYSSUBMENUALPHA] >= 256) SetFlag(SF_SUBMENUEXIT, true);
++  }
++  InstHelp(thread, dt);
++}
++
+ // 00:4C: type byte, one expression when the type is 0.
+ inline void InstSghdUnk004C(Sc3VmThread* thread, float dt) {
+   thread->IpOffset += 2;
+diff --git a/src/vm/opcodetables_sghd.h b/src/vm/opcodetables_sghd.h
+index 5033ef397459a88198d6ce6dcbfcd980db70463b..e0783b4776f31e9876ab680602b71bceee3077b8 100644
+--- a/src/vm/opcodetables_sghd.h
++++ b/src/vm/opcodetables_sghd.h
+@@ -19,10 +19,12 @@ inline void Configure_SGHD() {
+     OpcodeTableUser1_SGHD[i] = OpcodeTableUser1_CC[i];
+   }
+   OpcodeTableSystem_SGHD[0x4c] = InstSghdUnk004C;  // type byte, an expression when the type is 0 (CC: Dummy)
++  OpcodeTableUser1_SGHD[0x13] = InstSghdOption;  // CC Option, plus an exit while there is no options screen
++  OpcodeTableUser1_SGHD[0x1a] = InstSghdHelp;  // CC Help, plus an exit while there is no help screen
+   OpcodeTableUser1_SGHD[0x1b] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy)
+   OpcodeTableUser1_SGHD[0x37] = InstSghdGroup1037;  // phone / mail group (CC: MapSystem)
+   OpcodeTableUser1_SGHD[0x38] = InstSghdGroup1038;  // type byte, a label when the type is 0 (CC: Mtrg)
+-  OpcodeTableUser1_SGHD[0x3f] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy, which hangs the thread)
++  OpcodeTableUser1_SGHD[0x3f] = InstSghdMenuSignal;  // menu open / close signal (CC: Dummy, which hangs the thread)
+ }
+ 
+ }  // namespace Vm

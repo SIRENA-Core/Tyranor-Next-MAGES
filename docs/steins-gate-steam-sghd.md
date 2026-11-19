@@ -40,22 +40,26 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 | `10:37` | 手机／邮件组，按类型有不同操作数 | MapSystem | 按类型跳过操作数的桩 |
 | `10:38` | 类型字节，类型 0 时带一个标号 | Mtrg | 桩 |
 | `10:33` 类型 0 | 两个标号 | 一个标号 | 与 MO8／CHN／MO6TWPC 同样处理 |
+| `10:3F` | 一个字节：菜单打开／关闭信号（3/4 存读档、5/6 TIPS、17/18 系统菜单、21/22 选项、23/24 帮助） | 空 | 类型 4 清掉 `SW_SYSSUBMENUALPHA`（补丁 0023） |
+| `10:13`、`10:1A` | 同 CC（Option、Help） | 同 | 子菜单淡入后抬起 `SF_SUBMENUEXIT`，因为还没有选项／帮助画面（补丁 0023） |
+
+标题菜单用 CC 的类，但 S;G 标题脚本的编号不同（0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP），profile 用补丁 0024 的可选字段设置；EXTRA 里 SOUND／MOVIE 两项 CC 的类没有按钮，CLEAR LIST、CG LIBRARY 的画面还没有（只能按返回退出）。
 
 另外几处要识别 S;G：`SelInit` 的存档点 id、`NameID` 的名牌标号、`MSinit` 清零大小、CC 标题菜单状态机的「按任意键」检测、三处背景滤色读取。
 
 ## 已知的缺口
 
 - **存档**：用 `SaveDataType.MO6TWPC`（S;G 的脚本用的是 Chaos;Child 风格的存档协议和 CC 的 ScrWork／标志位布局，memo06 PC 的存档实现已经按这套写好；自己的文件格式，不兼容 Steam 的存档）。
-  已验证存一格、读一格（缩略图、游玩时间、日期、确认框）；快速存档菜单项只验证到「不卡」，快速读档没有走完（需要 QLOADMENU 画面里选格）；已读标记走同一套实现，没有单独验证。
-  存档画面的格子布局、PREV／NEXT（隐形的点击区）、页码文字是估的：这些图集里没有卡片、高亮和按钮的美术。**从存档画面里按返回退不出来**：脚本在轮询 `00:53`（sc3ntist 叫它 `Useless0053`，引擎里当作 `ClickOnJump` 桩），这个指令还没有实现。
-- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE 走存档；QUICK LOAD、TIPS LIST、CONFIG、FULL SCREEN、HELP、RETURN TITLE、EXIT GAME 的界面都还没有（TIPS、选项等图集在 `system.mpk` 里都有，还没有量）；
+  已验证存一格、读一格（缩略图、游玩时间、日期、确认框）；快速读档画面能打开（QLOADMENU，列出快速存档）、按返回能退出，从里面读档没有走完；已读标记走同一套实现，没有单独验证。
+  存档画面的格子布局、PREV／NEXT（隐形的点击区）、页码文字是估的：这些图集里没有卡片、高亮和按钮的美术。从系统菜单打开的存档／读档／快速读档画面按返回能退出（补丁 0023：`10:3F` 类型 4 清掉 `SW_SYSSUBMENUALPHA`，见下面的指令表）。
+- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE／QUICK LOAD 走存档；CONFIG、HELP 没有画面，选中后直接回到菜单（补丁 0023 的兜底，免得卡在看不见的画面后面）；TIPS LIST、FULL SCREEN、RETURN TITLE、EXIT GAME 的界面还没有（TIPS 只能按返回退出；选项图集 `CONFIG.DDS` 是 3072x2048，三页：基本／文字、声音、各角色语音，还没有量）；
   手机（`10:37` 组只是跳过操作数的桩，电话／邮件触发点会走不通）、相册等也没有。面板位置（屏幕左缘）是估的，没有原版画面对照。
 - 其余界面的**精灵坐标**：标题已经按 `TITLE_CHIP.DDS` 量过（背景 1920x1080 在 (0,0)；主菜单项成对放在 x=1922／2123；子菜单项 249x37 在 x=1957／2245；橙色指针；「Press Enter」）。
   菜单项在屏幕上的位置是我估的，没有 Windows 版的原图对照。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位）。存档图标、读盘中、日期、系统消息框、选项、TIPS、系统菜单、等待图标目前都指向透明块（占位）。
 - 日志的背景是一整张渐变图，引擎按 CC 的做法让它随滚动平铺，所以滚动时在平铺接缝处会有一道暗度跳变。
 - 人名固定在对话框右下（`SetMesModeFormat` 的名字显示模式是「固定位置、居中」，坐标按 1.5 倍放大后落在 (1620,1011)），这是脚本的设计，不是排版错误；没有与原版画面对照。名牌美术没有。
 - 视频是 Bink 2，FFmpeg 不解；脚本里的片头／过场会在日志里报 `Failed to open movie`，目前不阻塞。
-- `ClickOnJump`（`00:53`；sc3ntist 叫它 `Useless0053`，`10:3F` 旁边的 Logo 跳过和存档画面里的退出都轮询它）是桩，实现它要先弄清 `arg1`／`arg2`（出现的值是 1／80）的含义；`sysse`（系统音效）没有挂载，日志里会报找不到音频。
+- `ClickOnJump`（`00:53`；sc3ntist 叫它 `Useless0053`）是桩，S;G 只在 Logo 画面用它（`arg1` 1、`arg2` 80），Logo 也能被同一循环里的 `KeyOnJump` 跳过，所以不影响操作；`sysse`（系统音效）没有挂载，日志里会报找不到音频。
 - 简体中文汉化过的 `script.mpk` 让 sc3ntist 抛 `End of expression expected`（汉化补丁改过脚本），没有在引擎里测过。
 
 ## 通用化：S;G 复用了哪些类

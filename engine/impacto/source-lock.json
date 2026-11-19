@@ -94,6 +94,14 @@
       {
         "file": "0022-tyn-add-the-sg-pc-system-menu-save-load-screens-and-.patch",
         "sha256": "24265383aa57eb3a88460265b0f149a4891b1f494e3894fefd18287083373d5f"
+      },
+      {
+        "file": "0023-tyn-leave-the-sg-pc-save-load-CONFIG-and-HELP-screen.patch",
+        "sha256": "706a225054b765aec30f3b51446b5c561bae5a9e0f6815f78911df3e2707a04f"
+      },
+      {
+        "file": "0024-tyn-open-the-CC-title-menu-sub-lists-configurable-ti.patch",
+        "sha256": "3753a99901f2f18a4710d7f0ef3318bd9d731c61b8542151b460994fe7e6c024"
       }
     ]
   },

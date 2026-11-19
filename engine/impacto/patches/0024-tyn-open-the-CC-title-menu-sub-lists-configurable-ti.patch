@@ -1,0 +1,287 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 00:05:38 -0800
+Subject: [PATCH] tyn: open the CC title menu sub lists, configurable title
+ entry ids
+
+Generic CC title menu (TitleMenuType.CC: cc, chn, sg-pc profiles):
+
+- Clicking CONTINUE / LOAD or EXTRA only remembered the sub list (the show and hide calls were commented out), so
+  the sub entries were never shown and could not be chosen. OpenSubMenu / CloseSubMenu now show the sub list, move
+  the focus to its first entry and take it from the main list; Back or choosing a sub entry closes it again and
+  gives the focus back to the entry that opened it (the Back press is not passed on to the script). Hiding the
+  title also closes an open sub list.
+- New optional profile fields: the SW_TITLECUR1 values of the buttons (ConfigId, HelpId, LoadId, QuickLoadId,
+  TipsId, LibraryId, EndingListId) and the rows of the two sub lists (ContinueSubRow, ExtraSubRow). The defaults
+  are the previous constants, so profiles that do not set them behave as before.
+- sg-pc: STEINS;GATE's title script numbers the entries 0 START, 10 QUICK LOAD, 11 LOAD, 20 CLEAR LIST, 21 CG
+  LIBRARY, 24 TIPS, 30 CONFIG, 40 HELP (Chaos;Child uses 20 for CONFIG, 10/11 the other way round), so CONFIG used
+  to open the clear list and the LOAD entries were swapped. The sub lists now open on the row of their main entry,
+  side by side instead of on top of each other.
+
+Checked on MuMu (Android 15): title LOAD shows LOAD / QUICK LOAD, LOAD opens the load screen, Back returns to the
+title, loading a slot continues the game; CONFIG and HELP reach their script paths.
+
+diff --git a/profiles/sg-pc/hud/titlemenu.lua b/profiles/sg-pc/hud/titlemenu.lua
+index f9df4182d9a93524cfe5a33cf3db0019dd2c5822..8cbbf802df7f6762c0a29d1cef3f1b5217b4ac82 100644
+--- a/profiles/sg-pc/hud/titlemenu.lua
++++ b/profiles/sg-pc/hud/titlemenu.lua
+@@ -64,8 +64,11 @@ root.TitleMenu = {
+     ItemYBase = 420,
+     -- sub entries are drawn at (2 * Secondary*ItemHighlightOffsetX, ItemYBase + row * ItemPadding)
+     SecondaryFirstItemHighlightOffsetX = 220,
+-    SecondarySecondItemHighlightOffsetX = 220,
+-    SecondaryThirdItemHighlightOffsetX = 220,
++    SecondarySecondItemHighlightOffsetX = 355,
++    SecondaryThirdItemHighlightOffsetX = 490,
++    -- the sub lists open on the row of the entry that opened them (LOAD = row 1, EXTRA = row 2)
++    ContinueSubRow = 1,
++    ExtraSubRow = 2,
+     LoadSprite = "TitleMenuLoad",
+     LoadHighlightSprite = "TitleMenuLoadHighlight",
+     QuickLoadSprite = "TitleMenuQLoad",
+@@ -78,7 +81,16 @@ root.TitleMenu = {
+     EndingListHighlightSprite = "TitleMenuEndingListHighlight",
+     MenuEntriesSprites = {},
+     MenuEntriesHighlightedSprites = {},
+-    MenuEntriesNum = 5
++    MenuEntriesNum = 5,
++    -- SW_TITLECUR1 values of STEINS;GATE's title script (_STARTUP_WIN label 87): 0 START, 10 QUICK LOAD, 11 LOAD,
++    -- 20 CLEAR LIST, 21 CG LIBRARY, 22 SOUND, 23 MOVIE, 24 TIPS, 30 CONFIG, 40 HELP (Chaos;Child uses other numbers).
++    QuickLoadId = 10,
++    LoadId = 11,
++    EndingListId = 20,
++    LibraryId = 21,
++    TipsId = 24,
++    ConfigId = 30,
++    HelpId = 40
+ };
+ 
+ -- main entries: START, LOAD, EXTRA, CONFIG at x=1922 / 2123 (rows y=1, 50, 100, 149); HELP at x=2324 / 2525 (y=1)
+diff --git a/src/games/cc/titlemenu.cpp b/src/games/cc/titlemenu.cpp
+index 838f28f9767cf5315a39db31c022ecb274fbc481..b0032e3e40792f602590fb3b45f2bf897fcc8019 100644
+--- a/src/games/cc/titlemenu.cpp
++++ b/src/games/cc/titlemenu.cpp
+@@ -37,19 +37,45 @@ void TitleMenu::MenuButtonOnClick(Widgets::Button* target) {
+   target->Hovered = false;
+   ScrWork[SW_TITLECUR1] = target->Id;
+   SetFlag(SF_TITLEEND, 1);
++  CloseSubMenu();
++  AllowsScriptInput = true;
++}
++
++void TitleMenu::OpenSubMenu(Widgets::Group* subMenu, Widgets::Button* opener) {
++  CloseSubMenu();
++  CurrentSubMenu = subMenu;
++  SubMenuOpener = opener;
++  MainItems->HasFocus = false;
++  subMenu->Show();
++  if (Widget* first = subMenu->GetFirstFocusableChild()) {
++    CurrentlyFocusedElement = first;
++    first->HasFocus = true;
++  }
++  AllowsScriptInput = false;
++}
++
++void TitleMenu::CloseSubMenu() {
++  if (!CurrentSubMenu) return;
++  if (CurrentSubMenu->VisibilityState != Hidden) CurrentSubMenu->Hide();
++  CurrentSubMenu = nullptr;
++  if (MainItems->VisibilityState != Hidden) {
++    MainItems->HasFocus = true;
++    if (CurrentlyFocusedElement) CurrentlyFocusedElement->HasFocus = false;
++    CurrentlyFocusedElement = SubMenuOpener;
++    if (SubMenuOpener) SubMenuOpener->HasFocus = true;
++  }
++  SubMenuOpener = nullptr;
+   AllowsScriptInput = true;
+ }
+ 
+ void TitleMenu::ContinueButtonOnClick(Widgets::Button* target) {
+   target->Hovered = false;
+-  CurrentSubMenu = ContinueItems;
+-  AllowsScriptInput = false;
++  OpenSubMenu(ContinueItems, target);
+ }
+ 
+ void TitleMenu::ExtraButtonOnClick(Widgets::Button* target) {
+   target->Hovered = false;
+-  CurrentSubMenu = ExtraItems;
+-  AllowsScriptInput = false;
++  OpenSubMenu(ExtraItems, target);
+ }
+ 
+ TitleMenu::TitleMenu() {
+@@ -94,7 +120,8 @@ TitleMenu::TitleMenu() {
+ 
+   // Config menu button
+   Config = new TitleButton(
+-      20, MenuEntriesSprites[3], MenuEntriesHSprites[3], ItemHighlightSprite,
++      ConfigId, MenuEntriesSprites[3], MenuEntriesHSprites[3],
++      ItemHighlightSprite,
+       glm::vec2(((ItemHighlightOffsetX)) + ItemHighlightOffsetX,
+                 (ItemYBase + (3 * ItemPadding))));
+   Config->OnClickHandler = onClick;
+@@ -102,56 +129,60 @@ TitleMenu::TitleMenu() {
+ 
+   // Help menu button
+   Help = new TitleButton(
+-      40, MenuEntriesSprites[4], MenuEntriesHSprites[4], ItemHighlightSprite,
++      HelpId, MenuEntriesSprites[4], MenuEntriesHSprites[4],
++      ItemHighlightSprite,
+       glm::vec2(((ItemHighlightOffsetX)) + ItemHighlightOffsetX,
+                 (ItemYBase + (4 * ItemPadding))));
+   Help->OnClickHandler = onClick;
+   MainItems->Add(Help, FDIR_DOWN);
+ 
+   // Load secondary Continue menu button
+-  Load = new TitleButton(10, LoadSprite, LoadHighlightSprite, nullSprite,
++  Load = new TitleButton(LoadId, LoadSprite, LoadHighlightSprite, nullSprite,
+                          glm::vec2(((SecondaryFirstItemHighlightOffsetX)) +
+                                        SecondaryFirstItemHighlightOffsetX,
+-                                   (ItemYBase + (2 * ItemPadding))));
++                                   (ItemYBase +
++                                    (ContinueSubRow * ItemPadding))));
+   Load->OnClickHandler = onClick;
+   Load->IsSubButton = true;
+   ContinueItems->Add(Load, FDIR_RIGHT);
+ 
+   // QuickLoad secondary Continue menu button
+   QuickLoad =
+-      new TitleButton(11, QuickLoadSprite, QuickLoadHighlightSprite, nullSprite,
++      new TitleButton(QuickLoadId, QuickLoadSprite, QuickLoadHighlightSprite,
++                      nullSprite,
+                       glm::vec2(((SecondarySecondItemHighlightOffsetX)) +
+                                     SecondarySecondItemHighlightOffsetX,
+-                                (ItemYBase + (2 * ItemPadding))));
++                                (ItemYBase + (ContinueSubRow * ItemPadding))));
+   QuickLoad->OnClickHandler = onClick;
+   QuickLoad->IsSubButton = true;
+   ContinueItems->Add(QuickLoad, FDIR_RIGHT);
+ 
+   // Tips secondary Extra menu button
+-  Tips = new TitleButton(30, TipsSprite, TipsHighlightSprite, nullSprite,
++  Tips = new TitleButton(TipsId, TipsSprite, TipsHighlightSprite, nullSprite,
+                          glm::vec2(((SecondaryFirstItemHighlightOffsetX)) +
+                                        SecondaryFirstItemHighlightOffsetX,
+-                                   (ItemYBase + (3 * ItemPadding))));
++                                   (ItemYBase + (ExtraSubRow * ItemPadding))));
+   Tips->OnClickHandler = onClick;
+   Tips->IsSubButton = true;
+   ExtraItems->Add(Tips, FDIR_RIGHT);
+ 
+   // Library secondary Extra menu button
+   Library =
+-      new TitleButton(31, LibrarySprite, LibraryHighlightSprite, nullSprite,
++      new TitleButton(LibraryId, LibrarySprite, LibraryHighlightSprite,
++                      nullSprite,
+                       glm::vec2(((SecondarySecondItemHighlightOffsetX)) +
+                                     SecondarySecondItemHighlightOffsetX,
+-                                (ItemYBase + (3 * ItemPadding))));
++                                (ItemYBase + (ExtraSubRow * ItemPadding))));
+   Library->OnClickHandler = onClick;
+   Library->IsSubButton = true;
+   ExtraItems->Add(Library, FDIR_RIGHT);
+ 
+   // EndingList secondary Extra menu button
+   EndingList = new TitleButton(
+-      32, EndingListSprite, EndingListHighlightSprite, nullSprite,
++      EndingListId, EndingListSprite, EndingListHighlightSprite, nullSprite,
+       glm::vec2(((SecondaryThirdItemHighlightOffsetX)) +
+                     SecondaryThirdItemHighlightOffsetX,
+-                (ItemYBase + (3 * ItemPadding))));
++                (ItemYBase + (ExtraSubRow * ItemPadding))));
+   EndingList->OnClickHandler = onClick;
+   EndingList->IsSubButton = true;
+   ExtraItems->Add(EndingList, FDIR_RIGHT);
+@@ -176,6 +207,7 @@ void TitleMenu::Show() {
+ void TitleMenu::Hide() {
+   if (State != Hidden) {
+     State = Hidden;
++    CloseSubMenu();
+     MainItems->Hide();
+     if (LastFocusedMenu != 0) {
+       UI::FocusedMenu = LastFocusedMenu;
+@@ -195,13 +227,11 @@ void TitleMenu::UpdateInput(float dt) {
+     CurrentSubMenu->UpdateInput(dt);
+     if ((PADinputButtonWentDown & PAD1B || PADinputMouseWentDown & PAD1B) &&
+         CurrentSubMenu->VisibilityState != Hidden) {
+-      if (CurrentSubMenu == ContinueItems) {
+-        // HideContinueItems();
+-      }
+-      if (CurrentSubMenu == ExtraItems) {
+-        // HideExtraItems();
+-      }
+-      AllowsScriptInput = true;
++      // Back closes the sub list; the script does not see this press (it
++      // would act on the main list)
++      CloseSubMenu();
++      PADinputButtonWentDown &= ~PAD1B;
++      PADinputMouseWentDown &= ~PAD1B;
+     }
+   }
+ }
+diff --git a/src/games/cc/titlemenu.h b/src/games/cc/titlemenu.h
+index 3f037051d8c0c470cddee2047a0a926bde72e431..675fc78593d01e06fd09712724b7d65c4ae70779 100644
+--- a/src/games/cc/titlemenu.h
++++ b/src/games/cc/titlemenu.h
+@@ -30,8 +30,15 @@ class TitleMenu : public Menu {
+   void ContinueButtonOnClick(Widgets::Button* target);
+   void ExtraButtonOnClick(Widgets::Button* target);
+ 
++  // Opens the LOAD / EXTRA sub list next to the main list; the main list
++  // keeps its entries but loses focus until Back (or a sub entry) closes the
++  // sub list again.
++  void OpenSubMenu(Widgets::Group* subMenu, Widgets::Button* opener);
++  void CloseSubMenu();
++
+  private:
+   Widgets::Group* CurrentSubMenu = 0;
++  Widgets::Button* SubMenuOpener = 0;
+ 
+   Widgets::Group* MainItems;
+   Widgets::CC::TitleButton* NewGame;
+diff --git a/src/profile/games/cc/titlemenu.cpp b/src/profile/games/cc/titlemenu.cpp
+index 80b8ff4c90431434586697df6632be934487d877..08b53e14756edba5af0fb213bc419fda932a937c 100644
+--- a/src/profile/games/cc/titlemenu.cpp
++++ b/src/profile/games/cc/titlemenu.cpp
+@@ -86,6 +86,15 @@ void Configure() {
+   ItemHighlightPointerY = EnsureGetMember<float>("ItemHighlightPointerY");
+   MenuX = EnsureGetMember<float>("MenuX");
+   MenuY = EnsureGetMember<float>("MenuY");
++  TryGetMember<int>("ConfigId", ConfigId);
++  TryGetMember<int>("ContinueSubRow", ContinueSubRow);
++  TryGetMember<int>("ExtraSubRow", ExtraSubRow);
++  TryGetMember<int>("HelpId", HelpId);
++  TryGetMember<int>("LoadId", LoadId);
++  TryGetMember<int>("QuickLoadId", QuickLoadId);
++  TryGetMember<int>("TipsId", TipsId);
++  TryGetMember<int>("LibraryId", LibraryId);
++  TryGetMember<int>("EndingListId", EndingListId);
+ 
+   UI::CC::TitleMenu* menu = new UI::CC::TitleMenu();
+   menu->PressToStartAnimation.DurationIn =
+diff --git a/src/profile/games/cc/titlemenu.h b/src/profile/games/cc/titlemenu.h
+index a9c4ccc117d6c5029efdee4c95ca17ae032ec4b9..860db2d030c33da42900d2ea28574476c1d1ce0c 100644
+--- a/src/profile/games/cc/titlemenu.h
++++ b/src/profile/games/cc/titlemenu.h
+@@ -69,6 +69,19 @@ inline float SecondarySecondItemHighlightOffsetX;
+ inline float SecondaryThirdItemHighlightOffsetX;
+ inline float ItemHighlightPointerY;
+ inline float MenuX;
++// Values the buttons write to SW_TITLECUR1 for the script. The defaults are
++// Chaos;Child's; other games of the same engine generation number the entries
++// differently (optional profile fields ConfigId, HelpId, ...).
++inline int ConfigId = 20;
++// Rows (in ItemPadding steps from ItemYBase) of the LOAD and EXTRA sub lists.
++inline int ContinueSubRow = 2;
++inline int ExtraSubRow = 3;
++inline int HelpId = 40;
++inline int LoadId = 10;
++inline int QuickLoadId = 11;
++inline int TipsId = 30;
++inline int LibraryId = 31;
++inline int EndingListId = 32;
+ inline float MenuY;
+ 
+ }  // namespace TitleMenu
