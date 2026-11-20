@@ -1,25 +1,23 @@
 {
   "version": 1,
-  "comment": "Every profile id the host launches (ImpactoRequest.PROFILES must equal this list). source: upstream = defined by pinned upstream impacto; tyn-patch = defined by engine/impacto/patches. detect: files that must exist relative to the game folder for the Tyranor Next app to offer the profile (null = the app's own ImpactoGameCatalog decides; not restated here). language: UI/text language of the profile (null = not a language variant).",
+  "comment": "Every profile id the host launches (ImpactoRequest.PROFILES must equal this list). The host APK ships this file as the asset tyn/profiles.json; the Tyranor Next app reads the detection rules from the installed host, so a new profile is recognised without an app update. source: upstream = defined by pinned upstream impacto; tyn-patch = defined by engine/impacto/patches. detect.allOf: entries that must all exist relative to the game folder, exact case (upstream opens them case-sensitively on Android), at most one directory level; detect.textArchive: the text archive that picks a language variant (also required) (variantOf groups the variants of one data set). language: text language of the profile (BCP 47, null = not a language variant). unsupportedLayouts: folder layouts that look like a MAGES. game but match no profile (case-insensitive, same path rules); the app lists such a folder as an unsupported MAGES. game and lets the user try it with tryProfile.",
   "profiles": [
-    {"id": "chlcc", "source": "upstream", "name": "CHAOS;HEAD Love Chu☆Chu!", "language": null, "detect": null},
-    {"id": "cclcc", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (PS4)", "language": null, "detect": null},
-    {"id": "cclcc-switch", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (Switch)", "language": null, "detect": null},
-    {"id": "mo6tw", "source": "upstream", "name": "Memories Off 6 ~T-Wave~ (PS3)", "language": null,
-     "detect": {"layout": "ps3", "allOf": ["SCRIPT.cls"]}},
-    {"id": "mo6tw-pc", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Japanese)", "language": "ja",
-     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes00.cpk"},
-     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
-    {"id": "mo6tw-pc-zhs", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Simplified Chinese)", "language": "zh-Hans",
-     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes02.cpk"},
-     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
-    {"id": "mo6tw-pc-zht", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Traditional Chinese)", "language": "zh-Hant",
-     "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes01.cpk"},
-     "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
-    {"id": "sg-pc", "source": "tyn-patch", "name": "STEINS;GATE (PC, Steam)", "language": null,
-     "detect": {"layout": "pc", "allOf": ["Game.exe", "USRDIR/script.mpk", "USRDIR/system.mpk"]}},
-    {"id": "darling", "source": "upstream", "name": "STEINS;GATE: My Darling's Embrace", "language": null, "detect": null},
-    {"id": "dash", "source": "upstream", "name": "ROBOTICS;NOTES DaSH", "language": null, "detect": null},
-    {"id": "rne", "source": "upstream", "name": "ROBOTICS;NOTES ELITE", "language": null, "detect": null}
+    {"id": "chlcc", "source": "upstream", "name": "CHAOS;HEAD Love Chu☆Chu!", "language": null, "detect": {"layout": "console", "allOf": ["BG.CPK", "BGM.CPK", "CHARA.CPK", "MASK.CPK", "SCRIPT.CPK", "SE.CPK", "SYSTEM.CPK", "VOICE.CPK"]}},
+    {"id": "cclcc", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (PS4)", "language": null, "detect": {"layout": "ps4", "allOf": ["bg.mpk", "bgeffect.mpk", "bgm.mpk", "chara.mpk", "manual.mpk", "mask.mpk", "script", "se.mpk", "sysse.mpk", "system.mpk", "voice.mpk"]}},
+    {"id": "cclcc-switch", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (Switch)", "language": null, "detect": {"layout": "switch", "allOf": ["bg_webp.mpk", "bgm_ninopus.mpk", "chara_webp.mpk", "mask.mpk", "script.cls", "se_ninopus.mpk", "sysse_ninopus.mpk", "system_swi.mpk", "voice_ninopus.mpk"]}},
+    {"id": "mo6tw", "source": "upstream", "name": "Memories Off 6 ~T-Wave~ (PS3)", "language": null, "detect": {"layout": "ps3", "allOf": ["BG.CPK", "BGM.CPK", "CHARA.CPK", "MASK.CPK", "SCRIPT.cls", "SE.CPK", "SYSTEM.CPK", "VOICE.CPK"]}},
+    {"id": "mo6tw-pc", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Japanese)", "language": "ja", "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes00.cpk"}, "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "mo6tw-pc-zhs", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Simplified Chinese)", "language": "zh-Hans", "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes02.cpk"}, "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "mo6tw-pc-zht", "source": "tyn-patch", "name": "Memories Off 6 ~T-Wave~ (PC, Traditional Chinese)", "language": "zh-Hant", "detect": {"layout": "pc", "allOf": ["game.exe", "data/script.cpk", "data/mes00.cpk"], "textArchive": "data/mes01.cpk"}, "variantOf": "mo6tw-pc", "variantChosenBy": "app-or-user"},
+    {"id": "sg-pc", "source": "tyn-patch", "name": "STEINS;GATE (PC, Steam)", "language": null, "detect": {"layout": "pc", "allOf": ["Game.exe", "USRDIR/script.mpk", "USRDIR/system.mpk"]}},
+    {"id": "darling", "source": "upstream", "name": "STEINS;GATE: My Darling's Embrace", "language": null, "detect": {"layout": "console", "allOf": ["script.cls", "system.cpk", "bgm.cpk", "se.cpk", "voice.cpk", "bg.cpk", "chara.cpk", "mask.cpk"]}},
+    {"id": "dash", "source": "upstream", "name": "ROBOTICS;NOTES DaSH", "language": null, "detect": {"layout": "console", "allOf": ["script.cls", "system.cls", "bgm.cls", "se.cls", "sysse.cls", "voice.cls", "model.cls", "motion.cls", "bg.cls", "mask.cls"]}},
+    {"id": "rne", "source": "upstream", "name": "ROBOTICS;NOTES ELITE", "language": null, "detect": {"layout": "console", "allOf": ["script.cls", "system.cpk", "bgm.cpk", "se.cpk", "sysse.dat", "voice.cpk", "model.cpk", "bg.cpk", "mask.cpk"]}}
+  ],
+  "unsupportedLayouts": [
+    {"id": "pc-usrdir-mpk", "allOf": ["USRDIR/script.mpk"], "tryProfile": "sg-pc"},
+    {"id": "pc-data-cpk", "allOf": ["data/script.cpk"], "tryProfile": "mo6tw-pc"},
+    {"id": "mpk", "allOf": ["system.mpk"], "tryProfile": "cclcc"},
+    {"id": "cpk", "allOf": ["script.cpk", "system.cpk"], "tryProfile": "chlcc"}
   ]
 }

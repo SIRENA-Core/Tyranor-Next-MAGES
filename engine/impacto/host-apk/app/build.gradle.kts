@@ -50,6 +50,8 @@ val stageImpactoAssets = tasks.register<Sync>("stageImpactoAssets") {
     }
     from(impactoSource.resolve("src/shaders")) { into("shaders") }
     from(impactoSource.resolve("gamedefinitions.lua"))
+    // The profile list with its detection rules: Tyranor Next reads it from the installed host (asset tyn/profiles.json).
+    from(repoRoot.resolve("engine/impacto/profiles.json")) { into("tyn") }
 }
 
 // A separate task, not a doFirst on the Sync: a Sync with a missing input directory is skipped as NO-SOURCE, and the
@@ -140,8 +142,8 @@ android {
         // Android 11+ only: the host needs all-files access to read the game folder through a path.
         minSdk = 30
         targetSdk = 36
-        versionCode = 5
-        versionName = if (hostOnly) "0.1.0-hostonly" else "0.3.0"
+        versionCode = 6
+        versionName = if (hostOnly) "0.1.0-hostonly" else "0.3.1"
         ndk { abiFilters += "arm64-v8a" }
     }
 
