@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "Every profile id the host launches (ImpactoRequest.PROFILES must equal this list). The host APK ships this file as the asset tyn/profiles.json; the Tyranor Next app reads the detection rules from the installed host, so a new profile is recognised without an app update. source: upstream = defined by pinned upstream impacto; tyn-patch = defined by engine/impacto/patches. detect.allOf: entries that must all exist relative to the game folder, exact case (upstream opens them case-sensitively on Android), at most one directory level; detect.textArchive: the text archive that picks a language variant (also required) (variantOf groups the variants of one data set). language: text language of the profile (BCP 47, null = not a language variant). unsupportedLayouts: folder layouts that look like a MAGES. game but match no profile (case-insensitive, same path rules); the app lists such a folder as an unsupported MAGES. game and lets the user try it with tryProfile.",
+  "comment": "Every profile id the host launches (ImpactoRequest.PROFILES must equal this list). The host APK ships this file as the asset tyn/profiles.json; the Tyranor Next app reads the detection rules from the installed host, so a new profile is recognised without an app update. source: upstream = defined by pinned upstream impacto; tyn-patch = defined by engine/impacto/patches. detect.allOf: entries that must all exist relative to the game folder, exact case (upstream opens them case-sensitively on Android), at most one directory level; detect.textArchive: the text archive that picks a language variant (also required) (variantOf groups the variants of one data set). language: text language of the profile (BCP 47, null = not a language variant). unsupportedLayouts: folder layouts that look like a MAGES. game but match no profile (case-insensitive, same path rules; at least two archives, so a single common CRI archive name of another game is not enough; the second level must be a file); the app lists such a folder as an unsupported MAGES. game and lets the user try it with tryProfile.",
   "profiles": [
     {"id": "chlcc", "source": "upstream", "name": "CHAOS;HEAD Love Chu☆Chu!", "language": null, "detect": {"layout": "console", "allOf": ["BG.CPK", "BGM.CPK", "CHARA.CPK", "MASK.CPK", "SCRIPT.CPK", "SE.CPK", "SYSTEM.CPK", "VOICE.CPK"]}},
     {"id": "cclcc", "source": "upstream", "name": "CHAOS;CHILD Love Chu☆Chu!! (PS4)", "language": null, "detect": {"layout": "ps4", "allOf": ["bg.mpk", "bgeffect.mpk", "bgm.mpk", "chara.mpk", "manual.mpk", "mask.mpk", "script", "se.mpk", "sysse.mpk", "system.mpk", "voice.mpk"]}},
@@ -15,9 +15,9 @@
     {"id": "rne", "source": "upstream", "name": "ROBOTICS;NOTES ELITE", "language": null, "detect": {"layout": "console", "allOf": ["script.cls", "system.cpk", "bgm.cpk", "se.cpk", "sysse.dat", "voice.cpk", "model.cpk", "bg.cpk", "mask.cpk"]}}
   ],
   "unsupportedLayouts": [
-    {"id": "pc-usrdir-mpk", "allOf": ["USRDIR/script.mpk"], "tryProfile": "sg-pc"},
-    {"id": "pc-data-cpk", "allOf": ["data/script.cpk"], "tryProfile": "mo6tw-pc"},
-    {"id": "mpk", "allOf": ["system.mpk"], "tryProfile": "cclcc"},
-    {"id": "cpk", "allOf": ["script.cpk", "system.cpk"], "tryProfile": "chlcc"}
+    {"id": "pc-usrdir-mpk", "allOf": ["USRDIR/script.mpk", "USRDIR/system.mpk"], "tryProfile": "sg-pc"},
+    {"id": "pc-data-cpk", "allOf": ["data/script.cpk", "data/system.cpk"], "tryProfile": "mo6tw-pc"},
+    {"id": "mpk", "allOf": ["script.mpk", "system.mpk", "bgm.mpk"], "tryProfile": "cclcc"},
+    {"id": "cpk", "allOf": ["script.cpk", "system.cpk", "bgm.cpk"], "tryProfile": "chlcc"}
   ]
 }

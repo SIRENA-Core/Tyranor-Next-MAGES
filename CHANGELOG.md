@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增：`engine/impacto/profiles.json` 打包进宿主 APK（资产 `tyn/profiles.json`），Tyranor Next 可以从已安装的宿主读取游戏识别规则，宿主新增 profile 后主应用不用发版就能识别。为此给所有 profile 补全了 `detect`（上游 profile 的条目取自主应用现有的目录表），并新增 `unsupportedLayouts`：「像 MAGES. 但没有 profile」的目录布局（Windows／Steam 版 `USRDIR/` 里的 `script.mpk` + `system.mpk` → 尝试 `sg-pc`，`data/` 里的 `script.cpk` + `system.cpk` → `mo6tw-pc`，根目录 `script.mpk` + `system.mpk` + `bgm.mpk` → `cclcc`，`script.cpk` + `system.cpk` + `bgm.cpk` → `chlcc`；至少两个档案，单个常见档名不算，免得收进其他用 CRI 档案的游戏），主应用把这类目录列为「暂不支持」并允许尝试运行。发布工作流核对 APK 里的资产与仓库文件逐字节相同；`test-profiles.py` 检查每个 profile 都有规则、路径格式与 `tryProfile`。宿主版本升到 0.3.1（versionCode 6）。
+- 文档：README 精简为入口、仓库规则、支持的游戏、与 Tyranor Next 的约定和构建发布，验证细节留在 CHANGELOG 与 `docs/`；`AGENTS.md` 增加 `profiles.json` 契约的维护规则。
 ## 0.3.0（versionCode 5）
 
 - 新增（补丁 0032，S;G 的布局仅 TYN，TIPS 数据与界面类为通用）：`sg-pc` 的 TIPS 按原版 Game.exe 做出来（之前 TIPS 系统为 None：TIPS 从不解锁，画面空白，只能按返回）。数据格式、排序、布局与行为取自原版的 TipsDataInit 0x43e100、TipsInit 0x43f050、绘制 0x43e440 和主例程 0x43f720。新的 `TipsSystemType.SGHD` 读 `_TIPS` 的两个数据标签（条目；字母与分类表），按读音排序编号，每个分类按字母分组；`TipsDataInit` 不再丢弃第二个标签。新的 `TipsMenuType.SGHD`：分类（空的为蓝色）加「New」「Unread」两个列表和 NEW 标记；分类内按【字母】分组，编号、名称（未读为绿色、未解锁为灰色「???」）；右侧显示编号、名称、副标题、标签和正文（TIPS 文本模式，裁剪，L1／R1 翻页，滚轮）；返回在条目列表回到分类，在分类里交给脚本关闭。MuMu（Android 15，原版英文数据，**不是真机**）上：从标题 EXTRA 和游戏内系统菜单打开，分类列表与原版截图一致；继续游戏后解锁的 TIPS 带 NEW 标记，「New」列表、条目正文、翻页、返回正常。已知：TIPS 的解锁状态和其他系统数据一样在存档或退出 CONFIG 时写盘。

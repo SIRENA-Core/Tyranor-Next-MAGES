@@ -51,7 +51,8 @@ class ProfilesJsonTest(unittest.TestCase):
         self.assertEqual(len({u["id"] for u in layouts}), len(layouts), "duplicate layout id")
         for u in layouts:
             self.assertIn(u["tryProfile"], ids, u["id"])
-            self.assertTrue(u["allOf"])
+            # one common archive name is shared with other CRI-based games; ask for at least two
+            self.assertGreaterEqual(len(set(u["allOf"])), 2, u["id"])
             for name in u["allOf"]:
                 self.assert_entry(name)
 
