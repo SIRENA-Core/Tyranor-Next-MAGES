@@ -43,7 +43,7 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 | `10:3F` | 一个字节：菜单打开／关闭信号（3/4 存读档、5/6 TIPS、17/18 系统菜单、21/22 选项、23/24 帮助） | 空 | 类型 4 清掉 `SW_SYSSUBMENUALPHA`（补丁 0023） |
 | `10:13`、`10:1A` | 同 CC（Option、Help） | 同 | profile 没有选项／帮助画面时，子菜单淡入后抬起 `SF_SUBMENUEXIT`（补丁 0023）；sg-pc 已有原版画面（补丁 0027、0028） |
 
-标题画面是原版的（补丁 0029，`TitleMenuType.SGHD`，布局、动画、输入都取自原版 Game.exe）：菜单在右侧，LOAD／EXTRA 打开子列表，选中的项闪烁 64 帧后才告诉脚本；脚本的编号是 0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP（EXTRA 在标志 860 设置后有五项，否则只有 CLEAR LIST 和 TIPS）。原版标题上的卫星是 Bink 2 视频，本引擎不能播放。CLEAR LIST、CG LIBRARY、TIPS 的画面还没有（只能按返回退出）。
+标题画面是原版的（补丁 0029，`TitleMenuType.SGHD`，布局、动画、输入都取自原版 Game.exe）：菜单在右侧，LOAD／EXTRA 打开子列表，选中的项闪烁 64 帧后才告诉脚本；脚本的编号是 0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP（EXTRA 在标志 860 设置后有五项，否则只有 CLEAR LIST 和 TIPS）。原版标题上的卫星是 Bink 2 视频，本引擎不能播放。CLEAR LIST、CG LIBRARY 的画面还没有（只能按返回退出）；TIPS 见补丁 0032。
 
 另外几处要识别 S;G：`SelInit` 的存档点 id、`NameID` 的名牌标号、`MSinit` 清零大小、CC 标题菜单状态机的「按任意键」检测、三处背景滤色读取。
 
@@ -52,9 +52,9 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 - **存档**：用 `SaveDataType.MO6TWPC`（S;G 的脚本用的是 Chaos;Child 风格的存档协议和 CC 的 ScrWork／标志位布局，memo06 PC 的存档实现已经按这套写好；自己的文件格式，不兼容 Steam 的存档）。
   已验证存一格、读一格（缩略图、游玩时间、日期、确认框）；快速读档画面能打开（QLOADMENU，列出快速存档）、按返回能退出，从里面读档没有走完；已读标记走同一套实现，没有单独验证。
   存档画面的格子布局（每页 8 格、卡片、缩略图）已按原版 Game.exe 改（补丁 0025）；格子里的文字位置、锁图标、PREV／NEXT（隐形的点击区，原版是 y 934 的页签）、页码文字仍是估的：这些图集里没有卡片、高亮和按钮的美术。从系统菜单打开的存档／读档／快速读档画面按返回能退出（补丁 0023：`10:3F` 类型 4 清掉 `SW_SYSSUBMENUALPHA`，见下面的指令表）。
-- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE／QUICK LOAD 走存档；CONFIG 是原版的三页画面（补丁 0027，数据全部取自原版 Game.exe）；HELP 是原版的两页说明画面（补丁 0028，图取 `manual.mpk`，页码、页签、按键提示和动画取自原版 Game.exe）；RETURN TITLE、EXIT GAME 的确认框是原版的（补丁 0030；EXIT GAME 用原版的第二个、全局消息框，屏幕变暗）；TIPS LIST 的画面还没有（只能按返回退出），FULL SCREEN 在这里没有意义；
+- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE／QUICK LOAD 走存档；CONFIG 是原版的三页画面（补丁 0027，数据全部取自原版 Game.exe）；HELP 是原版的两页说明画面（补丁 0028，图取 `manual.mpk`，页码、页签、按键提示和动画取自原版 Game.exe）；RETURN TITLE、EXIT GAME 的确认框是原版的（补丁 0030；EXIT GAME 用原版的第二个、全局消息框，屏幕变暗）；TIPS LIST 是原版的画面（补丁 0032，含 TIPS 数据的读取与解锁），FULL SCREEN 在这里没有意义；
   手机（`10:37` 组只是跳过操作数的桩，电话／邮件触发点会走不通）、相册等也没有。系统菜单的面板、图标、文字位置和滑出动画已按原版 Game.exe 改（补丁 0026）；原版对不可用项的暗色图标还没有。
-- 其余界面的**精灵坐标**：标题、系统菜单、存档格子、CONFIG、HELP、系统消息框已按原版 Game.exe 的绘制代码做（补丁 0025–0030）。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位），还没有和原版对照。存档图标、读盘中、日期、TIPS、等待图标目前都指向透明块（占位）。
+- 其余界面的**精灵坐标**：标题、系统菜单、存档格子、CONFIG、HELP、系统消息框、TIPS 已按原版 Game.exe 的绘制代码做（补丁 0025–0030、0032）。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位），还没有和原版对照。存档图标、读盘中、日期、等待图标目前都指向透明块（占位）。
 - 日志的背景是一整张渐变图，引擎按 CC 的做法让它随滚动平铺，所以滚动时在平铺接缝处会有一道暗度跳变。
 - 人名固定在对话框右下（`SetMesModeFormat` 的名字显示模式是「固定位置、居中」，坐标按 1.5 倍放大后落在 (1620,1011)），这是脚本的设计，不是排版错误；没有与原版画面对照。名牌美术没有。
 - 视频是 Bink 2，FFmpeg 不解；脚本里的片头／过场会在日志里报 `Failed to open movie`，目前不阻塞。

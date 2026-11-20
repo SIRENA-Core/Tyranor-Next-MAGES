@@ -130,6 +130,10 @@
       {
         "file": "0031-tyn-show-the-overlay-hint-and-update-toasts-only-for.patch",
         "sha256": "e02d2a1f066ae264d49f676fd4d1d35dcd74f7ac359b822152978099913ef048"
+      },
+      {
+        "file": "0032-tyn-sg-pc-TIPS-screen-from-the-original-Game.exe-Tip.patch",
+        "sha256": "44a7e71648e347e1cfee08eae7196e4901769b3535cae0c586d8c818efd826e8"
       }
     ]
   },
