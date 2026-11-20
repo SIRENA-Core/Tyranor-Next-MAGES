@@ -12,6 +12,16 @@
 | 系统要求 | arm64-v8a，Android 11 及以上 |
 | 引擎来源 | 上游固定提交 + 补丁系列，见 [`source-lock.json`](engine/impacto/source-lock.json) |
 
+## 仓库规则
+
+- **上游代码只能以补丁形式修改。** 本仓库不包含、也不直接改动上游 impacto 的源码；上游只以 [`source-lock.json`](engine/impacto/source-lock.json) 里固定的提交出现。所有提高兼容性的引擎改动（C++、`profiles/`、`gamedefinitions.lua`、资源）都只存在于 [`engine/impacto/patches/`](engine/impacto/patches/README.md) 的补丁系列里，由补丁分支导出，不手改。
+- **补丁要能跟随上游。** 优先新增文件，对上游已有文件只做最小挂接；改通用行为必须向后兼容（新 profile 字段可选、默认保持上游行为）；一个补丁一类改动，通用修复与仅 TYN 的内容分开，上游吸收后删掉对应补丁。
+- **定期同步上游。** 把补丁分支变基到上游新提交、更新固定提交、重新导出并在设备上回归（流程见补丁目录的 README）；冲突在补丁分支上解决，不改上游代码。
+- 宿主自己的代码（`engine/impacto/host-apk/`、`tools/impacto/`、文档）不受此限，可以直接修改。
+- 给 PC 版补的界面还原原版（布局、美术与交互取自原版数据），不自行设计。
+
+完整的开发规范（含 AI Agent）见 [`AGENTS.md`](AGENTS.md)。
+
 ## 使用
 
 1. 在 Tyranor Next 的引擎页点 MAGES. 跳转下载，或直接下载上面的 APK 并安装。
@@ -26,7 +36,7 @@
   `mo6tw-pc-zhs` 能进到标题画面，选「New Game」进入第一段对话，背景、名牌、简体中文文字和语音播放都正常，存档→强制停止→重启→读档能回到同一句。
   在 MuMu 模拟器（Android 15，x86_64 加 arm64 转译，**不是真机**）上，`mo6tw-pc`（日文）、`mo6tw-pc-zhs`、`mo6tw-pc-zht` 三个变体都能进标题、New Game 并显示第一段对话，选项分支、两指轻点打开系统菜单、向下轻扫打开日志（两指轻点关闭）、存档菜单存一格再重启后从 Continue → Load 读出（缩略图、游玩时长、时间都在）也都正常；系统菜单的「オプション」在 PC 版目前没有可用的界面（选项画面的 PS3 布局与 PC 图集对不上），点了会直接回到系统菜单，「エンサイクロペディア」（TIPS）同样没有界面，点了没有可见反应、按返回才退出；「タイトルに戻る」的确认对话框也不显示（脚本在等一个看不见的确认），同样要按返回。除此之外都没有验证：非对话菜单（坐标为近似）、附加内容菜单（占位图集）、输入与性能（真机）。
   存档代码审查发现的问题已修复，并在同一台真机上复测了翻页连点、强制停止后读回、快速存档连点；Windows 构建与非 ASCII 路径、其他游戏的回归没有验证。Tyranor Next 主应用识别 PC 版目录布局（根目录 `game.exe` + `data/` 里的 `script.cpk`、`mes00.cpk`；见 [Tyranor-Next#192](https://github.com/Weiss-UltimateSavior/Tyranor-Next/pull/192)，随该 PR 合入并发布的主应用版本生效）：添加游戏目录并扫描后按应用界面语言选 `mo6tw-pc-zhs`、`mo6tw-pc` 或 `mo6tw-pc-zht`，只对这三个 profile 要求宿主 0.2.0 及以上。更早的主应用版本不识别，只能由外部 Intent 指定 profile。主应用一侧在真机上只验证了识别、变体选择与版本提示，「主应用启动宿主进入游戏」这一整段还没有验证。
-- **实验性：Windows／Steam 版 STEINS;GATE（`sg-pc`，补丁系列提供）**：在 MuMu 模拟器（Android 15，**不是真机**）上、用原版英文数据能走到标题、主菜单、START，读过序章前半（秋叶原、7F、天台、讲座会场的背景，真由理与红莉栖的立绘和 CG；对话字形与间距正确、按词换行；向下轻扫打开日志）；菜单键打开系统菜单（十二个图标），能存档（缩略图、游玩时间、日期）、读档（确认框，回到存档的那一句）。它与 Chaos;Child（PC）是同一代引擎（新的 `InstructionSet::SGHD` 从 CC 表复制再覆盖几个操作码），系统菜单、存档画面和消息框复用 memo06 PC 已经在用的通用类，只换了 profile 与美术。快速读档画面、各画面按返回退出、标题的 LOAD／EXTRA 子菜单可用；**没有**：TIPS／选项／帮助等界面（选项和帮助选中后直接回到菜单）、手机（电话与邮件触发点走不通），语音、BGM、序章之后的内容没有验证；主应用还不识别这个游戏的目录。细节见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)。
+- **实验性：Windows／Steam 版 STEINS;GATE（`sg-pc`，补丁系列提供）**：在 MuMu 模拟器（Android 15，**不是真机**）上、用原版英文数据能走到标题、读过序章前半（背景、立绘、CG、对话字形与换行、日志），能存档、读档。它与 Chaos;Child（PC）是同一代引擎（新的 `InstructionSet::SGHD`）。标题、系统菜单、存档／读档格子、CONFIG、HELP、系统消息框已按原版 Game.exe 的绘制与输入代码还原（补丁 0025–0030，与原版截图对照过）；**没有**：TIPS（开发中）、CLEAR LIST／CG／SOUND／MOVIE、手机（电话与邮件触发点走不通），语音、BGM、序章之后的内容没有验证；主应用还不识别这个游戏的目录。细节见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)。
 - 全部可启动 profile 的机器可读清单见 [`engine/impacto/profiles.json`](engine/impacto/profiles.json)。
 - 宿主 0.1.2 起支持接收 Tyranor Next 传来的引擎设置（见下文 `SETTINGS`）。
 
@@ -97,7 +107,7 @@ impacto 对触摸只做了几个手势：点击（确定）、两指轻点或捏
   里按序应用的补丁；每个补丁的 SHA-256 记录在 `source-lock.json`，构建与 Gradle 都会校验检出恰好等于「固定提交 + 系列」，多一个字节都拒绝。
   补丁只放 TYN 兼容性所需的最小改动，不碰 SDL3 的 Java 层与 JNI 命名空间。
 - **同步上游**：把补丁分支变基到新的上游提交，改 `source-lock.json` 的 `impacto.revision`，再用 `tools/impacto/export-patches.py` 重新导出系列
-  （流程见补丁目录的 README）；上游已吸收的补丁直接丢掉。
+  （流程见补丁目录的 README）；上游已吸收的补丁直接丢掉。兼容性改动只能以补丁存在，不直接改上游代码（见上文「仓库规则」）。
 
 ## 许可
 
