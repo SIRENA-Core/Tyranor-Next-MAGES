@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 21:46:53 -0800
+Subject: [PATCH] tyn: show the overlay hint and update toasts only for games
+ with the overlay
+
+Upstream (since the toast notifications, 415af23) pushes the "open the overlay" hint and starts the update check
+right after a game profile is loaded, for every game. Building a toast shapes its text with the overlay's
+notification font, but that font (Profile::Overlay) is only configured when the profile has GameFeature::Overlay.
+For every other profile (cc, mo6tw, rne, darling, dash, mo8, sg-pc, mo6tw-pc*, ...) the font is an empty
+std::optional and the game crashes on start (null dereference in ExternalFont::ShapeLine) as long as the Hints
+notifications are enabled, which is the default.
+
+Show the hint and run the update check only when the profile has the overlay feature, as the achievement toasts
+already require GameFeature::Achievements. Generic fix, can be submitted upstream.
+
+Checked on MuMu (Android 15): sg-pc started and crashed 2 s after "Start apprication" with the default
+EnabledNotifications; with this change it starts.
+
+diff --git a/src/main.cpp b/src/main.cpp
+index 6556b00b008dc3955b07a7bde3280b75716b5335..31f59218ea22e0c90c974cb5bb4433210204f098 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -14,6 +14,7 @@
+ #include "util.h"
+ 
+ #include "profile/profile.h"
++#include "profile/game.h"
+ #include "userconfig.h"
+ #include "io/physicalfilestream.h"
+ #include "io/filemeta.h"
+@@ -287,8 +288,12 @@ int main(int argc, char* argv[]) {
+       Game::InitGameProfile();
+ 
+ #ifndef IMPACTO_DISABLE_IMGUI
+-      ShowOverlayHint();
+-      CheckForUpdates();
++      // The toast notifications need the overlay profile (font, background),
++      // which is only configured for games with the Overlay feature
++      if (+Profile::Game::GameFeatures & +GameFeature::Overlay) {
++        ShowOverlayHint();
++        CheckForUpdates();
++      }
+ #endif
+     }
+     t = SDL_GetPerformanceCounter();

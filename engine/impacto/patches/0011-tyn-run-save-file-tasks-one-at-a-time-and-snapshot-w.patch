@@ -133,10 +133,10 @@ index 8de5b99c4a90ade662fb56785404332230e5d777..b315690be5cb2a236da81e36d486d664
  void MountSaveFile();
  void SaveMemory();
 diff --git a/src/game.cpp b/src/game.cpp
-index a4d73572e1985e310e2ae37317bcfe834762beef..bca76f11910918c7b4db9c70215637ba1dff7e93 100644
+index b4af5c702882d802e214b3933cea1d002b67abec..3a0e06cb6130299dc817814bfb471b896a41c002 100644
 --- a/src/game.cpp
 +++ b/src/game.cpp
-@@ -365,6 +365,7 @@ void UpdateSystem(float dt) {
+@@ -374,6 +374,7 @@ void UpdateSystem(float dt) {
      }
  
      UI::GameSpecific::NonGameplayUpdate(updateInterval);

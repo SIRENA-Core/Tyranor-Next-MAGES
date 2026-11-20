@@ -64,7 +64,7 @@ index 5b9524909a573f66d541f0c4a0b606dc9713a716..cd82ecfcbb8ce5261dd45e3d3fb46de6
  
  for i = 0, (64 * 117) - 1 do root.Charset.Flags[i] = 0; end
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
-index 3d52859bbb25db0049400be66f25b072b6fa2357..1a802bd982a39c133552f398e651817e8b754983 100644
+index 8cf8f720c744a8edd9432da2968b7863b90390cf..630454374dca45239ed325bd128039a39cde45ff 100644
 --- a/profiles/sg-pc/game.lua
 +++ b/profiles/sg-pc/game.lua
 @@ -58,7 +58,8 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/saveicon.lua');

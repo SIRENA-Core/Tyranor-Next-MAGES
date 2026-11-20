@@ -28,10 +28,10 @@ original (page, page number, tabs, guide), tab tap and E / Q change the page wit
 two-finger back return to the title / system menu, reopening starts at page 1.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1..678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6 100644
+index 03a3f42aa7a822dee81b25ffff5f61b570d9c501..85e878c079267a5f7466407ef8b098b698c8fa25 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -169,6 +169,7 @@ set(Impacto_Src
+@@ -168,6 +168,7 @@ set(Impacto_Src
      src/profile/games/mo6tw/savemenu.cpp
      src/profile/games/mo6twpc/savemenu.cpp
      src/profile/games/sghd/optionsmenu.cpp
@@ -39,7 +39,7 @@ index 93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1..678504fdd8c64f4ff4b0eb7e1109f1b3
      src/profile/games/mo6tw/optionsmenu.cpp
      src/profile/games/mo6tw/tipsmenu.cpp
      src/profile/games/mo6tw/clearlistmenu.cpp
-@@ -259,6 +260,7 @@ set(Impacto_Src
+@@ -258,6 +259,7 @@ set(Impacto_Src
      src/games/mo8/systemmenu.cpp
      src/games/mo8/optionsmenu.cpp
      src/games/sghd/optionsmenu.cpp
@@ -47,7 +47,7 @@ index 93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1..678504fdd8c64f4ff4b0eb7e1109f1b3
      src/games/mo8/savemenu.cpp
  
      src/games/darling/sysmesbox.cpp
-@@ -551,6 +553,7 @@ set(Impacto_Header
+@@ -548,6 +550,7 @@ set(Impacto_Header
      src/profile/games/mo6tw/savemenu.h
      src/profile/games/mo6twpc/savemenu.h
      src/profile/games/sghd/optionsmenu.h
@@ -55,7 +55,7 @@ index 93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1..678504fdd8c64f4ff4b0eb7e1109f1b3
      src/profile/games/mo6tw/optionsmenu.h
      src/profile/games/mo6tw/tipsmenu.h
      src/profile/games/mo6tw/clearlistmenu.h
-@@ -633,6 +636,7 @@ set(Impacto_Header
+@@ -630,6 +633,7 @@ set(Impacto_Header
      src/games/mo8/systemmenu.h
      src/games/mo8/optionsmenu.h
      src/games/sghd/optionsmenu.h
@@ -64,7 +64,7 @@ index 93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1..678504fdd8c64f4ff4b0eb7e1109f1b3
  
      src/games/darling/sysmesbox.h
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
-index 440d968107d228bf491fe028d02bf8f6ef4f2ac9..dd630193aa1fdca3b039801538d8779042d26046 100644
+index 9994c1e05f26a48f5030bc30a26e1cbcb5b83c28..04e74833560a3a60964483daffefd7830e52ff18 100644
 --- a/profiles/sg-pc/game.lua
 +++ b/profiles/sg-pc/game.lua
 @@ -61,6 +61,7 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/titlemenu.lua');

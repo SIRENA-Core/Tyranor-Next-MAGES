@@ -2,7 +2,7 @@
   "version": 1,
   "impacto": {
     "url": "https://github.com/CommitteeOfZero/impacto.git",
-    "revision": "31bbd61ea41b3e0df7b409c6b784a42b4a75d951"
+    "revision": "415af231ceb62fd3dedd5275a04558c27b8edc4a"
   },
   "patches": {
     "directory": "patches",
@@ -33,7 +33,7 @@
       },
       {
         "file": "0007-tyn-add-the-MO6TWPC-instruction-set.patch",
-        "sha256": "9ba6619413046d1ea737216a6eb72d63cbb78966f297242c9e2822af06146543"
+        "sha256": "e3f783b6ce9000fbd6223c76e719a44bd5149308c357f5d19770daed94c49a6c"
       },
       {
         "file": "0008-tyn-SystemMes-layout-for-MO6TWPC-no-unk02-modes-0x0C.patch",
@@ -45,15 +45,15 @@
       },
       {
         "file": "0010-tyn-add-the-mo6tw-pc-mo6tw-pc-zhs-and-mo6tw-pc-zht-p.patch",
-        "sha256": "1e4d30a33510c10a09d9e284e0764e1a95dac6b52af8ff62081bd78430c84998"
+        "sha256": "b6304dd4d504dee2dea10fc4fca9db99de1bccb7adaa09c98d373b3562f1f87a"
       },
       {
         "file": "0011-tyn-run-save-file-tasks-one-at-a-time-and-snapshot-w.patch",
-        "sha256": "4b489829ed7993e1fb4412f56347837459e033fec1738a4963f2d5bf82877ba5"
+        "sha256": "1e87c4e1c2b982cec46d6c1688f40b64994e59d10ae45a880bbe3bf2a35e9422"
       },
       {
         "file": "0012-tyn-add-the-MO6TWPC-save-system-and-save-menu.patch",
-        "sha256": "274d05153c189c99ac886f25b95578b64beeedb313f49ede5bdc140918a11d86"
+        "sha256": "4a31d126ef4d2643a5680dbd6e6dd90d306a895cd3a378f5d33a0f743bcbeb6a"
       },
       {
         "file": "0013-tyn-use-the-MO6TWPC-save-system-and-save-menu-in-the.patch",
@@ -73,7 +73,7 @@
       },
       {
         "file": "0017-tyn-add-an-experimental-sg-pc-profile-for-STEINS-GAT.patch",
-        "sha256": "1648069c15f2ee80162653d4859ff203e33960f087a8fcd98e561cdbb780d9e1"
+        "sha256": "2bafef1a6f49e39c757a8766b2a1becce11031c2d3b8a1a0be92e4c3957a0291"
       },
       {
         "file": "0018-tyn-make-the-DDS-loader-state-thread-local.patch",
@@ -81,19 +81,19 @@
       },
       {
         "file": "0019-tyn-add-the-SGHD-instruction-set-STEINS-GATE-Steam.patch",
-        "sha256": "474aad0e54dee32b2761d8ddc7a89824053e1a7bc5819bdf58708e22d692fff3"
+        "sha256": "b91d9bd083487a635e51ea8d9ed90ca2d4f2a2688e9ba7e5f92e3e530c2badbc"
       },
       {
         "file": "0020-tyn-calibrate-the-sg-pc-profile-for-STEINS-GATE-Stea.patch",
-        "sha256": "b27b15b1165a71dc8e074b7b883dbae6f4a7bfc32685a077210541ba664de3db"
+        "sha256": "f51011e2ea00df6a5a33a40b6478ef0cd4873a17fc59dce691d7321085eca781"
       },
       {
         "file": "0021-tyn-show-the-backlog-and-fix-the-font-metrics-in-the.patch",
-        "sha256": "88e6ae75ef78bfa3caba580e63842318b20267ca646b75e71fde10e631c4a34a"
+        "sha256": "b54d5dcb242f25e4a700a05fccb8d0135bd9d736fc1b3e17028dc49d93908ef2"
       },
       {
         "file": "0022-tyn-add-the-sg-pc-system-menu-save-load-screens-and-.patch",
-        "sha256": "24265383aa57eb3a88460265b0f149a4891b1f494e3894fefd18287083373d5f"
+        "sha256": "0aca52caed8cdcb9f4e6233bcbdc96152577f4391ccee5ebd14317c58ccd1cde"
       },
       {
         "file": "0023-tyn-leave-the-sg-pc-save-load-CONFIG-and-HELP-screen.patch",
@@ -113,19 +113,23 @@
       },
       {
         "file": "0027-tyn-sg-pc-CONFIG-screen-from-the-original-Game.exe-O.patch",
-        "sha256": "d0e4c8ee56e4ae1285b46c4910e8c9a8afec0d5408caea138c1dc47bb7855ed5"
+        "sha256": "9090ad49ec837007271577f0f602aa5ca8a2354e019c3aca2b6515aabff79ffe"
       },
       {
         "file": "0028-tyn-sg-pc-HELP-screen-from-the-original-Game.exe-Hel.patch",
-        "sha256": "33a0be771a24f23822949c22a9f675cf01980587bae26f8b52bfeac2f6303870"
+        "sha256": "0703a05fb5182c80b6e6a279b4f4af5a358ed8f3971c08dc5b30b76e7157e6ac"
       },
       {
         "file": "0029-tyn-sg-pc-title-screen-from-the-original-Game.exe-Ti.patch",
-        "sha256": "cedad394a0602b2f8e118fcd1152112e6cf0be2c260420a502defb3c9e234e1a"
+        "sha256": "25475a31bcf0d28546dd7f10811751c06e65937215c860d51a02e0cc691cc586"
       },
       {
         "file": "0030-tyn-sg-pc-message-box-from-the-original-Game.exe-Sys.patch",
-        "sha256": "cdb83d1765f021c23388a32ba93cf9e7eb6f357fc45328ec371a86cd29d0d4b9"
+        "sha256": "dd544c602e790724c73dc45eaedc2ac0ef26c7a1dc450c37673ab8dc65e2405b"
+      },
+      {
+        "file": "0031-tyn-show-the-overlay-hint-and-update-toasts-only-for.patch",
+        "sha256": "e02d2a1f066ae264d49f676fd4d1d35dcd74f7ac359b822152978099913ef048"
       }
     ]
   },

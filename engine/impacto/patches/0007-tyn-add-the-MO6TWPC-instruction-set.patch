@@ -41,10 +41,10 @@ Disassembler (modelled operand shapes) decodes 3830 label bodies with the
 new table, identical to the MO8 table + PC patches.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index b141aa40f8324f3b0e4fe97a38394d0d9d8ea667..1d563ca6161eebafdc566ddcd6458894f468212c 100644
+index 782649aaa250ea397bbcc284b83b4428414e3515..d214b74896a0ebebfd5860a5f1dc73b94c961f67 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -760,6 +760,7 @@ set(Impacto_Header
+@@ -756,6 +756,7 @@ set(Impacto_Header
      src/vm/opcodetables_mo6tw.h
      src/vm/opcodetables_mo7.h
      src/vm/opcodetables_mo8.h
@@ -67,10 +67,10 @@ index 70f734d470439f0702c6f8e5aa15749ba97e5df5..979fab5f962d6400e24a4890103679c0
          1.3f, 1.0f, 0.6f, 0.4f, 0.13f, 0.8f, 0.7f,
      };
 diff --git a/src/game.cpp b/src/game.cpp
-index 2503c763a8e4bb8ed7ce3262572a45ddfbb15d00..a4d73572e1985e310e2ae37317bcfe834762beef 100644
+index 4ebc2e1d408c51577a4427ea2e0968eb6fb8c7d6..b4af5c702882d802e214b3933cea1d002b67abec 100644
 --- a/src/game.cpp
 +++ b/src/game.cpp
-@@ -614,7 +614,8 @@ static void RenderMain() {
+@@ -626,7 +626,8 @@ static void RenderMain() {
    // actually have 4000 layers
    if ((+Profile::Game::GameFeatures & +GameFeature::Video) &&
        (!Profile::Game::UseMoviePriority ||
@@ -172,10 +172,10 @@ index d4a7146e42abf6bee9e582c7eedb0b644aa4d761..654e0faf6d141e0eef9f7afdef78d455
  VmInstruction(InstUnk1011MO6);
  VmInstruction(InstUnk1037);
 diff --git a/src/vm/inst_misc.cpp b/src/vm/inst_misc.cpp
-index c50faf69f29737d4a35a94c1bf8b80641896d5a5..a9761a76aac6bf99b1b6534f2bdade0ff0ce1a0e 100644
+index e8187bc000e9f1e477a177268e896e4082b37d71..a6869e04ea7b57de38e6fe4c3363bbf01dc5ad0b 100644
 --- a/src/vm/inst_misc.cpp
 +++ b/src/vm/inst_misc.cpp
-@@ -370,6 +370,13 @@ VmInstruction(InstClistInit) {
+@@ -379,6 +379,13 @@ VmInstruction(InstClistInit) {
        ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
                   "STUB instruction ClistInit(type: ProfSetXboxEvent)\n");
        break;
@@ -189,7 +189,7 @@ index c50faf69f29737d4a35a94c1bf8b80641896d5a5..a9761a76aac6bf99b1b6534f2bdade0f
    }
  }
  VmInstruction(InstSaveMenu) {
-@@ -584,7 +591,10 @@ VmInstruction(InstTitleMenuNew) {
+@@ -593,7 +600,10 @@ VmInstruction(InstTitleMenuNew) {
              }
            }
          } break;
@@ -201,7 +201,7 @@ index c50faf69f29737d4a35a94c1bf8b80641896d5a5..a9761a76aac6bf99b1b6534f2bdade0f
            if (ScrWork[SW_TITLEMODE] == 1) {
              ScrWork[SW_TITLEMOVIECT] += 1;
              // Check "PRESS TO START" here
-@@ -644,6 +654,7 @@ VmInstruction(InstSetPlayMode) {
+@@ -653,6 +663,7 @@ VmInstruction(InstSetPlayMode) {
  VmInstruction(InstSetEVflag) {
    StartInstruction;
    if (Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||

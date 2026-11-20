@@ -142,12 +142,12 @@ index 54e678fd2332b90e7d763c643dc36aca35118553..423ee8b13f8dd5feb8801ceaa29740a4
 +    root.Fonts["Default"].AdvanceWidthsTable[i] = overrides[i - 1] or 48;
 +end
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
-index c7cdbd8c328bdf86380757dd9c7b5d4ead5d36de..3d52859bbb25db0049400be66f25b072b6fa2357 100644
+index 7f392dd7aec58281e1b43f5ffddcbe7dfd93c738..8cf8f720c744a8edd9432da2968b7863b90390cf 100644
 --- a/profiles/sg-pc/game.lua
 +++ b/profiles/sg-pc/game.lua
 @@ -50,6 +50,7 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/sprites.lua');
  include(root.BasePaths.RootProfilesDir .. '/common/animation.lua');
- include(root.BasePaths.RootProfilesDir .. '/common/achievementnotification.lua');
+ include(root.BasePaths.RootProfilesDir .. '/common/overlay.lua');
  include(root.BasePaths.RootProfilesDir .. '/sg-pc/charset.lua');
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/font-widths.lua');
  include(root.BasePaths.RootProfilesDir .. '/sg-pc/font.lua');

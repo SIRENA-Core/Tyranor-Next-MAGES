@@ -32,10 +32,10 @@ Backspace returns to the title / system menu, the screen can be reopened, a chan
 mo6tw-pc-zhs title, new game and system menu unchanged.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037db3f559f1 100644
+index 70dcb42e4c2511bb327dff3074f7eceed38a69ea..03a3f42aa7a822dee81b25ffff5f61b570d9c501 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -168,6 +168,7 @@ set(Impacto_Src
+@@ -167,6 +167,7 @@ set(Impacto_Src
      src/profile/games/mo6tw/titlemenu.cpp
      src/profile/games/mo6tw/savemenu.cpp
      src/profile/games/mo6twpc/savemenu.cpp
@@ -43,7 +43,7 @@ index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037d
      src/profile/games/mo6tw/optionsmenu.cpp
      src/profile/games/mo6tw/tipsmenu.cpp
      src/profile/games/mo6tw/clearlistmenu.cpp
-@@ -257,6 +258,7 @@ set(Impacto_Src
+@@ -256,6 +257,7 @@ set(Impacto_Src
      src/games/mo8/titlemenu.cpp
      src/games/mo8/systemmenu.cpp
      src/games/mo8/optionsmenu.cpp
@@ -51,7 +51,7 @@ index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037d
      src/games/mo8/savemenu.cpp
  
      src/games/darling/sysmesbox.cpp
-@@ -548,6 +550,7 @@ set(Impacto_Header
+@@ -545,6 +547,7 @@ set(Impacto_Header
      src/profile/games/mo6tw/titlemenu.h
      src/profile/games/mo6tw/savemenu.h
      src/profile/games/mo6twpc/savemenu.h
@@ -59,7 +59,7 @@ index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037d
      src/profile/games/mo6tw/optionsmenu.h
      src/profile/games/mo6tw/tipsmenu.h
      src/profile/games/mo6tw/clearlistmenu.h
-@@ -629,6 +632,7 @@ set(Impacto_Header
+@@ -626,6 +629,7 @@ set(Impacto_Header
      src/games/mo8/titlemenu.h
      src/games/mo8/systemmenu.h
      src/games/mo8/optionsmenu.h
@@ -68,7 +68,7 @@ index aeddf143e502b557b87cb1162659e311e83d6f49..93cdf6b67c8fb1f94e2dff96a3ab037d
  
      src/games/darling/sysmesbox.h
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
-index 1a802bd982a39c133552f398e651817e8b754983..440d968107d228bf491fe028d02bf8f6ef4f2ac9 100644
+index 630454374dca45239ed325bd128039a39cde45ff..9994c1e05f26a48f5030bc30a26e1cbcb5b83c28 100644
 --- a/profiles/sg-pc/game.lua
 +++ b/profiles/sg-pc/game.lua
 @@ -60,6 +60,7 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/datedisplay.lua');

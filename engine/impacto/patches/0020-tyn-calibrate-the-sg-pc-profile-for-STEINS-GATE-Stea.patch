@@ -108,7 +108,7 @@ index f985bf0d81a5b06d31e1b433485ba54d03765388..54e678fd2332b90e7d763c643dc36aca
          root.Fonts["Default"].AdvanceWidthsTable[i] = westernAdvanceWidths[i];
      else
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
-index 0b627d73789fe47bfc9db05a77accc93ef266a03..c7cdbd8c328bdf86380757dd9c7b5d4ead5d36de 100644
+index 82e35a6a8f89512daefc9e4ae3de1e76322ed839..7f392dd7aec58281e1b43f5ffddcbe7dfd93c738 100644
 --- a/profiles/sg-pc/game.lua
 +++ b/profiles/sg-pc/game.lua
 @@ -22,7 +22,7 @@ root.ScreenCaptureCount = 2;

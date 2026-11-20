@@ -28,10 +28,10 @@ on Cancel closes the box, EXIT GAME dims the screen and no longer crashes the sc
 unchanged.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 24b2a6ee73ae29152c4dad3279038d10794c49b3..4fa8355ca953c6c69622f62d5af1a5cadb20a904 100644
+index aeb26229f557c22d73f44af8b2c71fdc0c485924..d39bd2a4c6cefd394084a0784261450f9afa8a8e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -171,6 +171,7 @@ set(Impacto_Src
+@@ -170,6 +170,7 @@ set(Impacto_Src
      src/profile/games/sghd/optionsmenu.cpp
      src/profile/games/sghd/helpmenu.cpp
      src/profile/games/sghd/titlemenu.cpp
@@ -39,7 +39,7 @@ index 24b2a6ee73ae29152c4dad3279038d10794c49b3..4fa8355ca953c6c69622f62d5af1a5ca
      src/profile/games/mo6tw/optionsmenu.cpp
      src/profile/games/mo6tw/tipsmenu.cpp
      src/profile/games/mo6tw/clearlistmenu.cpp
-@@ -263,6 +264,7 @@ set(Impacto_Src
+@@ -262,6 +263,7 @@ set(Impacto_Src
      src/games/sghd/optionsmenu.cpp
      src/games/sghd/helpmenu.cpp
      src/games/sghd/titlemenu.cpp
@@ -47,7 +47,7 @@ index 24b2a6ee73ae29152c4dad3279038d10794c49b3..4fa8355ca953c6c69622f62d5af1a5ca
      src/games/mo8/savemenu.cpp
  
      src/games/darling/sysmesbox.cpp
-@@ -557,6 +559,7 @@ set(Impacto_Header
+@@ -554,6 +556,7 @@ set(Impacto_Header
      src/profile/games/sghd/optionsmenu.h
      src/profile/games/sghd/helpmenu.h
      src/profile/games/sghd/titlemenu.h
@@ -55,7 +55,7 @@ index 24b2a6ee73ae29152c4dad3279038d10794c49b3..4fa8355ca953c6c69622f62d5af1a5ca
      src/profile/games/mo6tw/optionsmenu.h
      src/profile/games/mo6tw/tipsmenu.h
      src/profile/games/mo6tw/clearlistmenu.h
-@@ -641,6 +644,7 @@ set(Impacto_Header
+@@ -638,6 +641,7 @@ set(Impacto_Header
      src/games/sghd/optionsmenu.h
      src/games/sghd/helpmenu.h
      src/games/sghd/titlemenu.h

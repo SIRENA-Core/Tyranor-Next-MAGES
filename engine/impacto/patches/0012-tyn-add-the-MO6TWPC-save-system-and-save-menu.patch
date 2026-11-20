@@ -10,10 +10,10 @@ SW_SAVEERRORCODE, as they already do for CC/CHLCC) and src/vm/inst_system.cpp
 (AutoSave(3) persists the quick save, the PC scripts never write it).
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696d09272d5 100644
+index d214b74896a0ebebfd5860a5f1dc73b94c961f67..a6619e49a9b152d48da214a866e28e76375dc53c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -167,6 +167,7 @@ set(Impacto_Src
+@@ -166,6 +166,7 @@ set(Impacto_Src
      src/profile/games/mo6tw/systemmenu.cpp
      src/profile/games/mo6tw/titlemenu.cpp
      src/profile/games/mo6tw/savemenu.cpp
@@ -21,7 +21,7 @@ index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696
      src/profile/games/mo6tw/optionsmenu.cpp
      src/profile/games/mo6tw/tipsmenu.cpp
      src/profile/games/mo6tw/clearlistmenu.cpp
-@@ -241,9 +242,11 @@ set(Impacto_Src
+@@ -240,9 +241,11 @@ set(Impacto_Src
      src/games/mo6tw/systemmenu.cpp
      src/games/mo6tw/titlemenu.cpp
      src/games/mo6tw/savemenu.cpp
@@ -33,7 +33,7 @@ index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696
      src/games/mo6tw/tipssystem.cpp
      src/games/mo6tw/clearlistmenu.cpp
      src/games/mo6tw/moviemenu.cpp
-@@ -544,6 +547,7 @@ set(Impacto_Header
+@@ -541,6 +544,7 @@ set(Impacto_Header
      src/profile/games/mo6tw/systemmenu.h
      src/profile/games/mo6tw/titlemenu.h
      src/profile/games/mo6tw/savemenu.h
@@ -41,7 +41,7 @@ index 1d563ca6161eebafdc566ddcd6458894f468212c..74eaf22fae146a6d2adfec18ee352696
      src/profile/games/mo6tw/optionsmenu.h
      src/profile/games/mo6tw/tipsmenu.h
      src/profile/games/mo6tw/clearlistmenu.h
-@@ -610,6 +614,8 @@ set(Impacto_Header
+@@ -607,6 +611,8 @@ set(Impacto_Header
      src/games/mo6tw/systemmenu.h
      src/games/mo6tw/titlemenu.h
      src/games/mo6tw/savemenu.h

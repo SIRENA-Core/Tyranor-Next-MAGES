@@ -348,7 +348,7 @@ index 0000000000000000000000000000000000000000..f985bf0d81a5b06d31e1b433485ba54d
 \ No newline at end of file
 diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b627d73789fe47bfc9db05a77accc93ef266a03
+index 0000000000000000000000000000000000000000..82e35a6a8f89512daefc9e4ae3de1e76322ed839
 --- /dev/null
 +++ b/profiles/sg-pc/game.lua
 @@ -0,0 +1,65 @@
@@ -402,7 +402,7 @@ index 0000000000000000000000000000000000000000..0b627d73789fe47bfc9db05a77accc93
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/vfs.lua');
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/sprites.lua');
 +include(root.BasePaths.RootProfilesDir .. '/common/animation.lua');
-+include(root.BasePaths.RootProfilesDir .. '/common/achievementnotification.lua');
++include(root.BasePaths.RootProfilesDir .. '/common/overlay.lua');
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/charset.lua');
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/font.lua');
 +include(root.BasePaths.RootProfilesDir .. '/sg-pc/dialogue.lua');

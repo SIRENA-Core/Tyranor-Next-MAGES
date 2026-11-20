@@ -29,10 +29,10 @@ key navigation step by step, guide); taps open the sub lists, Back closes them, 
 returns to the title, CONFIG and HELP open; mo6tw-pc-zhs title unchanged.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6..24b2a6ee73ae29152c4dad3279038d10794c49b3 100644
+index 85e878c079267a5f7466407ef8b098b698c8fa25..aeb26229f557c22d73f44af8b2c71fdc0c485924 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -170,6 +170,7 @@ set(Impacto_Src
+@@ -169,6 +169,7 @@ set(Impacto_Src
      src/profile/games/mo6twpc/savemenu.cpp
      src/profile/games/sghd/optionsmenu.cpp
      src/profile/games/sghd/helpmenu.cpp
@@ -40,7 +40,7 @@ index 678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6..24b2a6ee73ae29152c4dad3279038d10
      src/profile/games/mo6tw/optionsmenu.cpp
      src/profile/games/mo6tw/tipsmenu.cpp
      src/profile/games/mo6tw/clearlistmenu.cpp
-@@ -261,6 +262,7 @@ set(Impacto_Src
+@@ -260,6 +261,7 @@ set(Impacto_Src
      src/games/mo8/optionsmenu.cpp
      src/games/sghd/optionsmenu.cpp
      src/games/sghd/helpmenu.cpp
@@ -48,7 +48,7 @@ index 678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6..24b2a6ee73ae29152c4dad3279038d10
      src/games/mo8/savemenu.cpp
  
      src/games/darling/sysmesbox.cpp
-@@ -554,6 +556,7 @@ set(Impacto_Header
+@@ -551,6 +553,7 @@ set(Impacto_Header
      src/profile/games/mo6twpc/savemenu.h
      src/profile/games/sghd/optionsmenu.h
      src/profile/games/sghd/helpmenu.h
@@ -56,7 +56,7 @@ index 678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6..24b2a6ee73ae29152c4dad3279038d10
      src/profile/games/mo6tw/optionsmenu.h
      src/profile/games/mo6tw/tipsmenu.h
      src/profile/games/mo6tw/clearlistmenu.h
-@@ -637,6 +640,7 @@ set(Impacto_Header
+@@ -634,6 +637,7 @@ set(Impacto_Header
      src/games/mo8/optionsmenu.h
      src/games/sghd/optionsmenu.h
      src/games/sghd/helpmenu.h
