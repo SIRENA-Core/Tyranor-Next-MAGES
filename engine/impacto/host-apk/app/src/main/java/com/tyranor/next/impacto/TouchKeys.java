@@ -108,6 +108,8 @@ final class TouchKeys {
                     key("Ins", KeyEvent.KEYCODE_INSERT, R.string.touch_hint_log),
                     key("1", KeyEvent.KEYCODE_1, R.string.touch_hint_menu),
                     key("F8", KeyEvent.KEYCODE_F8, R.string.touch_hint_qsave),
+                    // Z is L2: the phone of STEINS;GATE (the scripts open it with L2 / R2), the delusions of Chaos;Child
+                    key("Z", KeyEvent.KEYCODE_Z, R.string.touch_hint_phone),
                     key("Esc", KeyEvent.KEYCODE_ESCAPE),
                     hold("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, R.string.touch_hint_ff)),
             new Page(R.string.touch_page_nav,

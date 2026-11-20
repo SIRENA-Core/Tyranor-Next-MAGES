@@ -16,6 +16,7 @@
     <string name="touch_hint_log">Log</string>
     <string name="touch_hint_menu">Menu</string>
     <string name="touch_hint_qsave">QSave</string>
+    <string name="touch_hint_phone">L2 / Phone</string>
     <string name="touch_page_main">Main</string>
     <string name="touch_page_nav">Nav</string>
     <string name="touch_page_fn">F1–F12</string>
