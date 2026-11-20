@@ -43,18 +43,29 @@
 - 只把真实设备或模拟器上的运行结果当作兼容性证据；在 PR、CHANGELOG 与文档里写明设备、系统版本、数据版本（原版／汉化）和没有验证的部分。模拟器（MuMu 等）要注明「不是真机」。
 - 不提交游戏数据、存档、截图以外的游戏资源或任何密钥。
 
+## 与 Tyranor Next 的契约：`profiles.json`
+
+`engine/impacto/profiles.json` 同时是宿主的 profile 白名单和主应用的游戏识别规则：宿主把它原样打包为 APK 资产 `tyn/profiles.json`（`stageImpactoAssets`；发布工作流核对资产与仓库文件逐字节相同），Tyranor Next 扫描时从已安装的宿主读取。规则改错会让用户的游戏认不出或认错，所以：
+
+- **新增 profile 时同时写 `detect`**：`allOf` 是游戏目录里必须存在的条目，按引擎实际打开的路径写，**精确大小写**，相对游戏目录、最多一层子目录、不含 `.`／`..`／空段；语言变体用 `variantOf` 归组，各自的文本档写在 `textArchive`（同样必须存在）。`ImpactoRequest.PROFILES` 要同步。
+- **`unsupportedLayouts`** 列「像 MAGES. 但没有 profile 全部命中」的布局（不区分大小写），主应用把这样的目录列为「暂不支持」并用 `tryProfile` 尝试运行；`tryProfile` 必须是现有 profile，选同一代引擎、同一档案格式里最接近的。每条至少两个档案（`script.cpk`、`system.mpk` 这类单个档名其他用 CRI 档案的游戏也有），第二层条目必须是文件。
+- **只做向后兼容的改动**：已发布的主应用会读这份文件。不改既有字段的含义与类型，只加可选字段；主应用遇到任何不合格式的内容会整份放弃、退回它的内置目录表。
+- 改动后跑 `python -I tools/impacto/test-profiles.py`（检查格式、`tryProfile`、路径规则）；主应用仓库的 `tools/impacto/check-game-catalog.py --host-profiles` 用它核对主应用内置目录表里的 Windows／Steam 版条目。
+- 主应用不需要为宿主新增的 profile 发版即可识别，但主应用内置的目录表（宿主没有这份资产时使用）只在主应用仓库里更新。
+
 ## 仓库导航
 
 - `engine/impacto/source-lock.json`：上游固定提交与补丁系列完整性记录。
 - `engine/impacto/patches/`：补丁系列与维护流程。
 - `engine/impacto/host-apk/`：宿主 APK（Java 入口、设置合并、屏幕按键）；`host-build/`：构建配置。
-- `engine/impacto/profiles.json`：可启动 profile 清单，是与 Tyranor Next 的契约，改动须与主应用同步。
+- `engine/impacto/profiles.json`：可启动 profile 清单与识别规则（打包为宿主资产 `tyn/profiles.json`），见上节。
 - `tools/impacto/`：构建、补丁导出／应用、校验与测试脚本；`docs/`：专题文档（如 `steins-gate-steam-sghd.md`）。
 
 ## 检查与提交
 
 - 改补丁后：导出 → `python tools/impacto/test-patch-series.py`、`verify-upstream.py --series-only`、`test-profiles.py`（需要补丁后检出），以及 `tools/impacto/` 下与改动相关的 `test-*.py`；CI 工作流 `impacto-host-tools.yml` 跑同一组检查。
-- 改宿主 Java 后：Gradle 构建，并在设备上验证。
+- 改宿主 Java 或打包内容后：Gradle 构建，并在设备上验证。
+- 改 `profiles.json` 后：`test-profiles.py`，并用主应用在设备上扫描一次确认识别结果。
 - 文件 UTF-8 无 BOM、LF 换行（`.gitattributes`；补丁目录关闭换行转换）。
-- 提交类型前缀小写英文（`feat:`、`fix:`、`docs:`、`build:` 等），一个提交一类改动。功能变化同步更新 README、CHANGELOG、相关 `docs/` 和 `profiles.json`。
+- 提交类型前缀小写英文（`feat:`、`fix:`、`docs:`、`build:` 等），一个提交一类改动。功能变化同步更新 CHANGELOG、相关 `docs/` 和 `profiles.json`；README 只写用户需要的入口、约定与当前支持情况，验证过程与细节写进 CHANGELOG 或 `docs/`，不堆在 README 里。
 - 不要擅自推送、开 PR 或发布；发布只走 `impacto-host-release` 工作流，始终用同一把签名密钥。

@@ -124,6 +124,8 @@ jobs:
             echo "::error::The APK is signed with a debug key"
             exit 1
           fi
+          # Tyranor Next reads the detection rules from the installed host: the asset must be this repository's file.
+          unzip -p "${apk}" assets/tyn/profiles.json | cmp - engine/impacto/profiles.json             || { echo "::error::assets/tyn/profiles.json differs from engine/impacto/profiles.json"; exit 1; }
           # No desktop entry: the host is only started by Tyranor Next.
           if "${build_tools}/aapt2" dump badging "${apk}" | grep -q 'launchable-activity'; then
             echo "::error::The APK has a launcher entry"

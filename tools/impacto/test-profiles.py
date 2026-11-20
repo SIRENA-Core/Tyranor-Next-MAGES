@@ -32,10 +32,29 @@ class ProfilesJsonTest(unittest.TestCase):
             self.assertIn(p["source"], {"upstream", "tyn-patch"})
             self.assertTrue(p["name"])
             self.assertIn("language", p)
-            if p["detect"] is not None:
-                self.assertTrue(p["detect"]["allOf"])
-                for name in p["detect"]["allOf"]:
-                    self.assertFalse(name.startswith("/") or ".." in name.split("/"), name)
+            # The app recognises games with these rules (read from the installed host), so every profile needs one.
+            self.assertIsNotNone(p["detect"], p["id"])
+            self.assertTrue(p["detect"]["allOf"])
+            for name in p["detect"]["allOf"] + [p["detect"].get("textArchive")] * ("textArchive" in p["detect"]):
+                self.assert_entry(name)
+
+    def assert_entry(self, name):
+        # relative, at most one directory level, no empty / dot segments: the app's scanner looks one level deep
+        parts = name.split("/")
+        self.assertTrue(1 <= len(parts) <= 2 and all(parts) and not set(parts) & {".", ".."}, name)
+
+    def test_unsupported_layouts_are_well_formed(self):
+        data = json.loads(PROFILES.read_text(encoding="utf-8"))
+        ids = {p["id"] for p in data["profiles"]}
+        layouts = data["unsupportedLayouts"]
+        self.assertTrue(layouts)
+        self.assertEqual(len({u["id"] for u in layouts}), len(layouts), "duplicate layout id")
+        for u in layouts:
+            self.assertIn(u["tryProfile"], ids, u["id"])
+            # one common archive name is shared with other CRI-based games; ask for at least two
+            self.assertGreaterEqual(len(set(u["allOf"])), 2, u["id"])
+            for name in u["allOf"]:
+                self.assert_entry(name)
 
     def test_pc_variants_differ_by_language_and_text_archive(self):
         pc = {p["id"]: p for p in load() if p["id"].startswith("mo6tw-pc")}

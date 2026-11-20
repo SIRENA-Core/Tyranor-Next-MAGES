@@ -60,6 +60,9 @@ public class ImpactoRequestTest {
             Assume.assumeTrue("profiles.json not found: " + json, Files.isRegularFile(json));
         }
         String text = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
+        // only the profiles array: the unsupportedLayouts entries that follow it have ids of their own
+        int layouts = text.indexOf("\"unsupportedLayouts\"");
+        if (layouts >= 0) text = text.substring(0, layouts);
         Set<String> ids = new HashSet<>();
         Matcher m = Pattern.compile("\\{\\s*\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(text);
         while (m.find()) {
