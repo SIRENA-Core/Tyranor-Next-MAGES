@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0（versionCode 5）
+
 - 新增（补丁 0032，S;G 的布局仅 TYN，TIPS 数据与界面类为通用）：`sg-pc` 的 TIPS 按原版 Game.exe 做出来（之前 TIPS 系统为 None：TIPS 从不解锁，画面空白，只能按返回）。数据格式、排序、布局与行为取自原版的 TipsDataInit 0x43e100、TipsInit 0x43f050、绘制 0x43e440 和主例程 0x43f720。新的 `TipsSystemType.SGHD` 读 `_TIPS` 的两个数据标签（条目；字母与分类表），按读音排序编号，每个分类按字母分组；`TipsDataInit` 不再丢弃第二个标签。新的 `TipsMenuType.SGHD`：分类（空的为蓝色）加「New」「Unread」两个列表和 NEW 标记；分类内按【字母】分组，编号、名称（未读为绿色、未解锁为灰色「???」）；右侧显示编号、名称、副标题、标签和正文（TIPS 文本模式，裁剪，L1／R1 翻页，滚轮）；返回在条目列表回到分类，在分类里交给脚本关闭。MuMu（Android 15，原版英文数据，**不是真机**）上：从标题 EXTRA 和游戏内系统菜单打开，分类列表与原版截图一致；继续游戏后解锁的 TIPS 带 NEW 标记，「New」列表、条目正文、翻页、返回正常。已知：TIPS 的解锁状态和其他系统数据一样在存档或退出 CONFIG 时写盘。
 - 构建：固定的上游 impacto 提交从 `31bbd61` 升到 `415af23`（上游 19 个提交：覆盖层的 toast 通知、更新检查、成就通知移到覆盖层、CHLCC 的 TIPS 与快速存档修复）。补丁分支直接变基，没有文本冲突；两处跟随上游的改动：`mo6tw-pc*`、`sg-pc` 的 profile 改为包含上游新的 `common/overlay.lua`（上游删除了 `common/achievementnotification.lua`，并入原补丁 0010、0017）；新增补丁 0031（通用修复，放在系列末尾以保持已有补丁编号，可向上游提交）：上游在每个游戏启动后都推送「打开覆盖层」提示并启动更新检查，而提示用的字体只在 profile 带 `GameFeature.Overlay` 时才配置，其他 profile（cc、mo6tw、rne、darling、dash、mo8、`sg-pc`、`mo6tw-pc*` 等）启动约 2 秒后空指针崩溃；现在只对带覆盖层的游戏推送。CI 检查（`verify-upstream`、`test-patch-series`、`test-profiles` 等）通过，dev 构建通过；MuMu（Android 15，**不是真机**）上 `sg-pc` 的标题、读档、系统菜单、CONFIG、HELP、退出确认框与 `mo6tw-pc-zhs` 的标题、New Game、系统菜单正常。
 - 文档：新增 `AGENTS.md`，README 增加「仓库规则」：上游代码只能以补丁形式修改，补丁要便于跟随上游，定期同步上游。
