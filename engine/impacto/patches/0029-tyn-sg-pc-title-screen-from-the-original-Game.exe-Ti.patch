@@ -1,0 +1,853 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 17:03:51 -0800
+Subject: [PATCH] tyn: sg-pc title screen from the original Game.exe
+ (TitleMenuType.SGHD)
+
+The STEINS;GATE (Steam) title screen as the original draws and handles it, instead of the Chaos;Child title class with
+estimated positions (a list on the left; the original has it on the right). Layout, art, timings and behaviour come
+from the original Game.exe: the title draw dispatch on SW_TITLEMODE (0x4414f0), the main list (0x4411e0), the sub
+lists (0x440600, 0x440be0, 0x441080), the decoration (0x4407f0), press start (0x4422e0), the button guide (0x436030),
+the input routine (0x441650) and the hit areas at 0x52bf20.
+
+- New generic class UI::SGHD::TitleMenu + Profile::SGHD::TitleMenu (TitleMenuType.SGHD): main entries, sub lists
+  (with optional flag conditions), decoration, guide, positions and timings are profile data.
+- Drawing per SW_TITLEMODE as the original: 0 fade in from black, 1 press start blinking over 64 frames, 2 fast blink,
+  3 menu fading in with SW_TITLEDISPCT * 8 while the entries come in from 192 px to the right, 4 background and menu
+  fading in, 5 as 3 under a screen opened from the title; blueprint pieces drawn every other frame, three of them
+  shown at random and a bar of random length.
+- Input as the original: up / down wrap (from "no entry" to the first), mouse / touch hover picks the entry (none in
+  mouse mode until one is under the pointer), LOAD and EXTRA open a sub list in 32 frames (EXTRA has five entries
+  once flag 860 is set, else CLEAR LIST and TIPS); while it is open only its entries take input and Back closes it;
+  a chosen entry blinks for 64 frames, then SW_TITLECUR1 and SF_TITLEEND are set. The script waits in
+  TitleMenu(Main) while a sub list is open or an entry blinks, so it does not act on those presses.
+- sg-pc: hud/titlemenu.lua rewritten for the new class (no longer uses the CC title class).
+- The satellite on the original title is a Bink 2 movie, which this engine does not play.
+
+Checked on MuMu (Android 15): the title matches screenshots of the original (main list, LOAD and EXTRA sub lists,
+key navigation step by step, guide); taps open the sub lists, Back closes them, LOAD opens the load screen and
+returns to the title, CONFIG and HELP open; mo6tw-pc-zhs title unchanged.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 678504fdd8c64f4ff4b0eb7e1109f1b3aa4336a6..24b2a6ee73ae29152c4dad3279038d10794c49b3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,6 +170,7 @@ set(Impacto_Src
+     src/profile/games/mo6twpc/savemenu.cpp
+     src/profile/games/sghd/optionsmenu.cpp
+     src/profile/games/sghd/helpmenu.cpp
++    src/profile/games/sghd/titlemenu.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -261,6 +262,7 @@ set(Impacto_Src
+     src/games/mo8/optionsmenu.cpp
+     src/games/sghd/optionsmenu.cpp
+     src/games/sghd/helpmenu.cpp
++    src/games/sghd/titlemenu.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -554,6 +556,7 @@ set(Impacto_Header
+     src/profile/games/mo6twpc/savemenu.h
+     src/profile/games/sghd/optionsmenu.h
+     src/profile/games/sghd/helpmenu.h
++    src/profile/games/sghd/titlemenu.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -637,6 +640,7 @@ set(Impacto_Header
+     src/games/mo8/optionsmenu.h
+     src/games/sghd/optionsmenu.h
+     src/games/sghd/helpmenu.h
++    src/games/sghd/titlemenu.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/hud/titlemenu.lua b/profiles/sg-pc/hud/titlemenu.lua
+index 8cbbf802df7f6762c0a29d1cef3f1b5217b4ac82..dfe152d58b07e1003e20fb1101e22f542e034f4a 100644
+--- a/profiles/sg-pc/hud/titlemenu.lua
++++ b/profiles/sg-pc/hud/titlemenu.lua
+@@ -1,127 +1,92 @@
+--- STEINS;GATE (Steam) title screen, drawn by the Chaos;Child PC title menu class (TitleMenuType.CC), which has the same
+--- structure: a main list (START / LOAD / EXTRA / CONFIG / HELP), a LOAD sub list (QUICK LOAD, LOAD) and an EXTRA sub
+--- list. All art is on TITLE_CHIP.DDS (system.mpk id 30, 3072x1536): the background with the logo and the copyright
+--- line is one 1920x1080 picture at (0,0); the main entries are pairs (normal | highlighted) at x=1922 / x=2123;
+--- the sub entries are 249x37 cells at x=1957 (light) / 2245 (dark) with an orange pointer at x=1930.
+--- Positions on screen are estimates (no reference screenshot of the Windows game): a left aligned list.
+--- The Chaos;Child specific layers (fence, smoke, overlay, menu backing) are neutralised with a fully transparent pixel.
+-local clear = { X = 3040, Y = 1500, Width = 8, Height = 8 };
++-- STEINS;GATE (Steam) title screen, TitleMenuType.SGHD. Everything below is taken from the original Game.exe: the
++-- title draw routines (dispatch on SW_TITLEMODE 0x4414f0, main list 0x4411e0, LOAD sub list 0x440600, EXTRA sub lists
++-- 0x440be0 / 0x441080, decoration 0x4407f0, press start 0x4422e0, button guide 0x436030), the input routine
++-- (0x441650) and the hit areas at 0x52bf20 (group 10). All art is on TITLE_CHIP.DDS (system.mpk id 30) and DATA01.
++-- The game computes in 1280x720 units and draws at x1.5; values below are already in 1920x1080 units.
++--   * mode 0: background, the screen fades in from black; 1: "press start" blinks over 64 frames; 2: it blinks fast
++--     (SW_TITLEDISPCT & 15); 3: the menu fades in with SW_TITLEDISPCT * 8 while the entries come in from 192 px to the
++--     right; 4: background and menu fade in with (32 - SW_TITLEDISPCT) * 8; 5: as 3, under a screen opened from it;
++--   * main entries 198 x 46.5 at (1557, 115.5 + 118.5 i): normal x 2122.5 (HELP 2524.5), chosen x 1921.5 (HELP
++--     2323.5); a chosen entry blinks (8 frames) for 64 frames before the script is told;
++--   * LOAD and EXTRA open a sub list (32 frames, coming in from 96 px to the right): items 285 x 36 at x 1248, normal
++--     x 2209.5, chosen x 1921.5 (with the pointer), a bracket at x 1531.5; EXTRA has 5 items once flag 860 is set,
++--     else CLEAR LIST and TIPS;
++--   * decoration: blueprint pieces drawn every other frame, three of them shown at random (re-chosen every 10..39
++--     frames), and a bar of random length;
++--   * the bracketed numbers are SW_TITLECUR1 values of the title script (_STARTUP_WIN label 87).
++-- The satellite on the original title is a Bink 2 movie, which this engine does not play.
+ 
+-root.TitleMenu = {
+-    Type = TitleMenuType.CC,
+-    DrawType = DrawComponentType.SystemMenu,
+-    PressToStartPos = { X = 140, Y = 995 },
+-    PressToStartAnimDurationIn = 0.7,
+-    PressToStartAnimDurationOut = 0.7,
+-    PressToStartAnimFastDurationIn = 0.1,
+-    PressToStartAnimFastDurationOut = 0.1,
+-    BackgroundX = 0,
+-    BackgroundY = 0,
+-    BackgroundBoundsX = 0,
+-    BackgroundBoundsYNormal = 0,
+-    BackgroundBoundsYTrue = 0,
+-    BackgroundBoundsWidth = 1920,
+-    BackgroundBoundsHeight = 1080,
+-    FenceX = 0,
+-    FenceY = 0,
+-    FenceBoundsX = 3040,
+-    FenceBoundsYNormal = 1500,
+-    FenceBoundsYTrue = 1500,
+-    FenceBoundsWidth = 8,
+-    FenceBoundsHeight = 8,
+-    CopyrightX = 0,
+-    CopyrightY = 0,
+-    CopyrightXMoveOffset = 0,
+-    SmokeX = 0,
+-    SmokeY = 0,
+-    SmokeBoundsX = 3040,
+-    SmokeBoundsY = 1500,
+-    SmokeBoundsWidth = 8,
+-    SmokeBoundsHeight = 8,
+-    SmokeAnimationBoundsXOffset = 0,
+-    SmokeAnimationBoundsXMax = 0,
+-    SmokeOpacityNormal = 0.0,
+-    SmokeAnimationDurationIn = 32,
+-    SmokeAnimationDurationOut = 32,
+-    MoveLeftAnimationDurationIn = 0.7,
+-    MoveLeftAnimationDurationOut = 0.7,
+-    MenuSprite = "TitleMenuMenu",
+-    MenuX = 0,
+-    MenuY = 0,
+-    PressToStartSprite = "TitleMenuPressToStart",
+-    BackgroundSprite = "TitleMenuBackground",
+-    FenceSprite = "TitleMenuFence",
+-    CopyrightSprite = "TitleMenuCopyright",
+-    OverlaySprite = "TitleMenuOverlay",
+-    SmokeSprite = "TitleMenuSmoke",
+-    ItemHighlightSprite = "TitleMenuItemHighlight",
+-    -- main entries are drawn at (2 * ItemHighlightOffsetX, ItemYBase + i * ItemPadding)
+-    ItemHighlightOffsetX = 80,
+-    ItemHighlightOffsetY = 0,
+-    ItemHighlightPointerSprite = "TitleMenuPointerItemHighlight",
+-    ItemHighlightPointerY = 40,
+-    ItemPadding = 64,
+-    ItemYBase = 420,
+-    -- sub entries are drawn at (2 * Secondary*ItemHighlightOffsetX, ItemYBase + row * ItemPadding)
+-    SecondaryFirstItemHighlightOffsetX = 220,
+-    SecondarySecondItemHighlightOffsetX = 355,
+-    SecondaryThirdItemHighlightOffsetX = 490,
+-    -- the sub lists open on the row of the entry that opened them (LOAD = row 1, EXTRA = row 2)
+-    ContinueSubRow = 1,
+-    ExtraSubRow = 2,
+-    LoadSprite = "TitleMenuLoad",
+-    LoadHighlightSprite = "TitleMenuLoadHighlight",
+-    QuickLoadSprite = "TitleMenuQLoad",
+-    QuickLoadHighlightSprite = "TitleMenuQLoadHighlight",
+-    TipsSprite = "TitleMenuTips",
+-    TipsHighlightSprite = "TitleMenuTipsHighlight",
+-    LibrarySprite = "TitleMenuLibrary",
+-    LibraryHighlightSprite = "TitleMenuLibraryHighlight",
+-    EndingListSprite = "TitleMenuEndingList",
+-    EndingListHighlightSprite = "TitleMenuEndingListHighlight",
+-    MenuEntriesSprites = {},
+-    MenuEntriesHighlightedSprites = {},
+-    MenuEntriesNum = 5,
+-    -- SW_TITLECUR1 values of STEINS;GATE's title script (_STARTUP_WIN label 87): 0 START, 10 QUICK LOAD, 11 LOAD,
+-    -- 20 CLEAR LIST, 21 CG LIBRARY, 22 SOUND, 23 MOVIE, 24 TIPS, 30 CONFIG, 40 HELP (Chaos;Child uses other numbers).
+-    QuickLoadId = 10,
+-    LoadId = 11,
+-    EndingListId = 20,
+-    LibraryId = 21,
+-    TipsId = 24,
+-    ConfigId = 30,
+-    HelpId = 40
+-};
++local function chip(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "TitleChip", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
++
++local mainNormal, mainChosen = {}, {};
++for i = 0, 3 do
++    mainNormal[#mainNormal + 1] = chip("TitleMenuEntry" .. i, 2122.5, 1.5 + 49.5 * i, 198, 46.5);
++    mainChosen[#mainChosen + 1] = chip("TitleMenuEntryH" .. i, 1921.5, 1.5 + 49.5 * i, 198, 46.5);
++end
++mainNormal[#mainNormal + 1] = chip("TitleMenuEntry4", 2524.5, 1.5, 198, 46.5);
++mainChosen[#mainChosen + 1] = chip("TitleMenuEntryH4", 2323.5, 1.5, 198, 46.5);
+ 
+--- main entries: START, LOAD, EXTRA, CONFIG at x=1922 / 2123 (rows y=1, 50, 100, 149); HELP at x=2324 / 2525 (y=1)
+-local mainRows = { 1, 50, 100, 149 };
+-for i = 0, 4 do
+-    local nx, hx, y = 1922, 2123, mainRows[i + 1];
+-    if i == 4 then nx, hx, y = 2324, 2525, 1; end
+-    root.Sprites["TitleMenuEntry" .. i] = { Sheet = "TitleChip", Bounds = { X = nx, Y = y, Width = 197, Height = 48 } };
+-    root.Sprites["TitleMenuEntryH" .. i] = { Sheet = "TitleChip", Bounds = { X = hx, Y = y, Width = 197, Height = 48 } };
+-    root.TitleMenu.MenuEntriesSprites[#root.TitleMenu.MenuEntriesSprites + 1] = "TitleMenuEntry" .. i;
+-    root.TitleMenu.MenuEntriesHighlightedSprites[#root.TitleMenu.MenuEntriesHighlightedSprites + 1] = "TitleMenuEntryH" .. i;
++local menuHits = {};
++for _, y in ipairs({ 114, 232, 351, 469, 588 }) do
++    menuHits[#menuHits + 1] = { X = 1555, Y = y, Width = 198, Height = 46 };
+ end
+ 
+--- sub entries (light 1957 | dark 2245), rows pitch 39 from y=199
+-local function sub(name, row)
+-    local y = 199 + row * 39;
+-    root.Sprites["TitleMenu" .. name] = { Sheet = "TitleChip", Bounds = { X = 1957, Y = y, Width = 249, Height = 37 } };
+-    root.Sprites["TitleMenu" .. name .. "Highlight"] = { Sheet = "TitleChip", Bounds = { X = 2245, Y = y, Width = 249, Height = 37 } };
++-- sub list item: sheet row srcY, screen y, hit area y, SW_TITLECUR1 value
++local function item(name, srcY, y, hitY, id)
++    return { Sprite = chip("TitleMenu" .. name, 2209.5, srcY, 285, 36),
++             HighlightedSprite = chip("TitleMenu" .. name .. "H", 1921.5, srcY, 285, 36),
++             Position = { X = 1248, Y = y }, HitArea = { X = 1248, Y = hitY, Width = 285, Height = 36 }, Id = id };
+ end
+-sub("QLoad", 0);        -- QUICK LOAD
+-sub("Load", 1);         -- LOAD
+-sub("EndingList", 2);   -- CLEAR LIST
+-sub("Library", 3);      -- CG LIBRARY
+-sub("Tips", 6);         -- TIPS
+ 
+-root.Sprites["TitleMenuItemHighlight"] = { Sheet = "TitleChip", Bounds = clear };
+-root.Sprites["TitleMenuPointerItemHighlight"] = { Sheet = "TitleChip", Bounds = { X = 1930, Y = 206, Width = 25, Height = 25 } };
+-root.Sprites["TitleMenuPressToStart"] = { Sheet = "TitleChip", Bounds = { X = 100, Y = 1076, Width = 460, Height = 49 } };
+-root.Sprites["TitleMenuBackground"] = { Sheet = "TitleChip", Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 } };
+-root.Sprites["TitleMenuFence"] = { Sheet = "TitleChip", Bounds = clear };
+-root.Sprites["TitleMenuCopyright"] = { Sheet = "TitleChip", Bounds = clear };
+-root.Sprites["TitleMenuMenu"] = { Sheet = "TitleChip", Bounds = clear };
+-root.Sprites["TitleMenuOverlay"] = { Sheet = "TitleChip", Bounds = clear };
+-root.Sprites["TitleMenuSmoke"] = { Sheet = "TitleChip", Bounds = clear };
++local smallBracket = chip("TitleMenuBracketSmall", 2785.5, 1.5, 30, 51);
++
++root.TitleMenu = {
++    Type = TitleMenuType.SGHD,
++    DrawType = DrawComponentType.SystemMenu,
++    BackgroundSprite = chip("TitleMenuBackground", 0, 0, 1920, 1080),
++    PressToStartSprite = chip("TitleMenuPressToStart", 1.5, 1081.5, 597, 46.5),
++    PressToStartPos = { X = 667.5, Y = 622.5 },
++    PressToStartAnimDurationIn = 32 / 60,
++    PressToStartAnimDurationOut = 32 / 60,
++    PressToStartBlinkFrames = 64,
++    GuideSprite = "TitleMenuGuide",
++    GuidePosition = { X = 1, Y = 995 },
++    MenuEntriesNum = 5,
++    MenuEntriesSprites = mainNormal,
++    MenuEntriesHighlightedSprites = mainChosen,
++    MenuPosition = { X = 1557, Y = 115.5 },
++    MenuSpacing = 118.5,
++    MenuSlideDistance = 192,
++    MenuHitAreas = menuHits,
++    -- START, LOAD (sub list), EXTRA (sub list), CONFIG, HELP
++    MenuEntryIds = { 0, 10, 20, 30, 40 },
++    DecideFrames = 64,
++    DecideBlinkFrames = 8,
++    SubOpenFrames = 32,
++    SubSlideDistance = 96,
++    SubLists = {
++        { Entry = 1, BracketSprite = smallBracket, BracketPosition = { X = 1531.5, Y = 231 },
++          Items = { item("QuickLoad", 199.5, 214.5, 214, 10), item("Load", 238.5, 264, 264, 11) } },
++        { Entry = 2, IfFlag = 860, BracketSprite = chip("TitleMenuBracketLarge", 2785.5, 55.5, 30, 250.5),
++          BracketPosition = { X = 1531.5, Y = 250.5 },
++          Items = { item("ClearList", 277.5, 259.5, 259, 20), item("CGLibrary", 316.5, 309, 309, 21),
++                    item("SoundLibrary", 355.5, 358.5, 358, 22), item("MovieLibrary", 394.5, 408, 408, 23),
++                    item("Tips", 433.5, 457.5, 457, 24) } },
++        { Entry = 2, IfNotFlag = 860, BracketSprite = smallBracket, BracketPosition = { X = 1531.5, Y = 348 },
++          Items = { item("ClearList2", 277.5, 330, 330, 20), item("Tips2", 433.5, 379.5, 379, 24) } },
++    },
++    FlickerItems = {
++        { Sprite = chip("TitleFlicker0", 1.5, 1131, 267, 111), Position = { X = 133.5, Y = 0 }, Random = true },
++        { Sprite = chip("TitleFlicker1", 1.5, 1245, 396, 108), Position = { X = 96, Y = 288 }, Random = true },
++        { Sprite = chip("TitleFlicker2", 1.5, 1356, 342, 117), Position = { X = 96, Y = 462 }, Random = true },
++        { Sprite = chip("TitleFlicker3", 1.5, 1476, 648, 58.5), Position = { X = 649.5, Y = 127.5 } },
++        { Sprite = chip("TitleFlicker4", 271.5, 1131, 249, 111), Position = { X = 144, Y = 598.5 } },
++    },
++    FlickerBar = { Sprite = chip("TitleFlickerBar", 346.5, 1356, 144, 18), Position = { X = 150, Y = 738 },
++                   Widths = { 46.5, 97.5, 144 } },
++};
++
++root.Sprites["TitleMenuGuide"] = { Sheet = "Data", Bounds = { X = 1, Y = 1537, Width = 1534, Height = 40 } };
+diff --git a/src/games/sghd/titlemenu.cpp b/src/games/sghd/titlemenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb212cf08d3408002eb487e0a455cfe064452d12
+--- /dev/null
++++ b/src/games/sghd/titlemenu.cpp
+@@ -0,0 +1,314 @@
++#include "titlemenu.h"
++
++#include <algorithm>
++#include <cmath>
++
++#include "../../profile/ui/titlemenu.h"
++#include "../../profile/game.h"
++#include "../../profile/scriptvars.h"
++#include "../../renderer/renderer.h"
++#include "../../ui/ui.h"
++#include "../../mem.h"
++#include "../../inputsystem.h"
++#include "../../vm/interface/input.h"
++#include "../../audio/audiosystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++using namespace Impacto::Profile::SGHD::TitleMenu;
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Vm::Interface;
++namespace Common = Impacto::Profile::TitleMenu;
++
++namespace {
++void PlaySe(int id) { Audio::PlayInGroup(Audio::ACG_SE, "sysse", id, false, 0.0f); }
++bool UseMouse() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++}  // namespace
++
++TitleMenu::TitleMenu() {
++  SubCursor.assign(std::max(Common::MenuEntriesNum, 1), 0);
++  FlickerTimers.assign(FlickerItems.size(), 0.0f);
++  FlickerOn.assign(FlickerItems.size(), false);
++}
++
++const TitleMenu::SubList* TitleMenu::SubListOf(int entry) const {
++  for (const SubList& list : SubLists) {
++    if (list.Entry != entry) continue;
++    if (list.IfFlag >= 0 && !GetFlag(list.IfFlag)) continue;
++    if (list.IfNotFlag >= 0 && GetFlag(list.IfNotFlag)) continue;
++    return &list;
++  }
++  return nullptr;
++}
++
++void TitleMenu::Show() {
++  if (State == Shown) return;
++  State = Shown;
++  Reset();
++  if (UI::FocusedMenu != nullptr && UI::FocusedMenu != this) {
++    LastFocusedMenu = UI::FocusedMenu;
++    LastFocusedMenu->IsFocused = false;
++  }
++  IsFocused = true;
++  UI::FocusedMenu = this;
++}
++
++void TitleMenu::Hide() {
++  if (State == Hidden) return;
++  State = Hidden;
++  AllowsScriptInput = true;
++  if (UI::FocusedMenu == this) UI::FocusedMenu = LastFocusedMenu;
++  if (UI::FocusedMenu != nullptr) UI::FocusedMenu->IsFocused = true;
++  LastFocusedMenu = nullptr;
++  IsFocused = false;
++}
++
++// As the original title init: first entry (none in mouse mode), sub lists closed.
++void TitleMenu::Reset() {
++  Cursor = UseMouse() ? -1 : 0;
++  std::fill(SubCursor.begin(), SubCursor.end(), 0);
++  SubCounter = 0.0f;
++  SubDirection = 0;
++  DecideCounter = 0.0f;
++  Decided = false;
++}
++
++void TitleMenu::UpdateFlicker(float frames) {
++  std::uniform_int_distribution<int> timer(10, 39), half(0, 1), third(0, 2);
++  for (size_t i = 0; i < FlickerItems.size(); i++) {
++    if (!FlickerItems[i].Random) continue;
++    FlickerTimers[i] -= frames;
++    if (FlickerTimers[i] <= 0.0f) {
++      FlickerTimers[i] = (float)timer(Rng);
++      FlickerOn[i] = half(Rng) != 0;
++    }
++  }
++  BarTimer -= frames;
++  if (BarTimer <= 0.0f) {
++    BarTimer = (float)timer(Rng);
++    BarChoice = third(Rng);
++  }
++}
++
++void TitleMenu::Update(float dt) {
++  const bool title = GetFlag(SF_TITLEMODE) != 0;
++  if (title && State == Hidden) Show();
++  if (!title && State != Hidden) Hide();
++  if (State != Shown) return;
++
++  const float frames = dt * 60.0f;
++  const int mode = ScrWork[SW_TITLEMODE];
++  if (mode <= 2 && LastMode > 2) Reset();  // back to "press start": the menu starts afresh
++  LastMode = mode;
++  FrameClock += frames;
++  StartBlink = std::fmod(StartBlink + frames, PressToStartBlinkFrames);
++  UpdateFlicker(frames);
++
++  if (SubDirection != 0) {
++    SubCounter += SubDirection * frames;
++    if (SubCounter >= SubOpenFrames) {
++      SubCounter = SubOpenFrames;
++      SubDirection = 0;
++    } else if (SubCounter <= 0.0f) {
++      SubCounter = 0.0f;
++      SubDirection = 0;
++    }
++  }
++  if (DecideCounter > 0.0f) {
++    DecideCounter += frames;
++    if (DecideCounter >= DecideFrames) {
++      DecideCounter = 0.0f;
++      const SubList* sub = Cursor >= 0 ? SubListOf(Cursor) : nullptr;
++      int id = Cursor >= 0 && Cursor < (int)MenuEntryIds.size() ? MenuEntryIds[Cursor] : 0;
++      if (sub != nullptr && SubCounter > 0.0f) {
++        const int s = SubCursor[Cursor];
++        if (s >= 0 && s < (int)sub->Items.size()) id = sub->Items[s].Id;
++      }
++      ScrWork[SW_TITLECUR1] = id;
++      SetFlag(SF_TITLEEND, true);
++      Decided = true;
++    }
++  }
++  if (Decided && !GetFlag(SF_TITLEEND)) Decided = false;
++  AllowsScriptInput = Decided || (DecideCounter == 0.0f && SubDirection == 0 && SubCounter == 0.0f);
++
++  const bool focused = UI::FocusedMenu == nullptr || UI::FocusedMenu == this;
++  if (mode == 3 && ScrWork[SW_TITLEDISPCT] >= 32 && DecideCounter == 0.0f && !Decided && SubDirection == 0 &&
++      focused)
++    UpdateInput(dt);
++}
++
++void TitleMenu::StartDecide() {
++  PlaySe(2);
++  DecideCounter = 1.0f;
++}
++
++void TitleMenu::UpdateInput(float dt) {
++  const int n = std::min(Common::MenuEntriesNum, (int)MenuHitAreas.size());
++  if (n <= 0) return;
++  const bool mouse = UseMouse();
++  const glm::vec2 pos = Input::CurMousePos;
++  const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++  const bool up = (PADinputButtonRepeatDown & PAD1UP) != 0;
++  const bool down = (PADinputButtonRepeatDown & PAD1DOWN) != 0;
++  const bool back = ((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) != 0;
++  const bool ok = (PADinputButtonWentDown & PAD1A) != 0;
++
++  const SubList* sub = Cursor >= 0 ? SubListOf(Cursor) : nullptr;
++  if (sub != nullptr && SubCounter >= SubOpenFrames) {
++    int& s = SubCursor[Cursor];
++    const int count = (int)sub->Items.size();
++    bool decide = false;
++    if (mouse) {
++      s = -1;
++      for (int i = 0; i < count; i++)
++        if (sub->Items[i].HitArea.ContainsPoint(pos)) {
++          s = i;
++          decide = click;
++        }
++    }
++    if (up) {
++      PlaySe(1);
++      s = s < 0 ? 0 : (s == 0 ? count - 1 : s - 1);
++    } else if (down) {
++      PlaySe(1);
++      s = s < 0 || s + 1 >= count ? 0 : s + 1;
++    } else if (back) {
++      PlaySe(3);
++      SubDirection = -1;  // close; the script does not see this press
++      PADinputButtonWentDown &= ~PAD1B;
++      PADinputMouseWentDown &= ~PAD1B;
++    } else if ((ok || decide) && s >= 0) {
++      StartDecide();
++    }
++    if (ok || decide) {
++      PADinputButtonWentDown &= ~PAD1A;
++      PADinputMouseWentDown &= ~PAD1A;
++    }
++    return;
++  }
++
++  bool decide = false;
++  if (mouse) {
++    Cursor = -1;
++    for (int i = 0; i < n; i++)
++      if (MenuHitAreas[i].ContainsPoint(pos)) {
++        Cursor = i;
++        decide = click;
++      }
++  }
++  if (up) {
++    PlaySe(1);
++    Cursor = Cursor < 0 ? 0 : (Cursor == 0 ? n - 1 : Cursor - 1);
++  } else if (down) {
++    PlaySe(1);
++    Cursor = Cursor < 0 || Cursor + 1 >= n ? 0 : Cursor + 1;
++  } else if ((ok || decide) && Cursor >= 0) {
++    if (SubListOf(Cursor) != nullptr) {
++      PlaySe(2);
++      SubDirection = 1;
++      SubCounter = std::max(SubCounter, 1.0f);
++      if (mouse) SubCursor[Cursor] = -1;
++    } else {
++      StartDecide();
++    }
++    PADinputButtonWentDown &= ~PAD1A;
++    PADinputMouseWentDown &= ~PAD1A;
++  }
++}
++
++void TitleMenu::RenderFlicker(float alpha) {
++  if (((int)FrameClock & 1) != 0) return;  // the original draws these every other frame
++  const glm::vec4 col(glm::vec3(1.0f), alpha);
++  for (size_t i = 0; i < FlickerItems.size(); i++)
++    if (!FlickerItems[i].Random || FlickerOn[i])
++      Renderer->DrawSprite(FlickerItems[i].Sprite_, FlickerItems[i].Position, col);
++  if (!FlickerBarWidths.empty()) {
++    Sprite bar = FlickerBarSprite;
++    bar.Bounds.Width = FlickerBarWidths[std::clamp(BarChoice, 0, (int)FlickerBarWidths.size() - 1)];
++    Renderer->DrawSprite(bar, FlickerBarPosition, col);
++  }
++}
++
++void TitleMenu::RenderMenu(int alpha) {
++  const float a = alpha / 256.0f;
++  const bool hideChosen = DecideCounter > 0.0f && ((int)DecideCounter & DecideBlinkFrames) == 0;
++
++  const SubList* sub = Cursor >= 0 ? SubListOf(Cursor) : nullptr;
++  if (sub != nullptr && SubCounter > 0.0f) {
++    const float c = SubCounter;
++    const glm::vec2 off(SubSlideDistance * (SubOpenFrames - c) / SubOpenFrames, 0.0f);
++    const glm::vec4 col(glm::vec3(1.0f), c / SubOpenFrames);
++    Renderer->DrawSprite(sub->Bracket, sub->BracketPosition + off, col);
++    for (int i = 0; i < (int)sub->Items.size(); i++) {
++      const bool chosen = SubCursor[Cursor] == i;
++      if (chosen && hideChosen) continue;
++      Renderer->DrawSprite(chosen ? sub->Items[i].Highlighted : sub->Items[i].Normal, sub->Items[i].Position + off,
++                           col);
++    }
++  }
++
++  // the entries come in from the right in steps of alpha / 8, as the original
++  const float x = MenuPosition.x + MenuSlideDistance * (32 - (alpha >> 3)) / 32.0f;
++  const glm::vec4 col(glm::vec3(1.0f), a);
++  for (int i = 0; i < Common::MenuEntriesNum; i++) {
++    const bool chosen = i == Cursor;
++    if (chosen && hideChosen) continue;
++    Renderer->DrawSprite(chosen ? Common::MenuEntriesHSprites[i] : Common::MenuEntriesSprites[i],
++                         glm::vec2(x, MenuPosition.y + i * MenuSpacing), col);
++  }
++}
++
++void TitleMenu::Render() {
++  if (State != Shown || !GetFlag(SF_TITLEMODE)) return;
++  const int mode = ScrWork[SW_TITLEMODE];
++  const int ct = std::clamp(ScrWork[SW_TITLEDISPCT], 0, 32);
++  const glm::vec4 white(1.0f);
++  switch (mode) {
++    case 0:
++    case 1:
++    case 2: {
++      Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), white);
++      RenderFlicker(1.0f);
++      float blink = -1.0f;
++      if (mode == 2) {
++        const int c = ScrWork[SW_TITLEDISPCT] & 15;
++        blink = (c < 8 ? c * 32 : 256 - (c - 8) * 32) / 256.0f;
++      } else if (mode == 1 || ct == 32) {
++        const float half = PressToStartBlinkFrames / 2.0f;
++        blink = (StartBlink < half ? StartBlink : PressToStartBlinkFrames - StartBlink) / half;
++      }
++      if (blink >= 0.0f)
++        Renderer->DrawSprite(Common::PressToStartSprite, Common::PressToStartPos, glm::vec4(glm::vec3(1.0f), blink));
++      if (mode == 0)
++        Renderer->DrawQuad(RectF(0.0f, 0.0f, Profile::Game::DesignWidth, Profile::Game::DesignHeight),
++                           glm::vec4(0.0f, 0.0f, 0.0f, (32 - ct) / 32.0f));
++    } break;
++    case 3:
++    case 5: {
++      const int alpha = ct * 8;
++      Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), white);
++      Renderer->DrawSprite(GuideSprite, GuidePosition, glm::vec4(glm::vec3(1.0f), alpha / 256.0f));
++      RenderFlicker(1.0f);
++      RenderMenu(alpha);
++    } break;
++    case 4: {
++      const int alpha = (32 - ct) * 8;
++      const glm::vec4 col(glm::vec3(1.0f), alpha / 256.0f);
++      Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), col);
++      Renderer->DrawSprite(GuideSprite, GuidePosition, col);
++      RenderFlicker(alpha / 256.0f);
++      RenderMenu(alpha);
++    } break;
++    default:
++      break;
++  }
++}
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/titlemenu.h b/src/games/sghd/titlemenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e0eb1403ac88f6d88853b47ca9866768d42a4703
+--- /dev/null
++++ b/src/games/sghd/titlemenu.h
+@@ -0,0 +1,57 @@
++#pragma once
++
++#include <random>
++#include <vector>
++
++#include "../../ui/menu.h"
++#include "../../profile/games/sghd/titlemenu.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++// Title screen of the STEINS;GATE (Steam) engine generation, as the original Game.exe draws and handles it
++// (SW_TITLEMODE 0 fade in, 1 press start, 2 press start chosen, 3 menu, 4 menu fading in, 5 menu under a screen opened
++// from the title). Press start is handled by the TitleMenu instruction; this class handles the menu: a main list
++// with sub lists, a chosen entry blinks before the script gets SW_TITLECUR1 and SF_TITLEEND. The script waits in
++// TitleMenu(Main) while a sub list is open or an entry blinks, so it does not see the presses meant for them.
++class TitleMenu : public Menu {
++ public:
++  TitleMenu();
++
++  void Show() override;
++  void Hide() override;
++  void Update(float dt) override;
++  void UpdateInput(float dt) override;
++  void Render() override;
++
++ private:
++  using SubList = Profile::SGHD::TitleMenu::SubList;
++
++  const SubList* SubListOf(int entry) const;
++  void Reset();
++  void StartDecide();
++  void UpdateFlicker(float frames);
++  void RenderFlicker(float alpha);
++  void RenderMenu(int alpha);
++
++  int Cursor = 0;              // main entry, -1 = none (mouse)
++  std::vector<int> SubCursor;  // per main entry, -1 = none (mouse)
++  float SubCounter = 0.0f;     // 0 closed .. SubOpenFrames open
++  int SubDirection = 0;        // 1 opening, -1 closing
++  float DecideCounter = 0.0f;  // > 0 while the chosen entry blinks
++  bool Decided = false;        // SF_TITLEEND raised, until the script resets it
++  float StartBlink = 0.0f;
++  float FrameClock = 0.0f;
++  int LastMode = -1;
++
++  std::mt19937 Rng{std::random_device{}()};
++  std::vector<float> FlickerTimers;
++  std::vector<bool> FlickerOn;
++  float BarTimer = 0.0f;
++  int BarChoice = 0;
++};
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/titlemenu.cpp b/src/profile/games/sghd/titlemenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..15f00b2ed59a3c32e4075c5e3832dc4fe737ecf2
+--- /dev/null
++++ b/src/profile/games/sghd/titlemenu.cpp
+@@ -0,0 +1,77 @@
++#include "titlemenu.h"
++#include "../../profile_internal.h"
++#include "../../../ui/ui.h"
++#include "../../../game.h"
++#include "../../../games/sghd/titlemenu.h"
++
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace TitleMenu {
++
++void Configure() {
++  BackgroundSprite = EnsureGetMember<Sprite>("BackgroundSprite");
++  GuideSprite = EnsureGetMember<Sprite>("GuideSprite");
++  GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
++  TryGetMember<float>("PressToStartBlinkFrames", PressToStartBlinkFrames);
++  MenuPosition = EnsureGetMember<glm::vec2>("MenuPosition");
++  MenuSpacing = EnsureGetMember<float>("MenuSpacing");
++  TryGetMember<float>("MenuSlideDistance", MenuSlideDistance);
++  MenuHitAreas = EnsureGetMember<std::vector<RectF>>("MenuHitAreas");
++  MenuEntryIds = EnsureGetMember<std::vector<int>>("MenuEntryIds");
++  TryGetMember<float>("SubOpenFrames", SubOpenFrames);
++  TryGetMember<float>("SubSlideDistance", SubSlideDistance);
++  TryGetMember<float>("DecideFrames", DecideFrames);
++  TryGetMember<int>("DecideBlinkFrames", DecideBlinkFrames);
++
++  FlickerItems.clear();
++  if (TryPushMember("FlickerItems")) {
++    ForEachProfileArray([&](uint32_t) {
++      FlickerItem item;
++      item.Sprite_ = EnsureGetMember<Sprite>("Sprite");
++      item.Position = EnsureGetMember<glm::vec2>("Position");
++      TryGetMember<bool>("Random", item.Random);
++      FlickerItems.push_back(item);
++    });
++    Pop();
++  }
++  if (TryPushMember("FlickerBar")) {
++    FlickerBarSprite = EnsureGetMember<Sprite>("Sprite");
++    FlickerBarPosition = EnsureGetMember<glm::vec2>("Position");
++    FlickerBarWidths = EnsureGetMember<std::vector<float>>("Widths");
++    Pop();
++  }
++
++  SubLists.clear();
++  EnsurePushMemberOfType("SubLists", LUA_TTABLE);
++  ForEachProfileArray([&](uint32_t) {
++    SubList list;
++    list.Entry = EnsureGetMember<int>("Entry");
++    TryGetMember<int>("IfFlag", list.IfFlag);
++    TryGetMember<int>("IfNotFlag", list.IfNotFlag);
++    list.Bracket = EnsureGetMember<Sprite>("BracketSprite");
++    list.BracketPosition = EnsureGetMember<glm::vec2>("BracketPosition");
++    EnsurePushMemberOfType("Items", LUA_TTABLE);
++    ForEachProfileArray([&](uint32_t) {
++      SubItem item;
++      item.Normal = EnsureGetMember<Sprite>("Sprite");
++      item.Highlighted = EnsureGetMember<Sprite>("HighlightedSprite");
++      item.Position = EnsureGetMember<glm::vec2>("Position");
++      item.HitArea = EnsureGetMember<RectF>("HitArea");
++      item.Id = EnsureGetMember<int>("Id");
++      list.Items.push_back(item);
++    });
++    Pop();
++    SubLists.push_back(std::move(list));
++  });
++  Pop();
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++  UI::TitleMenuPtr = new UI::SGHD::TitleMenu();
++  UI::Menus[drawType].push_back(UI::TitleMenuPtr);
++}
++
++}  // namespace TitleMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/titlemenu.h b/src/profile/games/sghd/titlemenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..73376471fe7f035b015074c7b51c9e6cdeabe320
+--- /dev/null
++++ b/src/profile/games/sghd/titlemenu.h
+@@ -0,0 +1,64 @@
++#pragma once
++
++#include <vector>
++
++#include "../../../spritesheet.h"
++#include "../../../util.h"
++
++// Title screen of the STEINS;GATE (Steam, 2016) generation of the MAGES. PC engine. Main entries, sub lists, the
++// flickering decoration, the button guide, positions and timings are profile data (taken from the original Game.exe,
++// see the sg-pc profile); the main entry sprites and "press start" come from the common title menu fields.
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace TitleMenu {
++
++struct FlickerItem {
++  Sprite Sprite_;
++  glm::vec2 Position{};
++  bool Random = false;  // shown or hidden at random (re-chosen every 10..39 frames); otherwise always
++};
++
++struct SubItem {
++  Sprite Normal;
++  Sprite Highlighted;
++  glm::vec2 Position{};  // when fully open
++  RectF HitArea{};
++  int Id = 0;  // SW_TITLECUR1 value
++};
++
++struct SubList {
++  int Entry = 0;      // main entry that opens it
++  int IfFlag = -1;    // used when this flag is set ...
++  int IfNotFlag = -1;  // ... or not set (-1: no condition)
++  Sprite Bracket;
++  glm::vec2 BracketPosition{};  // when fully open
++  std::vector<SubItem> Items;
++};
++
++inline Sprite BackgroundSprite;
++inline std::vector<FlickerItem> FlickerItems;
++inline Sprite FlickerBarSprite;  // drawn with one of FlickerBarWidths, chosen at random
++inline glm::vec2 FlickerBarPosition{};
++inline std::vector<float> FlickerBarWidths;
++inline Sprite GuideSprite;
++inline glm::vec2 GuidePosition{};
++
++inline float PressToStartBlinkFrames = 64.0f;  // mode 1; mode 2 blinks with SW_TITLEDISPCT & 15
++inline glm::vec2 MenuPosition{};               // first main entry when fully shown
++inline float MenuSpacing = 0.0f;
++inline float MenuSlideDistance = 0.0f;  // the entries come in from the right while the menu fades in
++inline std::vector<RectF> MenuHitAreas;
++inline std::vector<int> MenuEntryIds;  // SW_TITLECUR1 values (entries with a sub list open it instead)
++inline std::vector<SubList> SubLists;
++inline float SubOpenFrames = 32.0f;
++inline float SubSlideDistance = 0.0f;  // sub lists come in from the right while they open
++inline float DecideFrames = 64.0f;     // the chosen entry blinks this long before the script is told
++inline int DecideBlinkFrames = 8;
++
++void Configure();
++
++}  // namespace TitleMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/titlemenu.cpp b/src/profile/ui/titlemenu.cpp
+index 42881313b11a401cc66eee1222e93e08a1fe3c7c..21f4de5df32bb47136e686fea9c3ddf78abb1e68 100644
+--- a/src/profile/ui/titlemenu.cpp
++++ b/src/profile/ui/titlemenu.cpp
+@@ -8,6 +8,7 @@
+ #include "../games/mo8/titlemenu.h"
+ #include "../games/cc/titlemenu.h"
+ #include "../games/cclcc/titlemenu.h"
++#include "../games/sghd/titlemenu.h"
+ #include "../../log.h"
+ 
+ namespace Impacto {
+@@ -53,6 +54,8 @@ void Configure() {
+       CC::TitleMenu::Configure();
+     } else if (Type == TitleMenuType::CCLCC) {
+       CCLCC::TitleMenu::Configure();
++    } else if (Type == TitleMenuType::SGHD) {
++      SGHD::TitleMenu::Configure();
+     }
+ 
+     // if (Implementation != 0) {
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index de6d9a00c944f77a4a5aeac4fb44835fa75d1186..c0bc0aef10d9500601135f84b36e835f33608798 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -53,6 +53,7 @@ enum class TitleMenuType : int {
+   MO8,
+   CC,
+   CCLCC,
++  SGHD,
+ };
+ enum class OptionsMenuType : int {
+   None,

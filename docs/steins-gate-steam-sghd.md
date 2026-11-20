@@ -41,9 +41,9 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 | `10:38` | 类型字节，类型 0 时带一个标号 | Mtrg | 桩 |
 | `10:33` 类型 0 | 两个标号 | 一个标号 | 与 MO8／CHN／MO6TWPC 同样处理 |
 | `10:3F` | 一个字节：菜单打开／关闭信号（3/4 存读档、5/6 TIPS、17/18 系统菜单、21/22 选项、23/24 帮助） | 空 | 类型 4 清掉 `SW_SYSSUBMENUALPHA`（补丁 0023） |
-| `10:13`、`10:1A` | 同 CC（Option、Help） | 同 | 子菜单淡入后抬起 `SF_SUBMENUEXIT`，因为还没有选项／帮助画面（补丁 0023） |
+| `10:13`、`10:1A` | 同 CC（Option、Help） | 同 | profile 没有选项／帮助画面时，子菜单淡入后抬起 `SF_SUBMENUEXIT`（补丁 0023）；sg-pc 已有原版画面（补丁 0027、0028） |
 
-标题菜单用 CC 的类，但 S;G 标题脚本的编号不同（0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP），profile 用补丁 0024 的可选字段设置；EXTRA 里 SOUND／MOVIE 两项 CC 的类没有按钮，CLEAR LIST、CG LIBRARY 的画面还没有（只能按返回退出）。
+标题画面是原版的（补丁 0029，`TitleMenuType.SGHD`，布局、动画、输入都取自原版 Game.exe）：菜单在右侧，LOAD／EXTRA 打开子列表，选中的项闪烁 64 帧后才告诉脚本；脚本的编号是 0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP（EXTRA 在标志 860 设置后有五项，否则只有 CLEAR LIST 和 TIPS）。原版标题上的卫星是 Bink 2 视频，本引擎不能播放。CLEAR LIST、CG LIBRARY、TIPS 的画面还没有（只能按返回退出）。
 
 另外几处要识别 S;G：`SelInit` 的存档点 id、`NameID` 的名牌标号、`MSinit` 清零大小、CC 标题菜单状态机的「按任意键」检测、三处背景滤色读取。
 

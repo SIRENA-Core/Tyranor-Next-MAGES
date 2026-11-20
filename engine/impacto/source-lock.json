@@ -118,6 +118,10 @@
       {
         "file": "0028-tyn-sg-pc-HELP-screen-from-the-original-Game.exe-Hel.patch",
         "sha256": "33a0be771a24f23822949c22a9f675cf01980587bae26f8b52bfeac2f6303870"
+      },
+      {
+        "file": "0029-tyn-sg-pc-title-screen-from-the-original-Game.exe-Ti.patch",
+        "sha256": "cedad394a0602b2f8e118fcd1152112e6cf0be2c260420a502defb3c9e234e1a"
       }
     ]
   },
