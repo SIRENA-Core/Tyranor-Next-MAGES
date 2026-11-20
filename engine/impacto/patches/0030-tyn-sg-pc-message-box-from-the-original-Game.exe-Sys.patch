@@ -1,0 +1,589 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 18:17:03 -0800
+Subject: [PATCH] tyn: sg-pc message box from the original Game.exe
+ (SysMesBoxType.SGHD)
+
+The STEINS;GATE (Steam) system message box (confirmations such as "Load this data?", "Exit Game?") as the original
+draws and handles it, instead of the MO6TW box with estimated pieces and positions. Layout, art and behaviour come
+from the original Game.exe: the box draw routine 0x43d470, the layout 0x43da50 (width, choice hit areas), the input
+routine 0x43dc00, the SystemMes handler (0x464d00: two boxes, fades of 16 per frame) and the screen draw 0x46e650.
+
+- New generic class UI::SGHD::SysMesBox + Profile::SGHD::SysMesBox (SysMesBoxType.SGHD): box pieces, text and
+  choice positions, the highlight and the dimming are profile data.
+- As the original: content width = the widest message, the choices with their spacing or a minimum; three DATA01
+  pieces, the middle one stretched; messages left aligned with black copies up-left and down-right; choices right
+  aligned on one row, the chosen one over a stretched highlight; no choice has the cursor at first, left / right wrap
+  (from none to the first resp. last), Enter on none picks the first, Back moves the cursor to the second choice
+  instead of closing, mouse / touch hover picks a choice and a click takes it.
+- SystemMes: STEINS;GATE modes 10..17 are modes 0..7 of the native engine's second, global box (used by EXIT GAME);
+  they were unknown modes, the string operands were not read and the thread crashed. They now open a separate box
+  that dims the screen (black at 3 / 4 of its opacity) and reports its choice in SW_SYSSEL + 1, as the original
+  (UI::SysMesBox gets a Global flag; only the SGHD instruction set uses it).
+- sg-pc: hud/sysmesboxdisplay.lua rewritten for the new class.
+
+Checked on MuMu (Android 15): "Load this data?" (load screen) and RETURN TITLE / EXIT GAME (system menu) show the
+original layout (compared with a screenshot of the original), Enter picks then takes OK, Back moves to Cancel, a tap
+on Cancel closes the box, EXIT GAME dims the screen and no longer crashes the script thread; mo6tw-pc-zhs title
+unchanged.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 24b2a6ee73ae29152c4dad3279038d10794c49b3..4fa8355ca953c6c69622f62d5af1a5cadb20a904 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -171,6 +171,7 @@ set(Impacto_Src
+     src/profile/games/sghd/optionsmenu.cpp
+     src/profile/games/sghd/helpmenu.cpp
+     src/profile/games/sghd/titlemenu.cpp
++    src/profile/games/sghd/sysmesbox.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -263,6 +264,7 @@ set(Impacto_Src
+     src/games/sghd/optionsmenu.cpp
+     src/games/sghd/helpmenu.cpp
+     src/games/sghd/titlemenu.cpp
++    src/games/sghd/sysmesbox.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -557,6 +559,7 @@ set(Impacto_Header
+     src/profile/games/sghd/optionsmenu.h
+     src/profile/games/sghd/helpmenu.h
+     src/profile/games/sghd/titlemenu.h
++    src/profile/games/sghd/sysmesbox.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -641,6 +644,7 @@ set(Impacto_Header
+     src/games/sghd/optionsmenu.h
+     src/games/sghd/helpmenu.h
+     src/games/sghd/titlemenu.h
++    src/games/sghd/sysmesbox.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/hud/sysmesboxdisplay.lua b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+index 4c036b6505f41aaa5a0d74284fe84ee2672a20d0..010593664c37f154efd2f70ef4ac58b278ef5ca9 100644
+--- a/profiles/sg-pc/hud/sysmesboxdisplay.lua
++++ b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+@@ -1,63 +1,48 @@
+--- STEINS;GATE (Steam) system message box (confirmations such as "Load this data?" with Yes / No), drawn by the generic
+--- SysMesBoxType.MO6TW class: a box of three sprite pieces whose width follows the longest message line, the message
+--- lines and the choices as text. SYSMESSWINDOW.DDS / GSYSMES.DDS in system.mpk are 128x128 and fully transparent, so
+--- the game draws its box procedurally; the pieces here are cut from a flat dark part of the Data sheet (the blurred
+--- dark panel at x 10..780, y 1274..1526) instead. Sizes and positions are estimates, there is no reference screen.
+-local sheet = "Data";
+-local name = "SysMesBox";
++-- STEINS;GATE (Steam) system message box (confirmations such as "Load this data?" with Yes / No), SysMesBoxType.SGHD.
++-- Everything below is taken from the original Game.exe: the box draw routine 0x43d470, the layout 0x43da50 (width
++-- and choice hit areas), the input routine 0x43dc00 and the fades of SystemMes (16 per frame). The game computes in
++-- 1280x720 units and draws at x1.5; values below are already in 1920x1080 units.
++--   * content width W = the widest message, the choices with 60 px each, at least 441;
++--   * DATA01 pieces 273 px high at y 336: left (1.5, 1263, 72) at 906 - W / 2, right (724.5, 1263, 72) at
++--     942 + W / 2, the middle (73.5, 1263, 651) stretched between them;
++--   * messages: font size 48, left aligned at 960 - W / 2, first line y 354, 51 px apart, white with black copies
++--     1.5 px up-left and down-right;
++--   * choices on one row at y 546, 60 px apart, ending at 1020 + W / 2; the chosen one gets DATA01 (65, 1, 94, 30)
++--     stretched over its width from y 550.5 to 595.5; hit areas 48 px high from y 547;
++--   * the second, global box (modes 10..17, drawn by 0x46e66e) first covers the screen with black at 3 / 4 of its
++--     opacity and reports its choice in SW_SYSSEL + 1.
++local function data(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "Data", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
+ 
+ root.SysMesBoxDisplay = {
+-    Type = SysMesBoxType.MO6TW,
++    Type = SysMesBoxType.SGHD,
+     DrawType = DrawComponentType.SystemMessage,
+-    BoxX = 960,
+-    BoxY = 370,
+-    BoxMiddleBaseX = 1060,
+-    BoxMinimumWidth = 900,
+-    BoxMiddleBaseWidth = 210,
+-    BoxMiddleRemainBase = 100,
+-    BoxRightBaseX = 700,
+-    BoxRightRemainPad = 1,
+-    TextFontSize = 40,
+-    TextMiddleY = 410,
++    BoxLeftSprite = data("SysMesBoxLeft", 1.5, 1263, 72, 273),
++    BoxMiddleSprite = data("SysMesBoxMiddle", 73.5, 1263, 651, 273),
++    BoxRightSprite = data("SysMesBoxRight", 724.5, 1263, 72, 273),
++    BoxY = 336,
++    BoxLeftX = 906,
++    BoxRightX = 942,
++    MinWidth = 441,
++    TextFontSize = 48,
+     TextX = 960,
+-    TextLineHeight = 54,
+-    TextMarginY = 21,
+-    ChoicePadding = 80,
+-    ChoiceY = 530,
+-    ChoiceXBase = 660,
+-    MinMaxMesWidth = 900,
+-    AnimationSpeed = 83,
+-    FadeInDuration = 0.256,
+-    FadeOutDuration = 0.256
++    TextMiddleY = 354,
++    TextLineHeight = 51,
++    TextMarginY = 0,
++    ShadowOffset = 1.5,
++    -- the global box (SystemMes modes 10..17, e.g. EXIT GAME) dims the screen with black at 3 / 4 of its opacity
++    GlobalDim = 0.75,
++    ChoiceRightX = 1020,
++    ChoiceY = 546,
++    ChoiceSpacing = 60,
++    ChoiceHitY = 547,
++    ChoiceHitHeight = 48,
++    HighlightSprite = data("SysMesBoxHighlight", 65, 1, 94, 30),
++    HighlightY = 550.5,
++    HighlightHeight = 45,
++    AnimationSpeed = 0,
++    FadeInDuration = 16 / 60,
++    FadeOutDuration = 16 / 60
+ };
+-
+--- No highlight bar in the sheet: a transparent patch.
+-root.Sprites["SelectionHighlight"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+-};
+-root.SysMesBoxDisplay.SelectionHighlight = "SelectionHighlight";
+-
+-root.Sprites[name .. "BoxPartLeft"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 40, Y = 1290, Width = 100, Height = 220 }
+-};
+-root.SysMesBoxDisplay.BoxPartLeft = name .. "BoxPartLeft";
+-
+-root.Sprites[name .. "BoxPartRight"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 600, Y = 1290, Width = 100, Height = 220 }
+-};
+-root.SysMesBoxDisplay.BoxPartRight = name .. "BoxPartRight";
+-
+-root.Sprites[name .. "BoxPartMiddle"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 140, Y = 1290, Width = 210, Height = 220 }
+-};
+-root.SysMesBoxDisplay.BoxPartMiddle = name .. "BoxPartMiddle";
+-
+-root.Sprites[name .. "BoxDecoration"] = {
+-    Sheet = sheet,
+-    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+-};
+-root.SysMesBoxDisplay.BoxDecoration = name .. "BoxDecoration";
+diff --git a/src/games/sghd/sysmesbox.cpp b/src/games/sghd/sysmesbox.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e67cf67d1c60e288e2ff7302e679fa8c9dacda00
+--- /dev/null
++++ b/src/games/sghd/sysmesbox.cpp
+@@ -0,0 +1,197 @@
++#include "sysmesbox.h"
++
++#include <algorithm>
++
++#include "../../profile/ui/sysmesbox.h"
++#include "../../profile/games/sghd/sysmesbox.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/game.h"
++#include "../../profile/scriptvars.h"
++#include "../../renderer/renderer.h"
++#include "../../ui/ui.h"
++#include "../../mem.h"
++#include "../../inputsystem.h"
++#include "../../vm/interface/input.h"
++#include "../../vm/thread.h"
++#include "../../audio/audiosystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Profile::SGHD::SysMesBox;
++using namespace Impacto::Vm::Interface;
++namespace Common = Impacto::Profile::SysMesBox;
++
++namespace {
++constexpr DialogueColorPair White{0xFFFFFF, 0x000000};
++
++void PlaySe(int id) { Audio::PlayInGroup(Audio::ACG_SE, "sysse", id, false, 0.0f); }
++
++std::vector<ProcessedTextGlyph> LayoutLine(Vm::BufferOffsetContext ctx) {
++  Impacto::Vm::Sc3VmThread dummy;
++  dummy.SetStringIp(ctx);
++  return TextLayoutPlainLine(&dummy, 255, *Profile::Dialogue::DialogueFont, Common::TextFontSize, White, 1.0f,
++                             glm::vec2(0.0f), TextAlignment::Left);
++}
++
++void MoveLine(std::vector<ProcessedTextGlyph>& line, glm::vec2 pos) {
++  if (line.empty()) return;
++  const glm::vec2 offset = pos - line[0].Position;
++  for (ProcessedTextGlyph& glyph : line) glyph.Move(offset);
++}
++}  // namespace
++
++void SysMesBox::Init() {
++  ChoiceMade = false;
++  MessageCount = 0;
++  ChoiceCount = 0;
++  Selection = -1;  // the original starts without a chosen choice
++  FadeAnimation.DurationIn = Common::FadeInDuration;
++  FadeAnimation.DurationOut = Common::FadeOutDuration;
++  FadeAnimation.Direction = AnimationDirection::In;
++  FadeAnimation.LoopMode = AnimationLoopMode::Stop;
++}
++
++void SysMesBox::AddMessage(Vm::BufferOffsetContext str) {
++  if (MessageCount >= (int)Messages.size()) return;
++  Messages[MessageCount] = LayoutLine(str);
++  MessageWidths[MessageCount] = GetTextWidth(Messages[MessageCount]);
++  MessageCount++;
++}
++
++void SysMesBox::AddChoice(Vm::BufferOffsetContext str) {
++  if (ChoiceCount >= (int)Choices.size()) return;
++  Choices[ChoiceCount] = LayoutLine(str);
++  ChoiceWidths[ChoiceCount] = GetTextWidth(Choices[ChoiceCount]);
++  ChoiceCount++;
++}
++
++// The content width is the widest message, the choices with their spacing or the minimum; messages are left
++// aligned from the box's left text edge, the choices end at the right one.
++void SysMesBox::Layout() {
++  float choicesWidth = 0.0f;
++  for (int i = 0; i < ChoiceCount; i++) choicesWidth += ChoiceWidths[i] + ChoiceSpacing;
++  Width = std::max(MinWidth, choicesWidth);
++  for (int i = 0; i < MessageCount; i++) Width = std::max(Width, MessageWidths[i]);
++
++  for (int i = 0; i < MessageCount; i++)
++    MoveLine(Messages[i], glm::vec2(Common::TextX - Width / 2.0f, Common::TextMiddleY + i * Common::TextLineHeight));
++  float x = Width / 2.0f - choicesWidth + ChoiceRightX;
++  for (int i = 0; i < ChoiceCount; i++) {
++    ChoiceXs[i] = x;
++    MoveLine(Choices[i], glm::vec2(x, ChoiceY));
++    x += ChoiceWidths[i] + ChoiceSpacing;
++  }
++}
++
++void SysMesBox::Show() {
++  Layout();
++  FadeAnimation.StartIn();
++  State = Showing;
++  if (UI::FocusedMenu != nullptr && UI::FocusedMenu != this) {
++    LastFocusedMenu = UI::FocusedMenu;
++    LastFocusedMenu->IsFocused = false;
++  }
++  IsFocused = true;
++  UI::FocusedMenu = this;
++}
++
++void SysMesBox::Hide() {
++  FadeAnimation.StartOut();
++  State = Hiding;
++  if (UI::FocusedMenu == this) UI::FocusedMenu = LastFocusedMenu;
++  if (UI::FocusedMenu != nullptr) UI::FocusedMenu->IsFocused = true;
++  LastFocusedMenu = nullptr;
++  IsFocused = false;
++}
++
++void SysMesBox::Update(float dt) {
++  FadeAnimation.Update(dt);
++  if (State == Showing && FadeAnimation.IsIn()) State = Shown;
++  if (State == Hiding && FadeAnimation.IsOut()) State = Hidden;
++  if (State == Shown && IsFocused && !ChoiceMade) UpdateInput(dt);
++}
++
++void SysMesBox::UpdateInput(float dt) {
++  if (ChoiceCount == 0) return;  // a message without choices is closed by the script on the next press
++  const bool mouse =
++      Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++  if (mouse) {
++    Selection = -1;
++    const glm::vec2 pos = Input::CurMousePos;
++    for (int i = 0; i < ChoiceCount; i++) {
++      if (RectF(ChoiceXs[i], ChoiceHitY, ChoiceWidths[i], ChoiceHitHeight).ContainsPoint(pos)) {
++        Selection = i;
++        if (PADinputMouseWentDown & PAD1A) decide = true;
++      }
++    }
++  }
++  if (PADinputButtonRepeatDown & PAD1LEFT) {
++    PlaySe(1);
++    Selection = Selection < 0 ? 0 : (Selection == 0 ? ChoiceCount - 1 : Selection - 1);
++  }
++  if (PADinputButtonRepeatDown & PAD1RIGHT) {
++    PlaySe(1);
++    Selection = Selection < 0 ? ChoiceCount - 1 : (Selection + 1 < ChoiceCount ? Selection + 1 : 0);
++  }
++  if (decide) {
++    PlaySe(2);
++    if (Selection >= 0) {
++      ScrWork[SW_SYSSEL + (Global ? 1 : 0)] = Selection;
++      ChoiceMade = true;
++    } else {
++      Selection = 0;  // the original only picks the first choice
++    }
++  } else if ((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) {
++    PlaySe(3);
++    Selection = ChoiceCount != 1 ? 1 : 0;  // Back moves to "no", it does not close the box
++  }
++  PADinputButtonWentDown &= ~(PAD1A | PAD1B);
++  PADinputMouseWentDown &= ~(PAD1A | PAD1B);
++}
++
++void SysMesBox::DrawText(std::span<const ProcessedTextGlyph> text, float alpha) {
++  if (text.empty()) return;
++  if (ShadowOffset != 0.0f) {
++    std::vector<ProcessedTextGlyph> shadow(text.begin(), text.end());
++    for (ProcessedTextGlyph& glyph : shadow) {
++      glyph.Colors.TextColor = 0x000000;
++      glyph.Move(glm::vec2(-ShadowOffset));
++    }
++    Profile::Dialogue::DialogueFont->DrawProcessedText(shadow, alpha, RendererOutlineMode::None);
++    for (ProcessedTextGlyph& glyph : shadow) glyph.Move(glm::vec2(2.0f * ShadowOffset));
++    Profile::Dialogue::DialogueFont->DrawProcessedText(shadow, alpha, RendererOutlineMode::None);
++  }
++  Profile::Dialogue::DialogueFont->DrawProcessedText(text, alpha, RendererOutlineMode::None);
++}
++
++void SysMesBox::Render() {
++  if (State == Hidden) return;
++  const float alpha = FadeAnimation.Progress;
++  const glm::vec4 col(glm::vec3(1.0f), alpha);
++  // the global box dims the screen (black at 3 / 4 of its opacity)
++  if (Global)
++    Renderer->DrawQuad(RectF(0.0f, 0.0f, Profile::Game::DesignWidth, Profile::Game::DesignHeight),
++                       glm::vec4(0.0f, 0.0f, 0.0f, alpha * GlobalDim));
++
++  const float left = BoxLeftX - Width / 2.0f;
++  const float right = BoxRightX + Width / 2.0f;
++  const float middle = left + BoxLeft.Bounds.Width;
++  Renderer->DrawSprite(BoxLeft, glm::vec2(left, BoxY), col);
++  Renderer->DrawSprite(BoxMiddle, RectF(middle, BoxY, right - middle, BoxMiddle.Bounds.Height), col);
++  Renderer->DrawSprite(BoxRight, glm::vec2(right, BoxY), col);
++
++  if (Selection >= 0 && Selection < ChoiceCount)
++    Renderer->DrawSprite(Highlight, RectF(ChoiceXs[Selection], HighlightY, ChoiceWidths[Selection], HighlightHeight),
++                         col);
++
++  for (int i = 0; i < MessageCount; i++) DrawText(Messages[i], alpha);
++  for (int i = 0; i < ChoiceCount; i++) DrawText(Choices[i], alpha);
++}
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/sysmesbox.h b/src/games/sghd/sysmesbox.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e9ed8c426ea8bf7cac8786a0e49373e75df89f11
+--- /dev/null
++++ b/src/games/sghd/sysmesbox.h
+@@ -0,0 +1,35 @@
++#pragma once
++
++#include "../../ui/sysmesbox.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++// System message box of the STEINS;GATE (Steam) engine generation, as the original Game.exe draws and handles it:
++// no choice has the cursor at first; left / right wrap (from none to the first resp. last); Back moves the cursor to
++// the second choice ("no") instead of closing; mouse / touch hover picks a choice, a click takes it.
++class SysMesBox : public UI::SysMesBox {
++ public:
++  void Show() override;
++  void Hide() override;
++  void Update(float dt) override;
++  void UpdateInput(float dt) override;
++  void Render() override;
++
++  void Init() override;
++  void AddMessage(Vm::BufferOffsetContext str) override;
++  void AddChoice(Vm::BufferOffsetContext str) override;
++
++ private:
++  void Layout();
++  void DrawText(std::span<const ProcessedTextGlyph> text, float alpha);
++
++  float Width = 0.0f;
++  std::array<float, 8> ChoiceXs{};
++  int Selection = -1;
++};
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/sysmesbox.cpp b/src/profile/games/sghd/sysmesbox.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb7bb344a8d4ed1af592a4e1c1bbc156c13b6580
+--- /dev/null
++++ b/src/profile/games/sghd/sysmesbox.cpp
+@@ -0,0 +1,40 @@
++#include "sysmesbox.h"
++#include "../../profile_internal.h"
++
++#include "../../../ui/ui.h"
++#include "../../../games/sghd/sysmesbox.h"
++#include "../../../game.h"
++
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace SysMesBox {
++
++void Configure() {
++  BoxLeft = EnsureGetMember<Sprite>("BoxLeftSprite");
++  BoxMiddle = EnsureGetMember<Sprite>("BoxMiddleSprite");
++  BoxRight = EnsureGetMember<Sprite>("BoxRightSprite");
++  BoxY = EnsureGetMember<float>("BoxY");
++  BoxLeftX = EnsureGetMember<float>("BoxLeftX");
++  BoxRightX = EnsureGetMember<float>("BoxRightX");
++  MinWidth = EnsureGetMember<float>("MinWidth");
++  ChoiceRightX = EnsureGetMember<float>("ChoiceRightX");
++  ChoiceY = EnsureGetMember<float>("ChoiceY");
++  ChoiceSpacing = EnsureGetMember<float>("ChoiceSpacing");
++  ChoiceHitY = EnsureGetMember<float>("ChoiceHitY");
++  ChoiceHitHeight = EnsureGetMember<float>("ChoiceHitHeight");
++  Highlight = EnsureGetMember<Sprite>("HighlightSprite");
++  HighlightY = EnsureGetMember<float>("HighlightY");
++  HighlightHeight = EnsureGetMember<float>("HighlightHeight");
++  TryGetMember<float>("ShadowOffset", ShadowOffset);
++  TryGetMember<float>("GlobalDim", GlobalDim);
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++  UI::SysMesBox::DrawType = drawType;
++  UI::SysMesBox::Factory = []() -> UI::SysMesBox* { return new UI::SGHD::SysMesBox(); };
++}
++
++}  // namespace SysMesBox
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/sysmesbox.h b/src/profile/games/sghd/sysmesbox.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5febfa2623a4d3f6d9454e5303e52ce76b94f6f3
+--- /dev/null
++++ b/src/profile/games/sghd/sysmesbox.h
+@@ -0,0 +1,44 @@
++#pragma once
++
++#include "../../../spritesheet.h"
++#include "../../../util.h"
++
++// System message box (confirmations) of the STEINS;GATE (Steam, 2016) generation of the MAGES. PC engine. The box
++// is three pieces whose middle is stretched to the width of the longest line (or of the choices); the messages are
++// left aligned, the choices right aligned on one row. Values come from the profile (taken from the original
++// Game.exe, see the sg-pc profile); the common SysMesBox fields give the text size, first line, line height and fades.
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace SysMesBox {
++
++inline Sprite BoxLeft;
++inline Sprite BoxMiddle;
++inline Sprite BoxRight;
++inline float BoxY = 0.0f;
++// With the content width W: left piece at BoxLeftX - W / 2, right piece at BoxRightX + W / 2, the middle piece
++// stretched between them.
++inline float BoxLeftX = 0.0f;
++inline float BoxRightX = 0.0f;
++inline float MinWidth = 0.0f;
++// Choices: right aligned so that they end at ChoiceRightX + W / 2, ChoiceSpacing apart.
++inline float ChoiceRightX = 0.0f;
++inline float ChoiceY = 0.0f;
++inline float ChoiceSpacing = 0.0f;
++inline float ChoiceHitY = 0.0f;
++inline float ChoiceHitHeight = 0.0f;
++// The chosen choice: a sprite stretched over its width, from HighlightY to HighlightY + HighlightHeight.
++inline Sprite Highlight;
++inline float HighlightY = 0.0f;
++inline float HighlightHeight = 0.0f;
++// Black copies of the text at -ShadowOffset and +ShadowOffset.
++inline float ShadowOffset = 0.0f;
++// The global box (STEINS;GATE modes 10..17) first covers the screen with black at this share of its opacity.
++inline float GlobalDim = 0.0f;
++
++void Configure();
++
++}  // namespace SysMesBox
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/sysmesbox.cpp b/src/profile/ui/sysmesbox.cpp
+index 8463de3becf7342c031d5730942a18efd284d030..44d654218b89cc342c6b13c850dd96c56221fbe1 100644
+--- a/src/profile/ui/sysmesbox.cpp
++++ b/src/profile/ui/sysmesbox.cpp
+@@ -4,6 +4,7 @@
+ #include "../games/mo6tw/sysmesbox.h"
+ #include "../games/darling/sysmesbox.h"
+ #include "../games/cc/sysmesbox.h"
++#include "../games/sghd/sysmesbox.h"
+ 
+ #include "../profile_internal.h"
+ 
+@@ -29,6 +30,8 @@ void Configure() {
+       Darling::SysMesBox::Configure();
+     } else if (Type == SysMesBoxType::CC) {
+       CC::SysMesBox::Configure();
++    } else if (Type == SysMesBoxType::SGHD) {
++      SGHD::SysMesBox::Configure();
+     }
+ 
+     TextFontSize = EnsureGetMember<float>("TextFontSize");
+diff --git a/src/ui/sysmesbox.h b/src/ui/sysmesbox.h
+index 880e292fde94b4ee23f2d5b6960964709657a950..f4baf6fbc1d4d7d37df1f370814da4a0d4c29d02 100644
+--- a/src/ui/sysmesbox.h
++++ b/src/ui/sysmesbox.h
+@@ -28,6 +28,7 @@ class SysMesBox : public Menu {
+ 
+   int MessageCount;
+   int ChoiceCount;
++  bool Global = false;  // STEINS;GATE (Steam): the second, global box
+ 
+   using SysMesBoxCreator = auto (*)() -> SysMesBox*;
+   static inline SysMesBoxCreator Factory = nullptr;
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index c0bc0aef10d9500601135f84b36e835f33608798..f79bc3f1bac5bb2c87485f3b348f6065d343fd23 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -43,6 +43,7 @@ enum class SysMesBoxType : int {
+   MO6TW,
+   Darling,
+   CC,
++  SGHD,
+ };
+ enum class TitleMenuType : int {
+   None,
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index d4f952b403f9c1fd2c083faee7230038f258b7ab..45f11ae9db19eebaebc7bfa1140badd60c015e4a 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -722,6 +722,14 @@ VmInstruction(InstSystemMes) {
+   };
+ 
+   uint32_t type = mode;
++  // STEINS;GATE (Steam): modes 10..17 are modes 0..7 of a second, global box (the native engine keeps two boxes;
++  // the second one dims the screen and reports its choice in SW_SYSSEL + 1).
++  bool globalBox = false;
++  if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD && type >= 10 && type <= 17) {
++    type -= 10;
++    globalBox = true;
++    sysMesId |= 0x10000;
++  }
+   if (useMsb) {
+     type -= 0x80;
+   }
+@@ -736,7 +744,7 @@ VmInstruction(InstSystemMes) {
+   switch (type) {
+     case 0:  // SystemMesInit0
+     case 1:  // SystemMesInit1
+-      UI::SysMesBox::Push(sysMesId);
++      UI::SysMesBox::Push(sysMesId)->Global = globalBox;
+       break;
+     case 2: {  // SystemMesInit2
+       PopExpression(sysMesInit2Arg);

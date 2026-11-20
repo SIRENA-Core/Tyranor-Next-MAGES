@@ -52,10 +52,9 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 - **存档**：用 `SaveDataType.MO6TWPC`（S;G 的脚本用的是 Chaos;Child 风格的存档协议和 CC 的 ScrWork／标志位布局，memo06 PC 的存档实现已经按这套写好；自己的文件格式，不兼容 Steam 的存档）。
   已验证存一格、读一格（缩略图、游玩时间、日期、确认框）；快速读档画面能打开（QLOADMENU，列出快速存档）、按返回能退出，从里面读档没有走完；已读标记走同一套实现，没有单独验证。
   存档画面的格子布局（每页 8 格、卡片、缩略图）已按原版 Game.exe 改（补丁 0025）；格子里的文字位置、锁图标、PREV／NEXT（隐形的点击区，原版是 y 934 的页签）、页码文字仍是估的：这些图集里没有卡片、高亮和按钮的美术。从系统菜单打开的存档／读档／快速读档画面按返回能退出（补丁 0023：`10:3F` 类型 4 清掉 `SW_SYSSUBMENUALPHA`，见下面的指令表）。
-- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE／QUICK LOAD 走存档；CONFIG 是原版的三页画面（补丁 0027，数据全部取自原版 Game.exe）；HELP 是原版的两页说明画面（补丁 0028，图取 `manual.mpk`，页码、页签、按键提示和动画取自原版 Game.exe）；TIPS LIST、FULL SCREEN、RETURN TITLE、EXIT GAME 的界面还没有（TIPS 只能按返回退出；选项图集 `CONFIG.DDS` 是 3072x2048，三页：基本／文字、声音、各角色语音，还没有量）；
+- **系统菜单**：十二个入口里 BACK LOG、CLOSE MENU 可用，SAVE／LOAD／QUICK SAVE／QUICK LOAD 走存档；CONFIG 是原版的三页画面（补丁 0027，数据全部取自原版 Game.exe）；HELP 是原版的两页说明画面（补丁 0028，图取 `manual.mpk`，页码、页签、按键提示和动画取自原版 Game.exe）；RETURN TITLE、EXIT GAME 的确认框是原版的（补丁 0030；EXIT GAME 用原版的第二个、全局消息框，屏幕变暗）；TIPS LIST 的画面还没有（只能按返回退出），FULL SCREEN 在这里没有意义；
   手机（`10:37` 组只是跳过操作数的桩，电话／邮件触发点会走不通）、相册等也没有。系统菜单的面板、图标、文字位置和滑出动画已按原版 Game.exe 改（补丁 0026）；原版对不可用项的暗色图标还没有。
-- 其余界面的**精灵坐标**：标题已经按 `TITLE_CHIP.DDS` 量过（背景 1920x1080 在 (0,0)；主菜单项成对放在 x=1922／2123；子菜单项 249x37 在 x=1957／2245；橙色指针；「Press Enter」）。
-  菜单项在屏幕上的位置是我估的，没有 Windows 版的原图对照。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位）。存档图标、读盘中、日期、系统消息框、选项、TIPS、系统菜单、等待图标目前都指向透明块（占位）。
+- 其余界面的**精灵坐标**：标题、系统菜单、存档格子、CONFIG、HELP、系统消息框已按原版 Game.exe 的绘制代码做（补丁 0025–0030）。对话框用了 `DATA01` 里量出的 ADV 框；日志用了量出的 `BACKLOG.DDS`（面板与「BACKLOG」标题 x 0..1790，滚动条轨道 x 1790..1823，滑块 (1940,58)，语音图标 (1974,6)；这张图没有高亮条和操作提示，用透明块占位），还没有和原版对照。存档图标、读盘中、日期、TIPS、等待图标目前都指向透明块（占位）。
 - 日志的背景是一整张渐变图，引擎按 CC 的做法让它随滚动平铺，所以滚动时在平铺接缝处会有一道暗度跳变。
 - 人名固定在对话框右下（`SetMesModeFormat` 的名字显示模式是「固定位置、居中」，坐标按 1.5 倍放大后落在 (1620,1011)），这是脚本的设计，不是排版错误；没有与原版画面对照。名牌美术没有。
 - 视频是 Bink 2，FFmpeg 不解；脚本里的片头／过场会在日志里报 `Failed to open movie`，目前不阻塞。
@@ -64,8 +63,9 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 
 ## 通用化：S;G 复用了哪些类
 
-S;G 的系统菜单、存档画面、系统消息框都没有写 S;G 专用的 C++，只是 profile 指向正确的美术，复用 memo06 PC 已经在用的类：
-`SystemMenuType.MO6TW`（跟随 `SW_SYSMENUALPHA`、写 `SW_SYSMENUCNO`，S;G 脚本用的正是 2143／3338）、`SaveMenuType.MO6TWPC` + `SaveDataType.MO6TWPC`、`SysMesBoxType.MO6TW`。
+S;G 的系统菜单、存档画面复用 memo06 PC 已经在用的类，profile 指向原版的美术和布局：
+`SystemMenuType.MO6TW`（跟随 `SW_SYSMENUALPHA`、写 `SW_SYSMENUCNO`，S;G 脚本用的正是 2143／3338）、`SaveMenuType.MO6TWPC` + `SaveDataType.MO6TWPC`。
+标题、CONFIG、HELP、系统消息框的行为和 memo06／CC 的类差得多，按原版 Game.exe 写成了新的通用类（`TitleMenuType.SGHD`、`OptionsMenuType.SGHD`、`HelpMenuType.SGHD`、`SysMesBoxType.SGHD`，布局全部在 profile 里）。
 为此补了两处向后兼容的通用扩展：MO6TW 系统菜单现在认 `MenuEntriesHighlightedSprites`（每个入口各有一个聚焦时的精灵，hover 区域覆盖两张）；MO6TWPC 存档菜单认可选的
 `SaveBackgroundSprite`／`LoadBackgroundSprite`／`QuickLoadBackgroundSprite`（三个画面各有一张背景）。memo06 PC 的 profile 不设这些字段，行为不变。
 

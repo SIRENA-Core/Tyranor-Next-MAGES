@@ -122,6 +122,10 @@
       {
         "file": "0029-tyn-sg-pc-title-screen-from-the-original-Game.exe-Ti.patch",
         "sha256": "cedad394a0602b2f8e118fcd1152112e6cf0be2c260420a502defb3c9e234e1a"
+      },
+      {
+        "file": "0030-tyn-sg-pc-message-box-from-the-original-Game.exe-Sys.patch",
+        "sha256": "cdb83d1765f021c23388a32ba93cf9e7eb6f357fc45328ec371a86cd29d0d4b9"
       }
     ]
   },
