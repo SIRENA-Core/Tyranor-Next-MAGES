@@ -12,7 +12,7 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 - 上游 Java 源码（`ImpactoActivity` 与 SDL3 Java 层），构建时直接引用已校验的**补丁后检出**（固定提交 + 系列），不复制；SDL3 Java 层与上游一致；
 - 库 `libimpacto.so`（由 `tools/impacto/build-upstream.sh` 从同一个补丁后检出构建的候选库）；
 - 同一检出里的 `profiles/`、`resources/`、着色器和 `gamedefinitions.lua`，构建时暂存到 `build/`，不写回源码目录；
-- TYN 自有的两个类：`ImpactoLaunchActivity`、`TyranorImpactoActivity`。
+- TYN 自有的类：`ImpactoLaunchActivity`、`TyranorImpactoActivity`，以及屏幕按键与虚拟鼠标（`TouchControls`、`TouchKeys`、`TouchPrefs`，见下文）。
 
 ## 宿主做了什么
 
@@ -29,6 +29,9 @@ Tyranor Next 通过 Intent 启动本 APK；它没有桌面图标，本仓库负�
 数据根下由上游自己创建 `gamedata/`、`patches/`、`saves/`；宿主只在 `gamedata/<profile>` 建一个指向游戏目录的符号链接，
 上游即按 `RootGamedataDir/<profile>/<档案>` 找到数据，无需复制。存档与 `userconfig.toml` 因此按游戏隔离。
 链接位置已存在真实目录或文件时拒绝替换。
+
+屏幕按键：纯触屏设备够不到自动、快进、快速存档、系统菜单等只有键盘／手柄入口的操作，`TouchControls` 在 SDL 的布局上加一个小悬浮球和按键条（见仓库根 README「屏幕按键与虚拟鼠标」）。
+它只往 SDL 送真实的键盘与鼠标事件（`SDLActivity.onNativeKeyDown/Up`、`onNativeMouse`），不碰引擎，所有 profile 通用；只有它自己的几个视图接收触摸，其余触摸仍直达游戏。`SETTINGS` 里的 `touchControls: false` 经启动器转给游戏 Activity（只有宿主自己能设这个额外参数，游戏 Activity 不导出）。
 
 启动请求还可带 `SETTINGS`（用户设置 JSON，字段与对应的 `userconfig.toml` 键见仓库根 README）：宿主在建好数据根后、启动引擎前，把它合并进数据根下的 `userconfig.toml`（引擎自己的 `-uc` 路径）；写入失败只记日志，不阻止启动。
 

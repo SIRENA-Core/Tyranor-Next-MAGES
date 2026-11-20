@@ -1,0 +1,1190 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 23:06:51 -0800
+Subject: [PATCH] tyn: sg-pc TIPS screen from the original Game.exe
+ (TipsSystemType / TipsMenuType SGHD)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The STEINS;GATE (Steam) TIPS data and screen as the original reads, draws and handles them, instead of no TIPS at
+all (TipsSystemType.None: tips were never unlocked and the screen showed nothing until Back). Data format, sorting,
+layout and behaviour come from the original Game.exe: TipsDataInit 0x43e100 (with the sort key 0x43e060), TipsInit
+0x43f050, the draw routine 0x43e440 and the main routine 0x43f720.
+
+- New TipsSystemType.SGHD (SGHD::TipsSystem): records from the first data label of _TIPS (content count, base
+  string; strings base + 0..3 are label, name, second line, reading, base + 4 + i the content), letter and category
+  tables from the second label (letters string, sort string, sort character -> letter, letter -> category). Tips are
+  numbered in reading order (sort string order, shorter first); every category lists its tips with a letter header
+  before the first tip of each letter. Lock / unread / new states use the save system's tip status bits.
+- TipsDataInit keeps the second data label (TipsSystem::AuxDataAdr) instead of discarding it.
+- New TipsMenuType.SGHD (UI::SGHD::TipsMenu), all positions, sizes, colours and string numbers in the profile:
+  categories (empty ones blue) plus NEW (the tips found last first) and UNREAD lists, NEW marks; the tips of a
+  category with 【letter】 headers over the header bar, number, separator and name (green while unread, "???" in grey
+  while locked); the chosen tip on the right (number, name and second line right aligned, label, content in the TIPS
+  text mode, clipped, L1 / R1 by pages, wheel); scrollbar knobs; the button guide. Shown while the script's submenu
+  is TIPS (opacity SW_SYSSUBMENUCT * SW_SYSSUBMENUALPHA / 16), opens on the last shown tip (script variable 2316),
+  Back in the tips list returns to the categories, in the categories it is left to the script.
+
+Checked on MuMu (Android 15, original English data): TIPS from the title EXTRA list and from the in-game system menu;
+category list matches screenshots of the original; after playing on, unlocked tips appear with NEW marks, the NEW list
+opens with its 【New】 header, a tip shows its number, name, second line, label and content, R1 scrolls the content,
+Back returns to the categories and closes the screen.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d39bd2a4c6cefd394084a0784261450f9afa8a8e..4bf2c55279e0c45e1247a32cd202e3c3c13c781c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -171,6 +171,7 @@ set(Impacto_Src
+     src/profile/games/sghd/helpmenu.cpp
+     src/profile/games/sghd/titlemenu.cpp
+     src/profile/games/sghd/sysmesbox.cpp
++    src/profile/games/sghd/tipsmenu.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -264,6 +265,8 @@ set(Impacto_Src
+     src/games/sghd/helpmenu.cpp
+     src/games/sghd/titlemenu.cpp
+     src/games/sghd/sysmesbox.cpp
++    src/games/sghd/tipsmenu.cpp
++    src/games/sghd/tipssystem.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -557,6 +560,7 @@ set(Impacto_Header
+     src/profile/games/sghd/helpmenu.h
+     src/profile/games/sghd/titlemenu.h
+     src/profile/games/sghd/sysmesbox.h
++    src/profile/games/sghd/tipsmenu.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -642,6 +646,8 @@ set(Impacto_Header
+     src/games/sghd/helpmenu.h
+     src/games/sghd/titlemenu.h
+     src/games/sghd/sysmesbox.h
++    src/games/sghd/tipsmenu.h
++    src/games/sghd/tipssystem.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/hud/tipsmenu.lua b/profiles/sg-pc/hud/tipsmenu.lua
+index 72d175687ba763d125f0c1f79fc5d6840a0b406e..875e6c4364d61fe84ff4cbd4c1d780162974cafd 100644
+--- a/profiles/sg-pc/hud/tipsmenu.lua
++++ b/profiles/sg-pc/hud/tipsmenu.lua
+@@ -1,3 +1,93 @@
++-- STEINS;GATE (Steam) TIPS screen, TipsMenuType.SGHD. Everything below is taken from the original Game.exe: the draw
++-- routine 0x43e440, TipsInit 0x43f050 and the main routine 0x43f720. The game computes in 1280x720 units and draws
++-- at x1.5; values below are already in 1920x1080 units.
++--   * TIPSCHIPS.DDS (system.mpk id 28) is the background (0, 0, 1920 x 1080), the scrollbar knob (1921.5, 31.5,
++--     16.5 x 153), the NEW mark (1942.5, 63, 81 x 30) and the bar behind letter headers (1921.5, 187.5, 474 x 33);
++--   * 27 rows from y 130.5, 30 px apart, text size 30 with a black copy 1.5 px down-right; the cursor is DATA01
++--     (65, 1, 94, 30) stretched over x 103.5 .. 523.5, 36 px high from 4.5 px above the row;
++--   * categories at x 175.5 (string 20 + category of the script's string table 2), blue when empty, NEW mark at
++--     x 90 for categories with new tips; the last two are NEW and UNREAD;
++--   * tips: 【letter】 headers at x 103.5 over the header bar (x 87); number right aligned to x 148.5, the
++--     separator (string 8 from its third character), the name at x 178.5 (at most 345 wide): white when read, green
++--     (0x44dd66) when not, "???" (string 7) in grey (0x777777) when not found; NEW mark at x 90;
++--   * list scrollbar knob at x 529.5 from y 145.5 over 694.5 px;
++--   * the shown tip: string 8 ("No.") at (588, 123) and its number at (660, 123), size 36; the name size 48 and the
++--     second line size 30 (0x33ffff) right aligned to x 1797 at y 132 / 180; the label (0x99ffcc, size 36, at most
++--     360 wide) at (612, 219); the content in the TIPS text mode at (592.5, 294), clipped to y 222 .. 1011, 15 px
++--     after every content string, paged by 672 px (L1 / R1), knob at x 1797 from y 288 over 579 px;
++--   * the button guide DATA01 (1537, 1663, 1534 x 40) at (1, 995).
++root.SpriteSheets["TipsChips"] = {
++    Path = { Mount = "system", Id = 28 },
++    DesignWidth = 3072,
++    DesignHeight = 1080
++};
++
++local function chips(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "TipsChips", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
++
++local function data(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "Data", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
++
+ root.TipsMenu = {
+-    Type = TipsMenuType.None
++    Type = TipsMenuType.SGHD,
++    DrawType = DrawComponentType.SystemMenu,
++    FadeInDuration = 16 / 60,
++    FadeOutDuration = 16 / 60,
++    BackgroundSprite = chips("TipsBackground", 0, 0, 1920, 1080),
++    RowY = 130.5,
++    RowHeight = 30,
++    VisibleRows = 27,
++    FontSize = 30,
++    ShadowOffset = 1.5,
++    CategoryX = 175.5,
++    HeaderX = 103.5,
++    NumberRightX = 148.5,
++    NameX = 178.5,
++    NameMaxWidth = 345,
++    TextColor = 0xffffff,
++    EmptyCategoryColor = 0x2222ff,
++    UnreadColor = 0x44dd66,
++    LockedColor = 0x777777,
++    RowArea = { X = 103.5, Y = -4.5, Width = 420, Height = 36 },
++    HighlightSprite = data("TipsHighlight", 65, 1, 94, 30),
++    HeaderBarSprite = chips("TipsHeaderBar", 1921.5, 187.5, 474, 33),
++    HeaderBarOffset = { X = 87, Y = -1.5 },
++    NewSprite = chips("TipsNew", 1942.5, 63, 81, 30),
++    NewX = 90,
++    KnobSprite = chips("TipsKnob", 1921.5, 31.5, 16.5, 153),
++    ListKnobPosition = { X = 529.5, Y = 145.5 },
++    ListKnobRange = 694.5,
++    NumberLabelPosition = { X = 588, Y = 123 },
++    NumberPosition = { X = 660, Y = 123 },
++    NumberFontSize = 36,
++    TitleRightX = 1797,
++    TitleY = 132,
++    TitleFontSize = 48,
++    SubtitleY = 180,
++    SubtitleFontSize = 30,
++    SubtitleColor = 0x33ffff,
++    LabelPosition = { X = 612, Y = 219 },
++    LabelFontSize = 36,
++    LabelMaxWidth = 360,
++    LabelColor = 0x99ffcc,
++    ContentPosition = { X = 592.5, Y = 294 },
++    ContentClip = { X = 570, Y = 222, Width = 1260, Height = 789 },
++    ContentPageHeight = 672,
++    ContentGap = 15,
++    ContentScrollStep = 12,
++    ContentKnobPosition = { X = 1797, Y = 288 },
++    ContentKnobRange = 579,
++    GuideSprite = data("TipsGuide", 1537, 1663, 1534, 40),
++    GuidePosition = { X = 1, Y = 995 },
++    TextTableId = 2,
++    CategoryNameString = 20,
++    LockedString = 7,
++    NumberString = 8,
++    ExtraHeaderString = 18,
++    ShownTipVar = 2316,
++    OpenModeVar = 2317,
+ };
+diff --git a/profiles/sg-pc/tipssystem.lua b/profiles/sg-pc/tipssystem.lua
+index 787fff54770e0dcaa66e7bad61367cbcb7160b6a..78b030495c500681a1063c62b3d0686da448e7c0 100644
+--- a/profiles/sg-pc/tipssystem.lua
++++ b/profiles/sg-pc/tipssystem.lua
+@@ -1,3 +1,6 @@
++-- STEINS;GATE (Steam) TIPS data, read as the original Game.exe does (TipsDataInit 0x43e100): records from the first
++-- label of _TIPS, letter and category tables from the second one (see SGHD::TipsSystem).
+ root.TipsSystem = {
+-    Type = TipsSystemType.None,
+-};
+\ No newline at end of file
++    Type = TipsSystemType.SGHD,
++    MaxTipsCount = 400,
++};
+diff --git a/src/data/tipssystem.h b/src/data/tipssystem.h
+index a58faa2acf382f3a871297018b45b320f9c3f889..f6f1f4c2a2de6bfe70f39d1ce46a77f3aa9478be 100644
+--- a/src/data/tipssystem.h
++++ b/src/data/tipssystem.h
+@@ -15,6 +15,7 @@ enum class TipsSystemType : int {
+   MO6TW,
+   CHLCC,
+   CCLCC,
++  SGHD,
+ };
+ int constexpr MaxTipStrings = 10;
+ 
+@@ -61,6 +62,9 @@ struct TipsComparator {
+ };
+ 
+ inline std::unique_ptr<TipsSystemBase> Implementation;
++// Second data label of TipsDataInit where the instruction has one (MO8, MO6TWPC, SGHD, CHN); STEINS;GATE (Steam)
++// keeps its letter and category tables there.
++inline uint32_t AuxDataAdr = 0;
+ 
+ void Init();
+ void DataInit(uint32_t scriptBufferId, uint32_t tipsDataAdr,
+diff --git a/src/games/sghd/tipsmenu.cpp b/src/games/sghd/tipsmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ec1efc7974dfffe3a8c5a1233d343205788aea3
+--- /dev/null
++++ b/src/games/sghd/tipsmenu.cpp
+@@ -0,0 +1,463 @@
++#include "tipsmenu.h"
++
++#include <algorithm>
++#include <string>
++
++#include "../../profile/games/sghd/tipsmenu.h"
++#include "../../profile/ui/tipsmenu.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/scriptvars.h"
++#include "../../renderer/renderer.h"
++#include "../../text/text.h"
++#include "../../ui/ui.h"
++#include "../../mem.h"
++#include "../../inputsystem.h"
++#include "../../vm/vm.h"
++#include "../../vm/thread.h"
++#include "../../vm/interface/input.h"
++#include "../../audio/audiosystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++using namespace Impacto::Profile::SGHD::TipsMenu;
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Vm::Interface;
++
++namespace {
++constexpr int SubMenuTips = 2;
++constexpr int ExtraHeader = 20000;  // + 0 NEW, + 1 UNREAD
++
++void PlaySe(int id) { Audio::PlayInGroup(Audio::ACG_SE, "sysse", id, false, 0.0f); }
++bool UseMouse() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++}  // namespace
++
++Impacto::SGHD::TipsSystem* TipsMenu::Data() const {
++  return dynamic_cast<Impacto::SGHD::TipsSystem*>(Impacto::TipsSystem::Implementation.get());
++}
++
++// The original draws with SW_SYSSUBMENUCT * SW_SYSSUBMENUALPHA / 16 (0..256, saturating).
++float TipsMenu::Alpha() const {
++  if (ScrWork[SW_SYSSUBMENUNO] != SubMenuTips) return 0.0f;
++  const float a = ScrWork[SW_SYSSUBMENUCT] * (float)ScrWork[SW_SYSSUBMENUALPHA] / (16.0f * 256.0f);
++  return std::clamp(a, 0.0f, 1.0f);
++}
++
++int TipsMenu::Count(int category) const {
++  auto* data = Data();
++  if (!data || category < 0 || category >= (int)data->Lists.size()) return 0;
++  return (int)data->Lists[category].size();
++}
++
++int TipsMenu::Entry(int category, int index) const {
++  if (index < 0 || index >= Count(category)) return -1;
++  return Data()->Lists[category][index];
++}
++
++// TipsInit (0x43f050): the NEW and UNREAD lists, the NEW marks and the tip to show.
++void TipsMenu::Init() {
++  auto* data = Data();
++  if (!data) return;
++  const int tips = (int)data->TipEntryCount;
++  const int categories = (int)data->Lists.size() - 2;
++  if (categories < 1) return;
++  auto& records = data->Records;
++  auto unlocked = [&](int t) { return t >= 0 && t < tips && !records[t].IsLocked; };
++
++  NewAtOpen.assign(tips, false);
++  for (int t = 0; t < tips; t++) NewAtOpen[t] = unlocked(t) && records[t].IsNew;
++
++  // NEW: the tips found last first, then the other new ones by number
++  std::vector<int>& fresh = data->Lists[categories];
++  fresh.clear();
++  auto& history = data->NewTipsIndices;
++  for (auto it = history.rbegin(); it != history.rend(); ++it)
++    if (*it < tips && NewAtOpen[*it] && std::find(fresh.begin(), fresh.end(), (int)*it) == fresh.end()) fresh.push_back(*it);
++  std::vector<int> byNumber(tips);
++  for (int t = 0; t < tips; t++) byNumber[t] = t;
++  std::sort(byNumber.begin(), byNumber.end(), [&](int a, int b) { return data->Number[a] < data->Number[b]; });
++  for (int t : byNumber)
++    if (NewAtOpen[t] && std::find(fresh.begin(), fresh.end(), t) == fresh.end()) fresh.push_back(t);
++  if (!fresh.empty()) fresh.insert(fresh.begin(), ExtraHeader);
++
++  // UNREAD: found but not read yet, by number
++  std::vector<int>& unread = data->Lists[categories + 1];
++  unread.clear();
++  for (int t : byNumber)
++    if (unlocked(t) && records[t].IsUnread) unread.push_back(t);
++  if (!unread.empty()) unread.insert(unread.begin(), ExtraHeader + 1);
++
++  CategoryNew.assign(data->Lists.size(), false);
++  for (size_t c = 0; c < data->Lists.size(); c++)
++    for (int e : data->Lists[c])
++      if (IsTip(e) && NewAtOpen[e]) CategoryNew[c] = true;
++
++  // open on the last shown tip (or the newest) in its category; ScrWork[OpenModeVar] opens the tips list
++  InTips = ScrWork[OpenModeVar] != 0;
++  ScrWork[OpenModeVar] = 0;
++  int tip = ScrWork[ShownTipVar];
++  if ((tip < 0 || tip >= tips) && !history.empty()) tip = history.back();
++  Category = -1;
++  Row = -1;
++  Scroll = 0;
++  for (int c = 0; c < categories && Category < 0; c++)
++    for (int i = 0; i < Count(c); i++)
++      if (Entry(c, i) == tip) {
++        Category = c;
++        Row = i;
++      }
++  if (Category < 0) {
++    for (int c = 0; c < categories && Category < 0; c++)
++      if (Count(c) > 0) Category = c;
++    Row = -1;
++  }
++  KeepRowVisible();
++  ShownTip = -1;
++  Pages.clear();
++  ContentHeight = ContentScroll = 0.0f;
++  if (unlocked(tip)) ShowTip(tip);
++  if (UseMouse()) {  // as the original in mouse mode: no cursor
++    if (InTips) Row = -1;
++    else Category = -1;
++  }
++}
++
++void TipsMenu::Show() {
++  if (State == Shown) return;
++  State = Shown;
++  if (UI::FocusedMenu != nullptr && UI::FocusedMenu != this) {
++    LastFocusedMenu = UI::FocusedMenu;
++    LastFocusedMenu->IsFocused = false;
++  }
++  IsFocused = true;
++  UI::FocusedMenu = this;
++}
++
++void TipsMenu::Hide() {
++  if (State == Hidden) return;
++  State = Hidden;
++  if (UI::FocusedMenu == this) UI::FocusedMenu = LastFocusedMenu;
++  if (UI::FocusedMenu != nullptr) UI::FocusedMenu->IsFocused = true;
++  LastFocusedMenu = nullptr;
++  IsFocused = false;
++}
++
++void TipsMenu::Update(float dt) {
++  const float alpha = Alpha();
++  if (alpha > 0.0f && State == Hidden) Show();
++  if (alpha <= 0.0f && State != Hidden) Hide();
++  if (State != Shown) return;
++  if (UI::FocusedMenu != this) {
++    if (UI::FocusedMenu != nullptr) {
++      LastFocusedMenu = UI::FocusedMenu;
++      LastFocusedMenu->IsFocused = false;
++    }
++    UI::FocusedMenu = this;
++    IsFocused = true;
++  }
++  if (alpha >= 1.0f && !GetFlag(SF_SUBMENUEXIT)) UpdateInput(dt);
++}
++
++void TipsMenu::OpenCategory(int category) {
++  InTips = true;
++  Category = category;
++  Scroll = 0;
++  Row = -1;
++  if (!UseMouse())
++    for (int i = 0; i < Count(category) && Row < 0; i++)
++      if (IsTip(Entry(category, i))) Row = i;
++}
++
++void TipsMenu::KeepRowVisible() {
++  const int count = Count(Category);
++  if (Row >= 0) {
++    if (Row < Scroll) Scroll = Row;
++    if (Row >= Scroll + VisibleRows) Scroll = Row - VisibleRows + 1;
++  }
++  Scroll = std::clamp(Scroll, 0, std::max(0, count - VisibleRows));
++}
++
++void TipsMenu::MoveRow(int direction) {
++  const int count = Count(Category);
++  int r = Row < 0 ? (direction > 0 ? -1 : count) : Row;
++  for (r += direction; r >= 0 && r < count; r += direction)
++    if (IsTip(Entry(Category, r))) {
++      Row = r;
++      PlaySe(1);
++      KeepRowVisible();
++      return;
++    }
++}
++
++void TipsMenu::ShowTip(int tip) {
++  auto* data = Data();
++  ShownTip = tip;
++  ScrWork[ShownTipVar] = tip;
++  const auto& record = data->Records[tip];
++  Pages.clear();
++  Pages.resize(record.NumberOfContentStrings);
++  ContentHeight = 0.0f;
++  for (size_t i = 0; i < Pages.size(); i++) {
++    Pages[i].Glyphs.reserve(Profile::Dialogue::MaxPageSize);
++    Pages[i].Clear();
++    Vm::Sc3VmThread dummy;
++    dummy.ScriptBufferId = data->ScriptBufferId;
++    dummy.IpOffset = record.StringAdr[4 + i];
++    Pages[i].AddString(&dummy);
++    ContentHeight += Pages[i].Bounds.Height + ContentGap;
++  }
++  ContentScroll = 0.0f;
++  data->SetTipUnreadState(tip, false);
++}
++
++void TipsMenu::ScrollContent(float delta) {
++  const float max = std::max(0.0f, ContentHeight - ContentPageHeight);
++  ContentScroll = std::clamp(ContentScroll + delta, 0.0f, max);
++}
++
++int TipsMenu::RowAt(glm::vec2 pos) const {
++  if (pos.x < RowArea.X || pos.x >= RowArea.X + RowArea.Width) return -1;
++  const float top = RowY + RowArea.Y + (RowArea.Height - RowHeight) / 2.0f;
++  if (pos.y < top) return -1;
++  const int i = (int)((pos.y - top) / RowHeight);
++  return i < VisibleRows ? i : -1;
++}
++
++void TipsMenu::UpdateInput(float dt) {
++  auto* data = Data();
++  if (!data) return;
++  const int categories = (int)data->Lists.size();
++  const bool mouse = UseMouse();
++  const glm::vec2 pos = Input::CurMousePos;
++  const bool pointerMoved = pos != LastPointer;
++  LastPointer = pos;
++  const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++
++  // content: L1 / R1 by pages, the wheel over the content
++  if (ShownTip >= 0) {
++    if (PADinputButtonWentDown & PAD1L1) {
++      if (ContentScroll > 0.0f) PlaySe(1);
++      ScrollContent(-ContentPageHeight);
++    }
++    if (PADinputButtonWentDown & PAD1R1) {
++      if (ContentScroll < ContentHeight - ContentPageHeight) PlaySe(1);
++      ScrollContent(ContentPageHeight);
++    }
++    if (pos.x >= ContentClip.X && Input::MouseWheelDeltaY != 0)
++      ScrollContent(-Input::MouseWheelDeltaY * ContentScrollStep * 8.0f);
++  }
++
++  if (!InTips) {
++    if (mouse && (pointerMoved || click)) {
++      const int r = RowAt(pos);
++      Category = r >= 0 && r < categories ? r : -1;
++      decide = decide || (click && Category >= 0);
++    }
++    if (PADinputButtonRepeatDown & PAD1DOWN) {
++      Category = Category < 0 ? 0 : (Category + 1) % categories;
++      PlaySe(1);
++    } else if (PADinputButtonRepeatDown & PAD1UP) {
++      Category = Category <= 0 ? categories - 1 : Category - 1;
++      PlaySe(1);
++    }
++    if (decide && Category >= 0 && Count(Category) > 0) {
++      PlaySe(2);
++      OpenCategory(Category);
++    } else if ((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) {
++      PlaySe(3);  // the script closes the screen on this press
++    }
++    PADinputButtonWentDown &= ~PAD1A;
++    PADinputMouseWentDown &= ~PAD1A;
++    return;
++  }
++
++  // tips list
++  if (mouse && Input::MouseWheelDeltaY != 0 && pos.x < ContentClip.X) {
++    Scroll -= (int)(Input::MouseWheelDeltaY * 4);
++    KeepRowVisible();
++  }
++  if (mouse && (pointerMoved || click)) {
++    const int r = RowAt(pos);
++    const int index = r >= 0 ? Scroll + r : -1;
++    Row = index >= 0 && index < Count(Category) && IsTip(Entry(Category, index)) ? index : -1;
++    decide = decide || (click && Row >= 0);
++  }
++  if (PADinputButtonRepeatDown & PAD1DOWN) MoveRow(1);
++  else if (PADinputButtonRepeatDown & PAD1UP) MoveRow(-1);
++
++  if (decide && Row >= 0) {
++    const int tip = Entry(Category, Row);
++    if (IsTip(tip) && !data->Records[tip].IsLocked) {
++      if (tip != ShownTip) {
++        PlaySe(2);
++        ShowTip(tip);
++      }
++    } else {
++      PlaySe(4);
++    }
++  } else if ((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) {
++    // back to the categories; the script does not see this press
++    PlaySe(3);
++    InTips = false;
++    Row = -1;
++    if (mouse) Category = -1;
++    PADinputButtonWentDown &= ~PAD1B;
++    PADinputMouseWentDown &= ~PAD1B;
++  }
++  PADinputButtonWentDown &= ~PAD1A;
++  PADinputMouseWentDown &= ~PAD1A;
++}
++
++// ---------------------------------------------------------------- text
++
++std::vector<ProcessedTextGlyph> TipsMenu::Layout(const uint8_t* str, float size, uint32_t color,
++                                                 glm::vec2 pos) const {
++  Vm::Sc3Stream stream(const_cast<uint8_t*>(str));
++  return TextLayoutPlainLine(stream, std::nullopt, *Profile::Dialogue::DialogueFont, size,
++                             DialogueColorPair{color, 0}, 1.0f, pos, TextAlignment::Left);
++}
++
++std::vector<ProcessedTextGlyph> TipsMenu::TableString(int index, float size, uint32_t color, glm::vec2 pos,
++                                                      int skipChars) const {
++  auto ctx = Vm::ScriptGetTextTableStrAddress(TextTableId, index);
++  return Layout(&ctx.Buffers[ctx.BufferId][ctx.IpOffset + 2 * skipChars], size, color, pos);
++}
++
++std::vector<ProcessedTextGlyph> TipsMenu::TipString(int tip, int index, float size, uint32_t color,
++                                                    glm::vec2 pos) const {
++  auto* data = Data();
++  return Layout(&Vm::ScriptBuffers[data->ScriptBufferId][data->Records[tip].StringAdr[index]], size, color, pos);
++}
++
++std::vector<ProcessedTextGlyph> TipsMenu::Number(int value, float size, uint32_t color, glm::vec2 pos) const {
++  return TextLayoutPlainString(std::to_string(value), *Profile::Dialogue::DialogueFont, size,
++                               DialogueColorPair{color, 0}, 1.0f, pos, TextAlignment::Left);
++}
++
++void TipsMenu::DrawLine(const std::vector<ProcessedTextGlyph>& glyphs, float alpha) const {
++  if (glyphs.empty()) return;
++  if (ShadowOffset != 0.0f) {
++    std::vector<ProcessedTextGlyph> shadow = glyphs;
++    for (ProcessedTextGlyph& g : shadow) {
++      g.Colors.TextColor = 0x000000;
++      g.Move(glm::vec2(ShadowOffset));
++    }
++    Profile::Dialogue::DialogueFont->DrawProcessedText(shadow, alpha, RendererOutlineMode::None);
++  }
++  Profile::Dialogue::DialogueFont->DrawProcessedText(glyphs, alpha, RendererOutlineMode::None);
++}
++
++namespace {
++void AlignRight(std::vector<ProcessedTextGlyph>& glyphs, float right) {
++  const float w = GetTextWidth(glyphs);
++  for (ProcessedTextGlyph& g : glyphs) g.Move(glm::vec2(right - w, 0.0f));
++}
++}  // namespace
++
++// ---------------------------------------------------------------- drawing
++
++void TipsMenu::Render() {
++  if (State != Shown) return;
++  auto* data = Data();
++  const float alpha = Alpha();
++  if (!data || alpha <= 0.0f) return;
++  const glm::vec4 col(glm::vec3(1.0f), alpha);
++  Renderer->DrawSprite(Impacto::Profile::TipsMenu::BackgroundSprite, glm::vec2(0.0f), col);
++
++  const int categories = (int)data->Lists.size();
++  const int cursor = InTips ? (Row >= 0 ? Row - Scroll : -1) : Category;
++  if (cursor >= 0 && cursor < VisibleRows)
++    Renderer->DrawSprite(Highlight,
++                         RectF(RowArea.X, RowY + cursor * RowHeight + RowArea.Y, RowArea.Width, RowArea.Height), col);
++
++  // list scrollbar
++  float knobY = ListKnobPosition.y;
++  const int count = Count(Category);
++  if (InTips && count > VisibleRows) knobY += ListKnobRange * Scroll / (count - VisibleRows);
++  Renderer->DrawSprite(Knob, glm::vec2(ListKnobPosition.x, knobY), col);
++  Renderer->DrawSprite(Guide, GuidePosition, col);
++
++  if (!InTips) {
++    for (int c = 0; c < categories && c < VisibleRows; c++) {
++      const float y = RowY + c * RowHeight;
++      DrawLine(TableString(CategoryNameString + c, FontSize, Count(c) > 0 ? TextColor : EmptyCategoryColor,
++                           glm::vec2(CategoryX, y)),
++               alpha);
++      if (CategoryNew[c]) Renderer->DrawSprite(NewMark, glm::vec2(NewMarkX, y), col);
++    }
++  } else {
++    for (int i = 0; i < VisibleRows && Scroll + i < count; i++) {
++      const float y = RowY + i * RowHeight;
++      const int e = Entry(Category, Scroll + i);
++      if (!IsTip(e)) {
++        Renderer->DrawSprite(HeaderBar, glm::vec2(0.0f, y) + HeaderBarOffset, col);
++        if (e >= ExtraHeader) {
++          // 【NEW】 / 【UNREAD】
++          auto ctx = Vm::ScriptGetTextTableStrAddress(TextTableId, ExtraHeaderString + e - ExtraHeader);
++          std::vector<uint8_t> str = {0x80, 0xE0};
++          for (const uint8_t* p = &ctx.Buffers[ctx.BufferId][ctx.IpOffset]; *p != 0xff; p++) str.push_back(*p);
++          str.insert(str.end(), {0x80, 0xE1, 0xFF});
++          DrawLine(Layout(str.data(), FontSize, TextColor, glm::vec2(HeaderX, y)), alpha);
++        } else {
++          // 【letter】: the letter is the (e - 10000)th two byte character of the letters string
++          const uint8_t* letter =
++              &Vm::ScriptBuffers[data->ScriptBufferId][data->LettersStringAdr + 2 * (e - Impacto::SGHD::TipsSystem::LetterHeader)];
++          const uint8_t str[] = {0x80, 0xE0, letter[0], letter[1], 0x80, 0xE1, 0xFF};
++          DrawLine(Layout(str, FontSize, TextColor, glm::vec2(HeaderX, y)), alpha);
++        }
++        continue;
++      }
++      auto number = Number(data->Number[e], FontSize, TextColor, glm::vec2(0.0f, y));
++      AlignRight(number, NumberRightX);
++      DrawLine(number, alpha);
++      DrawLine(TableString(NumberString, FontSize, TextColor, glm::vec2(NumberRightX, y), 2), alpha);
++      const auto& record = data->Records[e];
++      std::vector<ProcessedTextGlyph> name =
++          record.IsLocked ? TableString(LockedString, FontSize, LockedColor, glm::vec2(NameX, y))
++                          : TipString(e, 1, FontSize, record.IsUnread ? UnreadColor : TextColor, glm::vec2(NameX, y));
++      if (GetTextWidth(name) > NameMaxWidth) SquishText(name, NameMaxWidth, NameX);
++      DrawLine(name, alpha);
++      if (!record.IsLocked && NewAtOpen[e]) {
++        Renderer->DrawSprite(NewMark, glm::vec2(NewMarkX, y), col);
++        if (record.IsNew) data->SetTipNewState(e, false);  // seen in the list (the mark stays this time)
++      }
++    }
++  }
++
++  // the shown tip
++  if (ShownTip < 0) return;
++  DrawLine(TableString(NumberString, NumberFontSize, TextColor, NumberLabelPosition), alpha);
++  DrawLine(Number(data->Number[ShownTip], NumberFontSize, TextColor, NumberPosition), alpha);
++  auto subtitle = TipString(ShownTip, 2, SubtitleFontSize, SubtitleColor, glm::vec2(0.0f, SubtitleY));
++  AlignRight(subtitle, TitleRightX);
++  DrawLine(subtitle, alpha);
++  auto title = TipString(ShownTip, 1, TitleFontSize, TextColor, glm::vec2(0.0f, TitleY));
++  AlignRight(title, TitleRightX);
++  DrawLine(title, alpha);
++  auto label = TipString(ShownTip, 0, LabelFontSize, LabelColor, LabelPosition);
++  if (GetTextWidth(label) > LabelMaxWidth) SquishText(label, LabelMaxWidth, LabelPosition.x);
++  DrawLine(label, alpha);
++
++  Renderer->EnableScissor();
++  Renderer->SetScissorRect(ContentClip);
++  float y = ContentPosition.y - ContentScroll;
++  for (TipsPage& page : Pages) {
++    page.MoveTo(glm::vec2(ContentPosition.x, y));
++    page.Render(alpha, RendererOutlineMode::Full);
++    y += page.Bounds.Height + ContentGap;
++  }
++  Renderer->DisableScissor();
++
++  float contentKnobY = ContentKnobPosition.y;
++  if (ContentHeight > ContentPageHeight)
++    contentKnobY += ContentKnobRange * ContentScroll / (ContentHeight - ContentPageHeight);
++  Renderer->DrawSprite(Knob, glm::vec2(ContentKnobPosition.x, contentKnobY), col);
++}
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/tipsmenu.h b/src/games/sghd/tipsmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..43f5fb4d0a8d5a3645dd0e0c7adf809407c8b75e
+--- /dev/null
++++ b/src/games/sghd/tipsmenu.h
+@@ -0,0 +1,62 @@
++#pragma once
++
++#include <vector>
++
++#include "../../ui/tipsmenu.h"
++#include "../../text/tipspage.h"
++#include "tipssystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++// TIPS screen of the STEINS;GATE (Steam) engine generation, as the original Game.exe draws and handles it (draw
++// 0x43e440, init 0x43f050, main 0x43f720): shown while the script's submenu is TIPS (SW_SYSSUBMENUNO 2); first the
++// categories (plus NEW and UNREAD), then the tips of a category with letter headers; the chosen tip is shown on the
++// right with its content scrolled by pages. Back in the tips list returns to the categories; in the categories it
++// is left to the script, which closes the screen.
++class TipsMenu : public UI::TipsMenu {
++ public:
++  void Init() override;
++  void Show() override;
++  void Hide() override;
++  void Update(float dt) override;
++  void UpdateInput(float dt) override;
++  void Render() override;
++
++ private:
++  Impacto::SGHD::TipsSystem* Data() const;
++  float Alpha() const;
++  int Count(int category) const;
++  int Entry(int category, int index) const;
++  bool IsTip(int entry) const { return entry >= 0 && entry < Impacto::SGHD::TipsSystem::LetterHeader; }
++  void OpenCategory(int category);
++  void MoveRow(int direction);
++  void KeepRowVisible();
++  void ShowTip(int tip);
++  void ScrollContent(float delta);
++  int RowAt(glm::vec2 pos) const;
++
++  void DrawLine(const std::vector<ProcessedTextGlyph>& glyphs, float alpha) const;
++  std::vector<ProcessedTextGlyph> Layout(const uint8_t* str, float size, uint32_t color, glm::vec2 pos) const;
++  std::vector<ProcessedTextGlyph> TableString(int index, float size, uint32_t color, glm::vec2 pos,
++                                              int skipChars = 0) const;
++  std::vector<ProcessedTextGlyph> TipString(int tip, int index, float size, uint32_t color, glm::vec2 pos) const;
++  std::vector<ProcessedTextGlyph> Number(int value, float size, uint32_t color, glm::vec2 pos) const;
++
++  bool InTips = false;  // false: categories, true: tips of Category
++  int Category = -1;    // cursor in the categories / category of the tips list
++  int Row = -1;         // cursor in the tips list (absolute index), -1 none
++  int Scroll = 0;       // first visible row of the tips list
++  int ShownTip = -1;
++  std::vector<TipsPage> Pages;
++  float ContentHeight = 0.0f;
++  float ContentScroll = 0.0f;
++  std::vector<bool> NewAtOpen;     // per tip: still new when the screen opened (NEW mark)
++  std::vector<bool> CategoryNew;   // per category: has such a tip
++  glm::vec2 LastPointer{-1.0f};
++};
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/tipssystem.cpp b/src/games/sghd/tipssystem.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..aa91a94e782e8100de88af2a37a7fc58f8c3d4a1
+--- /dev/null
++++ b/src/games/sghd/tipssystem.cpp
+@@ -0,0 +1,157 @@
++#include "tipssystem.h"
++
++#include <algorithm>
++#include <numeric>
++
++#include "../../data/savesystem.h"
++#include "../../io/memorystream.h"
++#include "../../log.h"
++#include "../../text/text.h"
++#include "../../vm/vm.h"
++#include "../../vm/sc3stream.h"
++
++namespace Impacto {
++namespace SGHD {
++
++using namespace Impacto::Vm;
++using namespace Impacto::Io;
++using Impacto::TipsSystem::TipsDataRecord;
++using Impacto::TipsSystem::AuxDataAdr;
++
++namespace {
++constexpr int EndOfKey = 9999;
++
++std::vector<int> ReadChars(uint8_t* buffer, uint32_t adr) {
++  std::vector<int> out;
++  Sc3Stream stream(&buffer[adr]);
++  while (stream.PeekU8() != 0xff) {
++    StringToken token;
++    token.Read(stream);
++    if (token.Type == STT_Character) out.push_back(token.Val_Int);
++  }
++  return out;
++}
++
++std::vector<int> ReadList(MemoryStream& stream) {
++  std::vector<int> out;
++  for (uint16_t v = ReadLE<uint16_t>(&stream); v != 0xffff; v = ReadLE<uint16_t>(&stream)) out.push_back(v);
++  return out;
++}
++}  // namespace
++
++void TipsSystem::DataInit(uint32_t scriptBufferId, uint32_t tipsDataAdr, uint32_t tipsDataSize) {
++  ScriptBufferId = (uint8_t)scriptBufferId;
++  uint8_t* buffer = ScriptBuffers[scriptBufferId].data();
++  TipEntryCount = 0;
++  Records.assign(MaxCount, {});
++
++  // records
++  std::vector<uint16_t> base;
++  {
++    MemoryStream stream(&buffer[tipsDataAdr], tipsDataSize, false);
++    for (uint16_t count = ReadLE<uint16_t>(&stream); count != 0xff; count = ReadLE<uint16_t>(&stream)) {
++      const uint16_t first = ReadLE<uint16_t>(&stream);
++      stream.Seek(2 * (3 + count), SEEK_CUR);
++      if (TipEntryCount >= Records.size()) {
++        ImpLog(LogLevel::Error, LogChannel::VM, "Too many tips in tips data\n");
++        break;
++      }
++      TipsDataRecord& record = Records[TipEntryCount];
++      record.Id = (uint16_t)TipEntryCount;
++      record.NumberOfContentStrings = std::min<uint16_t>(count, Impacto::TipsSystem::MaxTipStrings - 4);
++      for (int i = 0; i < 4 + record.NumberOfContentStrings; i++)
++        record.StringAdr[i] = ScriptGetStrAddress(scriptBufferId, first + i);
++      base.push_back(first);
++      TipEntryCount++;
++    }
++  }
++  Records.resize(TipEntryCount);
++
++  // letter and category tables
++  std::vector<int> charToLetter, letterToCategory, sortChars;
++  if (AuxDataAdr != 0) {
++    MemoryStream stream(&buffer[AuxDataAdr], 0x10000, false);
++    const uint16_t lettersString = ReadLE<uint16_t>(&stream);
++    const uint16_t sortString = ReadLE<uint16_t>(&stream);
++    charToLetter = ReadList(stream);
++    letterToCategory = ReadList(stream);
++    LettersStringAdr = ScriptGetStrAddress(scriptBufferId, lettersString);
++    sortChars = ReadChars(buffer, ScriptGetStrAddress(scriptBufferId, sortString));
++  }
++  const int categories =
++      letterToCategory.empty() ? 1 : *std::max_element(letterToCategory.begin(), letterToCategory.end()) + 1;
++
++  // sort keys: the position of every reading character in the sort string
++  std::vector<std::vector<int>> keys(TipEntryCount);
++  for (size_t i = 0; i < TipEntryCount; i++) {
++    for (int c : ReadChars(buffer, Records[i].StringAdr[3])) {
++      auto it = std::find(sortChars.begin(), sortChars.end(), c);
++      keys[i].push_back((int)(it - sortChars.begin()));
++    }
++  }
++  std::vector<int> order(TipEntryCount);
++  std::iota(order.begin(), order.end(), 0);
++  std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
++    // element by element; a reading that ends first sorts first
++    const auto& ka = keys[a];
++    const auto& kb = keys[b];
++    for (size_t k = 0;; k++) {
++      const int va = k < ka.size() ? ka[k] : EndOfKey;
++      const int vb = k < kb.size() ? kb[k] : EndOfKey;
++      if (va == EndOfKey) return false;
++      if (vb == EndOfKey) return true;
++      if (va != vb) return va < vb;
++    }
++  });
++
++  Number.assign(TipEntryCount, 0);
++  Lists.assign(categories + 2, {});  // + the NEW and UNREAD lists the menu fills
++  int nextLetter = 0;
++  for (size_t n = 0; n < order.size(); n++) {
++    const int tip = order[n];
++    Number[tip] = (int)n + 1;
++    const int key0 = keys[tip].empty() ? 0 : keys[tip][0];
++    const int letter = key0 < (int)charToLetter.size() ? charToLetter[key0] : 0;
++    Records[tip].CategoryLetterIndex = (uint16_t)letter;
++    const int category =
++        std::clamp(letter < (int)letterToCategory.size() ? letterToCategory[letter] : 0, 0, categories - 1);
++    if (letter >= nextLetter) {
++      Lists[category].push_back(LetterHeader + letter);
++      nextLetter = letter + 1;
++    }
++    Lists[category].push_back(tip);
++  }
++}
++
++void TipsSystem::UpdateTipRecords() {
++  for (size_t i = 0; i < TipEntryCount; i++) {
++    TipsDataRecord& record = Records[i];
++    const uint32_t status = SaveSystem::GetTipStatus(record.Id);
++    record.IsLocked = (status & 1) == 0;
++    record.IsUnread = (status & 2) == 0;
++    record.IsNew = (status & 4) == 0;
++  }
++}
++
++void TipsSystem::SetTipLockedState(size_t id, bool state) {
++  if (id >= TipEntryCount) return;
++  Records[id].IsLocked = state;
++  SaveSystem::SetTipStatus(id, Records[id].IsLocked, Records[id].IsUnread, Records[id].IsNew);
++}
++
++void TipsSystem::SetTipUnreadState(size_t id, bool state) {
++  if (id >= TipEntryCount) return;
++  Records[id].IsUnread = state;
++  SaveSystem::SetTipStatus(id, Records[id].IsLocked, Records[id].IsUnread, Records[id].IsNew);
++}
++
++void TipsSystem::SetTipNewState(size_t id, bool state) {
++  if (id >= TipEntryCount) return;
++  Records[id].IsNew = state;
++  SaveSystem::SetTipStatus(id, Records[id].IsLocked, Records[id].IsUnread, Records[id].IsNew);
++}
++
++bool TipsSystem::GetTipLockedState(size_t id) { return id >= TipEntryCount || Records[id].IsLocked; }
++
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/tipssystem.h b/src/games/sghd/tipssystem.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..f954a33d0a963fc451ca7c473ffec1341cce962c
+--- /dev/null
++++ b/src/games/sghd/tipssystem.h
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include <vector>
++
++#include "../../data/tipssystem.h"
++
++namespace Impacto {
++namespace SGHD {
++
++// TIPS data of the STEINS;GATE (Steam) engine generation, read as the original Game.exe does (0x43e100):
++// - records (first label): u16 content count (0xff ends), u16 base string, three more u16, the content string
++//   numbers; strings base + 0 .. base + 3 are a label, the name, a second line and the reading; base + 4 + i is
++//   content string i;
++// - tables (second label): u16 letters string (two bytes per letter), u16 sort string, a list mapping sort
++//   characters to letters and a list mapping letters to categories (both ending with 0xffff).
++// Tips are numbered in the order of their readings (sort string order, shorter first); every category lists its
++// tips in that order with a letter header (10000 + letter) before the first tip of each letter.
++class TipsSystem : public Impacto::TipsSystem::TipsSystemBase {
++ public:
++  explicit TipsSystem(size_t maxTipsCount) : TipsSystemBase(maxTipsCount), MaxCount(maxTipsCount) {}
++
++  void DataInit(uint32_t scriptBufferId, uint32_t tipsDataAdr, uint32_t tipsDataSize) override;
++  void UpdateTipRecords() override;
++  void SetTipLockedState(size_t id, bool state) override;
++  void SetTipUnreadState(size_t id, bool state) override;
++  void SetTipNewState(size_t id, bool state) override;
++  bool GetTipLockedState(size_t id) override;
++
++  static constexpr int LetterHeader = 10000;
++
++  std::vector<int> Number;                 // per tip: 1-based number (position in reading order)
++  std::vector<std::vector<int>> Lists;     // per category: tip ids and letter headers
++  uint32_t LettersStringAdr = 0;           // string with one two byte character per letter
++
++ private:
++  size_t MaxCount;
++};
++
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/profile/data/tipssystem.cpp b/src/profile/data/tipssystem.cpp
+index 2d8ff4d7952298ca6da5fb8e4f8ce0948fbedfa9..f270444d145a23a465438e75077f188410c00ea6 100644
+--- a/src/profile/data/tipssystem.cpp
++++ b/src/profile/data/tipssystem.cpp
+@@ -4,6 +4,7 @@
+ #include "../../games/mo6tw/tipssystem.h"
+ #include "../../games/chlcc/tipssystem.h"
+ #include "../../games/cclcc/tipssystem.h"
++#include "../../games/sghd/tipssystem.h"
+ 
+ namespace Impacto {
+ namespace Profile {
+@@ -34,6 +35,10 @@ void Configure() {
+         Implementation =
+             std::make_unique<Impacto::CCLCC::TipsSystem>(MaxTipsCount);
+         break;
++      case TipsSystemType::SGHD:
++        Implementation =
++            std::make_unique<Impacto::SGHD::TipsSystem>(MaxTipsCount);
++        break;
+       case TipsSystemType::None:
+         ImpLog(LogLevel::Warning, LogChannel::Profile,
+                "Tips system type is None, not setting system implementation\n");
+diff --git a/src/profile/games/sghd/tipsmenu.cpp b/src/profile/games/sghd/tipsmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..621705d03c32399359c93dfbb89241e9b9e2ba34
+--- /dev/null
++++ b/src/profile/games/sghd/tipsmenu.cpp
+@@ -0,0 +1,77 @@
++#include "tipsmenu.h"
++#include "../../profile_internal.h"
++#include "../../../ui/ui.h"
++#include "../../../game.h"
++#include "../../../games/sghd/tipsmenu.h"
++
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace TipsMenu {
++
++void Configure() {
++  RowY = EnsureGetMember<float>("RowY");
++  RowHeight = EnsureGetMember<float>("RowHeight");
++  TryGetMember<int>("VisibleRows", VisibleRows);
++  FontSize = EnsureGetMember<float>("FontSize");
++  TryGetMember<float>("ShadowOffset", ShadowOffset);
++  CategoryX = EnsureGetMember<float>("CategoryX");
++  HeaderX = EnsureGetMember<float>("HeaderX");
++  NumberRightX = EnsureGetMember<float>("NumberRightX");
++  NameX = EnsureGetMember<float>("NameX");
++  NameMaxWidth = EnsureGetMember<float>("NameMaxWidth");
++  TryGetMember<uint32_t>("TextColor", TextColor);
++  TryGetMember<uint32_t>("EmptyCategoryColor", EmptyCategoryColor);
++  TryGetMember<uint32_t>("UnreadColor", UnreadColor);
++  TryGetMember<uint32_t>("LockedColor", LockedColor);
++  RowArea = EnsureGetMember<RectF>("RowArea");
++  Highlight = EnsureGetMember<Sprite>("HighlightSprite");
++  HeaderBar = EnsureGetMember<Sprite>("HeaderBarSprite");
++  HeaderBarOffset = EnsureGetMember<glm::vec2>("HeaderBarOffset");
++  NewMark = EnsureGetMember<Sprite>("NewSprite");
++  NewMarkX = EnsureGetMember<float>("NewX");
++  Knob = EnsureGetMember<Sprite>("KnobSprite");
++  ListKnobPosition = EnsureGetMember<glm::vec2>("ListKnobPosition");
++  ListKnobRange = EnsureGetMember<float>("ListKnobRange");
++
++  NumberLabelPosition = EnsureGetMember<glm::vec2>("NumberLabelPosition");
++  NumberPosition = EnsureGetMember<glm::vec2>("NumberPosition");
++  NumberFontSize = EnsureGetMember<float>("NumberFontSize");
++  TitleRightX = EnsureGetMember<float>("TitleRightX");
++  TitleY = EnsureGetMember<float>("TitleY");
++  TitleFontSize = EnsureGetMember<float>("TitleFontSize");
++  SubtitleY = EnsureGetMember<float>("SubtitleY");
++  SubtitleFontSize = EnsureGetMember<float>("SubtitleFontSize");
++  TryGetMember<uint32_t>("SubtitleColor", SubtitleColor);
++  LabelPosition = EnsureGetMember<glm::vec2>("LabelPosition");
++  LabelFontSize = EnsureGetMember<float>("LabelFontSize");
++  LabelMaxWidth = EnsureGetMember<float>("LabelMaxWidth");
++  TryGetMember<uint32_t>("LabelColor", LabelColor);
++  ContentPosition = EnsureGetMember<glm::vec2>("ContentPosition");
++  ContentClip = EnsureGetMember<RectF>("ContentClip");
++  ContentPageHeight = EnsureGetMember<float>("ContentPageHeight");
++  TryGetMember<float>("ContentGap", ContentGap);
++  TryGetMember<float>("ContentScrollStep", ContentScrollStep);
++  ContentKnobPosition = EnsureGetMember<glm::vec2>("ContentKnobPosition");
++  ContentKnobRange = EnsureGetMember<float>("ContentKnobRange");
++
++  Guide = EnsureGetMember<Sprite>("GuideSprite");
++  GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
++
++  TryGetMember<int>("TextTableId", TextTableId);
++  TryGetMember<int>("CategoryNameString", CategoryNameString);
++  TryGetMember<int>("LockedString", LockedString);
++  TryGetMember<int>("NumberString", NumberString);
++  TryGetMember<int>("ExtraHeaderString", ExtraHeaderString);
++  TryGetMember<int>("ShownTipVar", ShownTipVar);
++  TryGetMember<int>("OpenModeVar", OpenModeVar);
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++  UI::TipsMenuPtr = new UI::SGHD::TipsMenu();
++  UI::Menus[drawType].push_back(UI::TipsMenuPtr);
++}
++
++}  // namespace TipsMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/tipsmenu.h b/src/profile/games/sghd/tipsmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2eb1a936e2654b17a8164d6ada8840372aa6327
+--- /dev/null
++++ b/src/profile/games/sghd/tipsmenu.h
+@@ -0,0 +1,80 @@
++#pragma once
++
++#include "../../../spritesheet.h"
++#include "../../../util.h"
++
++// TIPS screen of the STEINS;GATE (Steam, 2016) generation of the MAGES. PC engine (with SGHD::TipsSystem): a list of
++// categories, the tips of one category with letter headers, and the chosen tip on the right. Positions, sizes, colours
++// and string numbers come from the profile (taken from the original Game.exe, see the sg-pc profile).
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace TipsMenu {
++
++// list (left)
++inline float RowY = 0.0f;       // first row
++inline float RowHeight = 0.0f;  // row pitch
++inline int VisibleRows = 27;
++inline float FontSize = 0.0f;
++inline float ShadowOffset = 0.0f;
++inline float CategoryX = 0.0f;
++inline float HeaderX = 0.0f;
++inline float NumberRightX = 0.0f;  // the number ends here, the separator starts here
++inline float NameX = 0.0f;
++inline float NameMaxWidth = 0.0f;
++inline uint32_t TextColor = 0xffffff;
++inline uint32_t EmptyCategoryColor = 0x2222ff;
++inline uint32_t UnreadColor = 0x44dd66;
++inline uint32_t LockedColor = 0x777777;
++inline RectF RowArea{};  // x / width of the rows (cursor bar, hit areas); Y / Height: bar offset and height
++inline Sprite Highlight;
++inline Sprite HeaderBar;
++inline glm::vec2 HeaderBarOffset{};  // from (0, row y)
++inline Sprite NewMark;
++inline float NewMarkX = 0.0f;
++inline Sprite Knob;
++inline glm::vec2 ListKnobPosition{};  // top of the track
++inline float ListKnobRange = 0.0f;
++
++// chosen tip (right)
++inline glm::vec2 NumberLabelPosition{};
++inline glm::vec2 NumberPosition{};
++inline float NumberFontSize = 0.0f;
++inline float TitleRightX = 0.0f;
++inline float TitleY = 0.0f;
++inline float TitleFontSize = 0.0f;
++inline float SubtitleY = 0.0f;
++inline float SubtitleFontSize = 0.0f;
++inline uint32_t SubtitleColor = 0x33ffff;
++inline glm::vec2 LabelPosition{};
++inline float LabelFontSize = 0.0f;
++inline float LabelMaxWidth = 0.0f;
++inline uint32_t LabelColor = 0x99ffcc;
++inline glm::vec2 ContentPosition{};
++inline RectF ContentClip{};
++inline float ContentPageHeight = 0.0f;  // visible height, also the page step
++inline float ContentGap = 0.0f;         // after every content string
++inline float ContentScrollStep = 0.0f;  // per frame while a scroll key is held
++inline glm::vec2 ContentKnobPosition{};
++inline float ContentKnobRange = 0.0f;
++
++inline Sprite Guide;
++inline glm::vec2 GuidePosition{};
++
++// strings of the script's string table TextTableId
++inline int TextTableId = 2;
++inline int CategoryNameString = 20;  // + category
++inline int LockedString = 7;         // shown for tips not found yet
++inline int NumberString = 8;         // "No." in the panel; from its third character the separator in the list
++inline int ExtraHeaderString = 18;   // + 0 NEW, + 1 UNREAD (headers of the two extra lists)
++
++// script variables: last shown tip (99999 none), list to open in (1 = tips of the tip's category)
++inline int ShownTipVar = 2316;
++inline int OpenModeVar = 2317;
++
++void Configure();
++
++}  // namespace TipsMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/tipsmenu.cpp b/src/profile/ui/tipsmenu.cpp
+index 87c6f0ef803ae69a2bc9e0bc8c541ecbee5b7e98..675b4e5f46d3b64eceef602821cf72a9b6f6acf0 100644
+--- a/src/profile/ui/tipsmenu.cpp
++++ b/src/profile/ui/tipsmenu.cpp
+@@ -3,6 +3,7 @@
+ #include "../games/mo6tw/tipsmenu.h"
+ #include "../games/chlcc/tipsmenu.h"
+ #include "../games/cclcc/tipsmenu.h"
++#include "../games/sghd/tipsmenu.h"
+ #include "../../ui/ui.h"
+ #include "../../log.h"
+ 
+@@ -31,6 +32,8 @@ void Configure() {
+       CHLCC::TipsMenu::Configure();
+     } else if (Type == TipsMenuType::CCLCC) {
+       CCLCC::TipsMenu::Configure();
++    } else if (Type == TipsMenuType::SGHD) {
++      SGHD::TipsMenu::Configure();
+     } else {
+       UI::TipsMenuPtr = new UI::TipsMenu();
+     }
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index f79bc3f1bac5bb2c87485f3b348f6065d343fd23..ef429e60c3e37e95350257261979c8c92e1b5c39 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -69,6 +69,7 @@ enum class TipsMenuType : int {
+   MO6TW,
+   CHLCC,
+   CCLCC,
++  SGHD,
+ };
+ enum class ClearListMenuType : int {
+   None,
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index 9f1cba1fde39d3efdf4933508858defc75c585f9..94fcdb411f5b63a2399cf5579dc9127af1e66602 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -1181,7 +1181,7 @@ VmInstruction(InstTips) {
+           Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(tipsDataAdr1);
+-        (void)tipsDataAdr1;
++        TipsSystem::AuxDataAdr = tipsDataAdr1;
+       }
+       uint32_t tipsDataSize =
+           ScriptGetLabelSize(thread->ScriptBufferId, tipsLabelNum);

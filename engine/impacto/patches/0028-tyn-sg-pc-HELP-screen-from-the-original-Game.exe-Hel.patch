@@ -1,0 +1,500 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Thu, 19 Nov 2026 16:11:22 -0800
+Subject: [PATCH] tyn: sg-pc HELP screen from the original Game.exe
+ (HelpMenuType.SGHD)
+
+The STEINS;GATE (Steam) HELP screen as the original draws and handles it, instead of the 0023 fallback that left
+HELP at once. Layout, art and behaviour come from the original Game.exe: the draw routine 0x4351f0, the input routine
+0x435640, Help(Init) 0x4355a0 and the hit areas at 0x52b670. The pages are the full screen pictures of manual.mpk, so
+translated data shows its own pages.
+
+- New generic class UI::SGHD::HelpMenu + Profile::SGHD::HelpMenu (HelpMenuType.SGHD): pages, page number, tabs and
+  button guide are profile data.
+- Behaviour as the original: drawn while the script's submenu is HELP (SW_SYSSUBMENUNO 11) with the opacity
+  SW_SYSSUBMENUCT / 32 * SW_SYSSUBMENUALPHA / 256, the page coming in from x = -400 while the counter runs; it starts
+  at the first page every time; next / previous page (R1 / L1 = E / Q, mouse wheel) and the tabs slide the new page in
+  over the old one (16 frames, 48 px per frame, fading in; next page and tabs from the left, previous page from the
+  right), no input while it slides; the hovered tab, else the current page's tab, blinks; Back raises SF_SUBMENUEXIT
+  and SF_MANUALLOAD_END (ends the script's manual loading thread). The pages are preloaded (InstHelp(Init) already
+  reports the manual as loaded).
+- The original writes the controller page's button names over PAGE2 only when its launcher has a pad layout; there is
+  none on this platform, so the page shows as the original without one.
+- sg-pc: manual.mpk mount, hud/helpmenu.lua.
+- 0023's HELP fallback (raise SF_SUBMENUEXIT at once) now only applies when the profile has no help menu.
+
+Checked on MuMu (Android 15): HELP from the title and from the in-game system menu matches screenshots of the
+original (page, page number, tabs, guide), tab tap and E / Q change the page with the slide, Backspace and the
+two-finger back return to the title / system menu, reopening starts at page 1.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 03a3f42aa7a822dee81b25ffff5f61b570d9c501..85e878c079267a5f7466407ef8b098b698c8fa25 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -168,6 +168,7 @@ set(Impacto_Src
+     src/profile/games/mo6tw/savemenu.cpp
+     src/profile/games/mo6twpc/savemenu.cpp
+     src/profile/games/sghd/optionsmenu.cpp
++    src/profile/games/sghd/helpmenu.cpp
+     src/profile/games/mo6tw/optionsmenu.cpp
+     src/profile/games/mo6tw/tipsmenu.cpp
+     src/profile/games/mo6tw/clearlistmenu.cpp
+@@ -258,6 +259,7 @@ set(Impacto_Src
+     src/games/mo8/systemmenu.cpp
+     src/games/mo8/optionsmenu.cpp
+     src/games/sghd/optionsmenu.cpp
++    src/games/sghd/helpmenu.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -548,6 +550,7 @@ set(Impacto_Header
+     src/profile/games/mo6tw/savemenu.h
+     src/profile/games/mo6twpc/savemenu.h
+     src/profile/games/sghd/optionsmenu.h
++    src/profile/games/sghd/helpmenu.h
+     src/profile/games/mo6tw/optionsmenu.h
+     src/profile/games/mo6tw/tipsmenu.h
+     src/profile/games/mo6tw/clearlistmenu.h
+@@ -630,6 +633,7 @@ set(Impacto_Header
+     src/games/mo8/systemmenu.h
+     src/games/mo8/optionsmenu.h
+     src/games/sghd/optionsmenu.h
++    src/games/sghd/helpmenu.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index 9994c1e05f26a48f5030bc30a26e1cbcb5b83c28..04e74833560a3a60964483daffefd7830e52ff18 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -61,6 +61,7 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/titlemenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/systemmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/savemenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/optionsmenu.lua');
++include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/helpmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/backlogmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/sysmesboxdisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/selectiondisplay.lua');
+diff --git a/profiles/sg-pc/hud/helpmenu.lua b/profiles/sg-pc/hud/helpmenu.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..2533ca846f98229447bfb02be57a448f32abfad5
+--- /dev/null
++++ b/profiles/sg-pc/hud/helpmenu.lua
+@@ -0,0 +1,46 @@
++-- STEINS;GATE (Steam) HELP screen, HelpMenuType.SGHD. Everything below is taken from the original Game.exe: the draw
++-- routine 0x4351f0, the input routine 0x435640, Help(Init) 0x4355a0 and the hit areas at 0x52b670 (group 11).
++--   * the pages are the full screen pictures of manual.mpk (PAGE1 keyboard & mouse, PAGE2 controller; localised data
++--     brings its own); while SW_SYSSUBMENUCT counts 0..32 the page comes in from x = -400 and fades in with it;
++--   * on a page change the new page slides in over the old one in 16 frames, 48 px per frame, fading in: next page
++--     (and the tabs) from the left, previous page from the right;
++--   * DATA01: page number (55 x 60 per digit from 0, 808) at (1715, 858) and the page count (110, 808, 60 x 60) at
++--     (1760, 858); two tabs (87 x 32 at 1678 + 65 i, 935): grey (87, 868), the hovered one yellow (174, 868), else the
++--     current page's one blue (0, 868), both blinking over 32 frames; the button guide (1, 1747, 1534 x 40) at (1, 995).
++-- The original draws the controller page's button names over PAGE2 only when a pad layout is configured in its
++-- launcher; there is none on this platform, so the page shows as the original without one.
++
++for i = 0, 1 do
++    root.SpriteSheets["ManualPage" .. i] = {
++        Path = { Mount = "manual", Id = i },
++        DesignWidth = 1920,
++        DesignHeight = 1080
++    };
++    root.Sprites["HelpPage" .. i] = { Sheet = "ManualPage" .. i, Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 } };
++end
++
++local function data(name, x, y, w, h)
++    root.Sprites[name] = { Sheet = "Data", Bounds = { X = x, Y = y, Width = w, Height = h } };
++    return name;
++end
++
++root.HelpMenu = {
++    Type = HelpMenuType.SGHD,
++    DrawType = DrawComponentType.SystemMenu,
++    Pages = { "HelpPage0", "HelpPage1" },
++    PageNumberSprites = { data("HelpPageNumber0", 0, 808, 55, 60), data("HelpPageNumber1", 55, 808, 55, 60) },
++    PageNumberPosition = { X = 1715, Y = 858 },
++    PageCountSprite = data("HelpPageCount", 110, 808, 60, 60),
++    PageCountPosition = { X = 1760, Y = 858 },
++    TabSprite = data("HelpTab", 87, 868, 87, 32),
++    TabHoverSprite = data("HelpTabHover", 174, 868, 87, 32),
++    TabCurrentSprite = data("HelpTabCurrent", 0, 868, 87, 32),
++    TabPositions = { { X = 1678, Y = 935 }, { X = 1743, Y = 935 } },
++    TabHitAreas = { { X = 1692, Y = 935, Width = 60, Height = 32 }, { X = 1758, Y = 935, Width = 60, Height = 32 } },
++    GuideSprite = data("HelpGuide", 1, 1747, 1534, 40),
++    GuidePosition = { X = 1, Y = 995 },
++    EnterDistance = 400,
++    PageSlideFrames = 16,
++    PageSlideStep = 48,
++    BlinkFrames = 32,
++};
+diff --git a/profiles/sg-pc/vfs.lua b/profiles/sg-pc/vfs.lua
+index ef549f35fe7b1e586ca60d0991ff952eb35833f7..4102eb47a471230c45af029e64c309b55cd1495c 100644
+--- a/profiles/sg-pc/vfs.lua
++++ b/profiles/sg-pc/vfs.lua
+@@ -11,6 +11,7 @@ root.Vfs = {
+         ["voice"] = {dataDir .. "/voice.mpk"},
+         ["bg"] = {dataDir .. "/bg.mpk"},
+         ["chara"] = {dataDir .. "/chara.mpk"},
+-        ["mask"] = {dataDir .. "/mask.mpk"}
++        ["mask"] = {dataDir .. "/mask.mpk"},
++        ["manual"] = {dataDir .. "/manual.mpk"}
+     }
+ };
+diff --git a/src/games/sghd/helpmenu.cpp b/src/games/sghd/helpmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..51efea0c0c8dd8a6c95756893935041f91fc720c
+--- /dev/null
++++ b/src/games/sghd/helpmenu.cpp
+@@ -0,0 +1,162 @@
++#include "helpmenu.h"
++
++#include <algorithm>
++#include <cmath>
++
++#include "../../profile/games/sghd/helpmenu.h"
++#include "../../ui/ui.h"
++#include "../../profile/scriptvars.h"
++#include "../../renderer/renderer.h"
++#include "../../mem.h"
++#include "../../inputsystem.h"
++#include "../../vm/interface/input.h"
++#include "../../audio/audiosystem.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++using namespace Impacto::Profile::SGHD::HelpMenu;
++using namespace Impacto::Profile::ScriptVars;
++using namespace Impacto::Vm::Interface;
++
++namespace {
++constexpr int SubMenuHelp = 11;
++}
++
++// The original draws the screen whenever the script's submenu number is HELP; its opacity is
++// SW_SYSSUBMENUCT / 32 * SW_SYSSUBMENUALPHA / 256.
++bool HelpMenu::ScriptShown() const {
++  return ScrWork[SW_SYSSUBMENUNO] == SubMenuHelp && ScrWork[SW_SYSSUBMENUCT] > 0 &&
++         ScrWork[SW_SYSSUBMENUALPHA] > 0;
++}
++
++void HelpMenu::Show() {
++  if (State == Shown) return;
++  State = Shown;
++  // the original's Help(Init) starts at the first page every time
++  CurrentPage = PreviousPage = 0;
++  SlideCounter = 0.0f;
++  HoveredTab = -1;
++  if (UI::FocusedMenu != nullptr && UI::FocusedMenu != this) {
++    LastFocusedMenu = UI::FocusedMenu;
++    LastFocusedMenu->IsFocused = false;
++  }
++  IsFocused = true;
++  UI::FocusedMenu = this;
++}
++
++void HelpMenu::Hide() {
++  if (State == Hidden) return;
++  State = Hidden;
++  if (LastFocusedMenu != nullptr) {
++    UI::FocusedMenu = LastFocusedMenu;
++    LastFocusedMenu->IsFocused = true;
++  } else {
++    UI::FocusedMenu = nullptr;
++  }
++  LastFocusedMenu = nullptr;
++  IsFocused = false;
++}
++
++void HelpMenu::Update(float dt) {
++  const bool shown = ScriptShown();
++  if (shown && State == Hidden) Show();
++  if (!shown && State != Hidden) Hide();
++  if (State != Shown) return;
++  // keep the menu focus while shown (the title menu would otherwise take the input of this screen)
++  if (UI::FocusedMenu != this) {
++    if (UI::FocusedMenu != nullptr) {
++      LastFocusedMenu = UI::FocusedMenu;
++      LastFocusedMenu->IsFocused = false;
++    }
++    UI::FocusedMenu = this;
++    IsFocused = true;
++  }
++
++  const float frames = dt * 60.0f;
++  BlinkCounter = std::fmod(BlinkCounter + frames, BlinkFrames);
++  if (SlideCounter > 0.0f) {
++    SlideCounter = std::max(0.0f, SlideCounter - frames);
++    return;  // as the original: no input while a page slides in
++  }
++  if (ScrWork[SW_SYSSUBMENUCT] >= 32 && ScrWork[SW_SYSSUBMENUALPHA] >= 256 && !GetFlag(SF_SUBMENUEXIT))
++    UpdateInput(dt);
++}
++
++void HelpMenu::ChangePage(int target, int direction) {
++  if (target == CurrentPage) return;
++  PreviousPage = CurrentPage;
++  CurrentPage = target;
++  // original: next page (and the tabs) bring the new page in from the left, previous page from the right
++  SlideDirection = (float)direction;
++  SlideCounter = PageSlideFrames;
++}
++
++void HelpMenu::UpdateInput(float dt) {
++  const int pages = (int)Pages.size();
++  if (pages == 0) return;
++
++  if ((PADinputButtonWentDown & PAD1B) || (PADinputMouseWentDown & PAD1B)) {
++    Audio::PlayInGroup(Audio::ACG_SE, "sysse", 3, false, 0.0f);
++    SetFlag(SF_SUBMENUEXIT, true);
++    SetFlag(SF_MANUALLOAD_END, true);  // ends the script's manual loading thread
++    PADinputButtonWentDown = PADinputMouseWentDown = 0;
++    return;
++  }
++
++  HoveredTab = -1;
++  const bool useMouse =
++      Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++  if (useMouse) {
++    for (int i = 0; i < (int)TabHitAreas.size() && i < pages; i++) {
++      if (!TabHitAreas[i].ContainsPoint(Input::CurMousePos)) continue;
++      HoveredTab = i;
++      if (PADinputMouseWentDown & PAD1A) ChangePage(i, -1);
++    }
++  }
++  if (SlideCounter == 0.0f) {
++    if ((PADinputButtonWentDown & PAD1R1) || Input::MouseWheelDeltaY < 0) ChangePage((CurrentPage + 1) % pages, -1);
++    else if ((PADinputButtonWentDown & PAD1L1) || Input::MouseWheelDeltaY > 0)
++      ChangePage((CurrentPage + pages - 1) % pages, 1);
++  }
++
++  // the screen owns the input while it is shown
++  PADinputButtonWentDown = 0;
++  PADinputMouseWentDown = 0;
++}
++
++void HelpMenu::Render() {
++  if (State != Shown || Pages.empty()) return;
++  const float ct = (float)std::clamp(ScrWork[SW_SYSSUBMENUCT], 0, 32);
++  const float alpha = ct / 32.0f * std::clamp(ScrWork[SW_SYSSUBMENUALPHA], 0, 256) / 256.0f;
++  if (alpha <= 0.0f) return;
++  const float x = ct / 32.0f * EnterDistance - EnterDistance;
++  const int pages = (int)Pages.size();
++  const int page = std::clamp(CurrentPage, 0, pages - 1);
++
++  if (SlideCounter > 0.0f)
++    Renderer->DrawSprite(Pages[std::clamp(PreviousPage, 0, pages - 1)], glm::vec2(x, 0.0f), glm::vec4(1.0f));
++  const float slide = SlideCounter / PageSlideFrames;
++  Renderer->DrawSprite(Pages[page], glm::vec2(x + SlideDirection * PageSlideStep * SlideCounter, 0.0f),
++                       glm::vec4(glm::vec3(1.0f), (1.0f - slide) * alpha));
++
++  const glm::vec4 col(glm::vec3(1.0f), alpha);
++  if (page < (int)PageNumberSprites.size()) Renderer->DrawSprite(PageNumberSprites[page], PageNumberPosition, col);
++  Renderer->DrawSprite(PageCountSprite, PageCountPosition, col);
++
++  // tabs; the hovered one, else the current page's one, blinks
++  const float half = BlinkFrames / 2.0f;
++  const float blink = (BlinkCounter < half ? BlinkCounter : BlinkFrames - BlinkCounter) / half;
++  const glm::vec4 blinkCol(glm::vec3(1.0f), alpha * blink);
++  for (int i = 0; i < (int)TabPositions.size() && i < pages; i++) {
++    Renderer->DrawSprite(TabSprite, TabPositions[i], col);
++    if (HoveredTab == i) Renderer->DrawSprite(TabHoverSprite, TabPositions[i], blinkCol);
++    else if (page == i) Renderer->DrawSprite(TabCurrentSprite, TabPositions[i], blinkCol);
++  }
++  Renderer->DrawSprite(GuideSprite, GuidePosition, col);
++}
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/games/sghd/helpmenu.h b/src/games/sghd/helpmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d132de05be713df37dcf016dad83436044f55561
+--- /dev/null
++++ b/src/games/sghd/helpmenu.h
+@@ -0,0 +1,35 @@
++#pragma once
++
++#include "../../ui/menu.h"
++
++namespace Impacto {
++namespace UI {
++namespace SGHD {
++
++// HELP screen of the STEINS;GATE (Steam) engine generation, as the original Game.exe draws and handles it: visible
++// while the script shows submenu 11 (SW_SYSSUBMENUNO, faded with SW_SYSSUBMENUCT and SW_SYSSUBMENUALPHA), Back raises
++// SF_SUBMENUEXIT, next / previous page (keys, wheel, tabs) slides the new page in over the old one. The pages are
++// preloaded, so the script's manual loading thread is never asked to load (see InstHelp).
++class HelpMenu : public Menu {
++ public:
++  void Show() override;
++  void Hide() override;
++  void Update(float dt) override;
++  void UpdateInput(float dt) override;
++  void Render() override;
++
++ private:
++  bool ScriptShown() const;
++  void ChangePage(int target, int direction);
++
++  int CurrentPage = 0;
++  int PreviousPage = 0;
++  int HoveredTab = -1;
++  float SlideCounter = 0.0f;    // PageSlideFrames .. 0
++  float SlideDirection = 0.0f;  // -1: new page from the left, 1: from the right
++  float BlinkCounter = 0.0f;
++};
++
++}  // namespace SGHD
++}  // namespace UI
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/helpmenu.cpp b/src/profile/games/sghd/helpmenu.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..d13a0dfcf5007d4a3ac3a9bc43a2156781362024
+--- /dev/null
++++ b/src/profile/games/sghd/helpmenu.cpp
+@@ -0,0 +1,38 @@
++#include "helpmenu.h"
++#include "../../profile_internal.h"
++#include "../../../ui/ui.h"
++#include "../../../game.h"
++#include "../../../games/sghd/helpmenu.h"
++
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace HelpMenu {
++
++void Configure() {
++  Pages = EnsureGetMember<std::vector<Sprite>>("Pages");
++  PageNumberSprites = EnsureGetMember<std::vector<Sprite>>("PageNumberSprites");
++  PageNumberPosition = EnsureGetMember<glm::vec2>("PageNumberPosition");
++  PageCountSprite = EnsureGetMember<Sprite>("PageCountSprite");
++  PageCountPosition = EnsureGetMember<glm::vec2>("PageCountPosition");
++  TabSprite = EnsureGetMember<Sprite>("TabSprite");
++  TabHoverSprite = EnsureGetMember<Sprite>("TabHoverSprite");
++  TabCurrentSprite = EnsureGetMember<Sprite>("TabCurrentSprite");
++  TabPositions = EnsureGetMember<std::vector<glm::vec2>>("TabPositions");
++  TabHitAreas = EnsureGetMember<std::vector<RectF>>("TabHitAreas");
++  GuideSprite = EnsureGetMember<Sprite>("GuideSprite");
++  GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
++  TryGetMember<float>("EnterDistance", EnterDistance);
++  TryGetMember<float>("PageSlideFrames", PageSlideFrames);
++  TryGetMember<float>("PageSlideStep", PageSlideStep);
++  TryGetMember<float>("BlinkFrames", BlinkFrames);
++
++  auto drawType = EnsureGetMember<Game::DrawComponentType>("DrawType");
++  UI::HelpMenuPtr = new UI::SGHD::HelpMenu();
++  UI::Menus[drawType].push_back(UI::HelpMenuPtr);
++}
++
++}  // namespace HelpMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/games/sghd/helpmenu.h b/src/profile/games/sghd/helpmenu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..f142ea3173555910a2e8e9937de0183a21123b9a
+--- /dev/null
++++ b/src/profile/games/sghd/helpmenu.h
+@@ -0,0 +1,41 @@
++#pragma once
++
++#include <vector>
++
++#include "../../../spritesheet.h"
++#include "../../../util.h"
++
++// HELP screen of the STEINS;GATE (Steam, 2016) generation of the MAGES. PC engine: full screen manual pages with a
++// page number, page tabs and a button guide. Every sprite, position and timing comes from the profile (taken from
++// the original Game.exe, see the sg-pc profile).
++namespace Impacto {
++namespace Profile {
++namespace SGHD {
++namespace HelpMenu {
++
++inline std::vector<Sprite> Pages;              // full screen manual pages
++inline std::vector<Sprite> PageNumberSprites;  // one per page
++inline glm::vec2 PageNumberPosition{};
++inline Sprite PageCountSprite;
++inline glm::vec2 PageCountPosition{};
++inline Sprite TabSprite;         // every tab
++inline Sprite TabHoverSprite;    // over the tab under the mouse (blinking)
++inline Sprite TabCurrentSprite;  // over the tab of the current page (blinking)
++inline std::vector<glm::vec2> TabPositions;
++inline std::vector<RectF> TabHitAreas;
++inline Sprite GuideSprite;
++inline glm::vec2 GuidePosition{};
++
++// While SW_SYSSUBMENUCT counts 0..32 the page comes in from x = -EnterDistance.
++inline float EnterDistance = 400.0f;
++// A page change slides the new page in from PageSlideStep * PageSlideFrames pixels aside, fading it in.
++inline float PageSlideFrames = 16.0f;
++inline float PageSlideStep = 48.0f;
++inline float BlinkFrames = 32.0f;
++
++void Configure();
++
++}  // namespace HelpMenu
++}  // namespace SGHD
++}  // namespace Profile
++}  // namespace Impacto
+diff --git a/src/profile/ui/helpmenu.cpp b/src/profile/ui/helpmenu.cpp
+index 00ccb8129a9365b7e3ee1aa208c813046015fb39..d57c430fbecce60f82341301650a50e41b4de54e 100644
+--- a/src/profile/ui/helpmenu.cpp
++++ b/src/profile/ui/helpmenu.cpp
+@@ -1,6 +1,7 @@
+ #include "helpmenu.h"
+ #include "../profile_internal.h"
+ #include "../games/cclcc/helpmenu.h"
++#include "../games/sghd/helpmenu.h"
+ #include "../../ui/ui.h"
+ #include "../../log.h"
+ 
+@@ -18,6 +19,8 @@ void Configure() {
+ 
+     if (Type == HelpMenuType::CCLCC) {
+       CCLCC::HelpMenu::Configure();
++    } else if (Type == HelpMenuType::SGHD) {
++      SGHD::HelpMenu::Configure();
+     }
+ 
+     Pop();
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index 9c2eeb5871155b4c4cc0d725fab0cedd1d390ab5..de6d9a00c944f77a4a5aeac4fb44835fa75d1186 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -104,6 +104,7 @@ enum class TrophyMenuType : int {
+ enum class HelpMenuType : int {
+   None,
+   CCLCC,
++  SGHD,
+ };
+ enum class GameSpecificType : int {
+   None,
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index 5cee1585c93bdf1b26de5452bf7c6d13f2a2ed3b..bc164848b11d0b9ec57dc1315c7a318fb5890285 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -9,6 +9,7 @@
+ #include "inst_misc.h"
+ #include "../ui/ui.h"
+ #include "../profile/scriptvars.h"
++#include "../profile/ui/helpmenu.h"
+ 
+ namespace Impacto {
+ 
+@@ -116,10 +117,10 @@ inline void InstSghdOption(Sc3VmThread* thread, float dt) {
+ }
+ 
+ // 10:1A (Help, operands as in CC). HELP has the same protocol as CONFIG: Help(Init), then Help(Main) every frame until
+-// SF_SUBMENUEXIT. There is no S;G help screen yet, so end it once the submenu is fully shown (see InstSghdOption).
++// SF_SUBMENUEXIT. Without a help screen in the profile, end it once the submenu is fully shown (see InstSghdOption).
+ inline void InstSghdHelp(Sc3VmThread* thread, float dt) {
+   const int type = thread->GetIp()[2];
+-  if (type == 1) {
++  if (type == 1 && Profile::HelpMenu::Type == UI::HelpMenuType::None) {
+     using namespace Impacto::Profile::ScriptVars;
+     if (ScrWork[SW_SYSSUBMENUALPHA] >= 256) SetFlag(SF_SUBMENUEXIT, true);
+   }

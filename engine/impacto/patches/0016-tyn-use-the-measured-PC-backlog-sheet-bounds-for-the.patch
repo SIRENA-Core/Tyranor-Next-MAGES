@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 12:32:06 -0800
+Subject: [PATCH] tyn: use the measured PC backlog sheet bounds for the icon
+ and scrollbar
+
+TYN-only: the PC backlog sheet is not the PS3 sheet scaled by 1.5 and the
+generated bounds drew a black bar instead of the voice icon, a thumb that was
+not on the sheet, and a track that pointed past the sheet's right edge (x=2250
+on a 2048 wide sheet).
+
+Measured on backlog.png (alpha connected components): speaker icon
+(1969,7,49x44), ginkgo orb used as the scroll thumb (1965,63,36x36), grey
+scroll track (1927,149,10x902). Entry spacing and the highlight bar are still
+the scaled PS3 values.
+
+Observed on MuMu (Android 15, mo6tw-pc-zhs): the backlog now shows speaker
+icons before voiced entries and a track with the orb thumb at the top.
+
+diff --git a/profiles/mo6tw-pc/hud/backlogmenu.lua b/profiles/mo6tw-pc/hud/backlogmenu.lua
+index 3ba709ea978c7b6fbc44ce6bd78f28bb277fdce8..dd58aa84b2653dd2cff3555ffb72ad366cdfb3c5 100644
+--- a/profiles/mo6tw-pc/hud/backlogmenu.lua
++++ b/profiles/mo6tw-pc/hud/backlogmenu.lua
+@@ -1,4 +1,6 @@
+--- TODO(tyn): PC layout differs, coordinates approximate
++-- PC layout differs from the x1.5 scaled PS3 one: the voice icon, scrollbar thumb and track below are measured on the
++-- PC backlog sheet (alpha components); the entry layout and the highlight bar are still approximate.
++-- TODO(tyn): remaining coordinates approximate
+ -- Generated from profiles/mo6tw/hud/backlogmenu.lua by tools/impacto/mo6tw-pc/gen_hud.py in yuukana1/Tyranor-Next-Impacto: coordinates x1.5.
+ -- The PC sheets for these menus were repacked, so sprite bounds are not exact.
+ root.BacklogMenu = {
+@@ -20,7 +22,7 @@ root.BacklogMenu = {
+     ScrollbarTrackSprite = "ScrollbarTrack",
+     ScrollbarThumbSprite = "ScrollbarThumb",
+     ScrollbarPosition = { X = 1748, Y = 147 },
+-    ScrollbarThumbLength = 45,
++    ScrollbarThumbLength = 36,
+ 
+     EntriesStart = { X = 0, Y = 135 },
+     RenderingBounds = { X = 125, Y = 125, Width = 1676, Height = 885 },
+@@ -42,7 +44,7 @@ root.Sprites["BacklogBackground"] = {
+ 
+ root.Sprites["VoiceIcon"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1922, Y = 2, Width = 45, Height = 45 },
++    Bounds = { X = 1969, Y = 7, Width = 49, Height = 44 },
+ };
+ 
+ root.Sprites["EntryHighlight"] = {
+@@ -52,10 +54,10 @@ root.Sprites["EntryHighlight"] = {
+ 
+ root.Sprites["ScrollbarThumb"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1922, Y = 48, Width = 45, Height = 45 },
++    Bounds = { X = 1965, Y = 63, Width = 36, Height = 36 },
+ };
+ 
+ root.Sprites["ScrollbarTrack"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 2250, Y = 0, Width = 12, Height = 851 },
++    Bounds = { X = 1927, Y = 149, Width = 10, Height = 902 },
+ };
+\ No newline at end of file

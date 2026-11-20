@@ -16,7 +16,9 @@ import java.io.File;
  *   <li>{@code getArguments()}: the engine's own {@code -g -bp -gc -uc} command line, no {@code args.txt};</li>
  *   <li>{@code getChosenDirectory()}: the per-game data root instead of the user-picked folder;</li>
  *   <li>{@code chooseDirectory()} / {@code resetChosenDir()}: the folder is owned by the host, so the engine's
- *       picker is disabled and a reset is a no-op.</li>
+ *       picker is disabled and a reset is a no-op;</li>
+ *   <li>after {@code onCreate}, the on-screen keys and virtual mouse ({@link TouchControls}) are added to SDL's
+ *       protected layout; they only send ordinary keyboard and mouse events into SDL.</li>
  * </ul>
  * Native code calls the last three through JNI on the activity object, so these overrides are what it sees.
  * Not exported; started only by {@link ImpactoLaunchActivity} after validation.
@@ -25,6 +27,7 @@ public final class TyranorImpactoActivity extends ImpactoActivity {
     private ImpactoRequest request;
     private File externalFilesDir;
     private File internalFilesDir;
+    private TouchControls touchControls;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +35,26 @@ public final class TyranorImpactoActivity extends ImpactoActivity {
         internalFilesDir = getFilesDir();
         request = ImpactoIntents.read(getIntent());
         super.onCreate(savedInstanceState);
+        // Touch-only devices cannot reach Auto, Skip, quick save or the system menu otherwise (see TouchControls).
+        if (getIntent().getBooleanExtra(ImpactoSettings.EXTRA_TOUCH_CONTROLS, true)) {
+            touchControls = TouchControls.attach(this, mLayout);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && touchControls != null) {
+            touchControls.refresh();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (touchControls != null) {
+            touchControls.release();
+        }
+        super.onPause();
     }
 
     @Override

@@ -126,6 +126,10 @@ public final class ImpactoLaunchActivity extends Activity {
                 .putExtra(ImpactoRequest.EXTRA_GAME_KEY, request.gameKey)
                 .putExtra(ImpactoRequest.EXTRA_TITLE, request.title)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Boolean touchControls = ImpactoIntents.readSettings(incoming).touchControls;
+        if (touchControls != null) {
+            game.putExtra(ImpactoSettings.EXTRA_TOUCH_CONTROLS, touchControls.booleanValue());
+        }
         startActivity(game);
     }
 }

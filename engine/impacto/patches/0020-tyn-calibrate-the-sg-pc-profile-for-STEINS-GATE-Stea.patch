@@ -1,0 +1,866 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Wed, 18 Nov 2026 16:07:52 -0800
+Subject: [PATCH] tyn: calibrate the sg-pc profile for STEINS;GATE (Steam)
+
+TYN-only. Switch the profile to InstructionSet.SGHD and replace the Chaos;Child art definitions with
+measured S;G ones where they are needed to see the game:
+  - sprites.lua: sheets by system.mpk id (DATA01 6, FONT 9, BACKLOG 2, BLOGMASK 3, TITLE_CHIP 30);
+  - hud/titlemenu.lua: the CC title menu class (same structure: START/LOAD/EXTRA/CONFIG/HELP, LOAD and EXTRA
+    sub lists) fed with the S;G title sheet: the 1920x1080 background at (0,0), main entries at x=1922/2123,
+    sub entries 249x37 at x=1957/2245, orange pointer, "Press Enter"; the CC specific layers are neutralised
+    with a transparent block. Screen positions of the entries are estimates;
+  - dialogue.lua: the ADV box is DATA01 (1150,1206 1921x330) at y=750;
+  - font.lua: the font sheet is 64x125 cells (3072x6000), not 64x117;
+  - scriptvars.lua: SW_MESWIN0TYPE moves to an unused block (4422 is the second mask priority in S;G; the
+    scripts write 34 there, which switched the dialogue text off);
+  - the remaining copied CC HUD sprites (save icon, loading, date, system message, selection, backlog, tips)
+    point at a transparent block until their S;G art is measured.
+Verified on MuMu (Android 15): logos, title, menu, START, the opening scene with its dialogue text.
+
+diff --git a/profiles/sg-pc/dialogue.lua b/profiles/sg-pc/dialogue.lua
+index 3ccc9b7a6f71574d10a5a3f2cbe35bfde4c6a9a0..2932d3a810357e9f436ad18872b9241660e991b0 100644
+--- a/profiles/sg-pc/dialogue.lua
++++ b/profiles/sg-pc/dialogue.lua
+@@ -1,16 +1,16 @@
+ root.Sprites["ADVBox"] = {
+-    Sheet = "MesBox",
+-    Bounds = { X = 0, Y = 1, Width = 1920, Height = 298 }
++    Sheet = "Data",
++    Bounds = { X = 1150, Y = 1206, Width = 1920, Height = 330 }
+ };
+ 
+ root.Sprites["ADVBoxMask"] = {
+-    Sheet = "MesBox",
+-    Bounds = { X = 0, Y = 301, Width = 1920, Height = 298 }
++    Sheet = "Data",
++    Bounds = { X = 1150, Y = 1206, Width = 1920, Height = 330 }
+ };
+ 
+ root.Sprites["WaitIconSprite"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1, Y = 456, Width = 112, Height = 64 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Dialogue = {
+@@ -24,7 +24,7 @@ root.Dialogue = {
+     ADVBoxSprite = "ADVBox",
+     ADVBoxMask = "ADVBoxMask",
+     ADVBoxEffectDuration = 10,
+-    ADVBoxPos = { X = 0, Y = 760 },
++    ADVBoxPos = { X = 0, Y = 750 },
+     FadeOutDuration = 0.33,
+     FadeInDuration = 0.33,
+     TextFadeInDuration = 0.33,
+@@ -138,13 +138,8 @@ local nametagLabelHeight = 40;
+ 
+ for i = 1, 80 do
+     root.Sprites["NametagMainSprite" .. i] = {
+-        Sheet = "NamePlate",
+-        Bounds = {
+-            X = nametagMainX,
+-            Y = nametagMainY,
+-            Width = nametagMainWidth,
+-            Height = nametagMainHeight
+-        }
++        Sheet = "Data",
++        Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+     };
+     root.Dialogue.NametagMainSprites[#root.Dialogue.NametagMainSprites + 1] = "NametagMainSprite" .. i;
+ 
+@@ -156,13 +151,8 @@ for i = 1, 80 do
+     end
+ 
+     root.Sprites["NametagLabelSprite" .. i] = {
+-        Sheet = "NamePlate",
+-        Bounds = {
+-            X = nametagLabelX,
+-            Y = nametagLabelY,
+-            Width = nametagLabelWidth,
+-            Height = nametagLabelHeight
+-        }
++        Sheet = "Data",
++        Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+     };
+     root.Dialogue.NametagLabelSprites[#root.Dialogue.NametagLabelSprites + 1] = "NametagLabelSprite" .. i;
+ 
+diff --git a/profiles/sg-pc/font.lua b/profiles/sg-pc/font.lua
+index f985bf0d81a5b06d31e1b433485ba54d03765388..54e678fd2332b90e7d763c643dc36aca35118553 100644
+--- a/profiles/sg-pc/font.lua
++++ b/profiles/sg-pc/font.lua
+@@ -2,7 +2,7 @@ root.Fonts = {
+     ["Default"] = {
+         Type = FontType.SingleSheet,
+         Sheet = "Font",
+-        GridSize = { X = 64, Y = 117 },
++        GridSize = { X = 64, Y = 125 },
+         AdvanceWidthsTable = {},
+         AdvanceWidthsEmWidth = 32,
+     },
+@@ -68,7 +68,7 @@ local westernAdvanceWidths = {
+     0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20
+ };
+ 
+-for i = 1, (64 * 117) do
++for i = 1, (64 * 125) do
+     if i <= #westernAdvanceWidths then
+         root.Fonts["Default"].AdvanceWidthsTable[i] = westernAdvanceWidths[i];
+     else
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index 82e35a6a8f89512daefc9e4ae3de1e76322ed839..7f392dd7aec58281e1b43f5ffddcbe7dfd93c738 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -22,7 +22,7 @@ root.ScreenCaptureCount = 2;
+ root.Vm = {
+     StartScript = 2,
+     StartScriptBuffer = 0,
+-    GameInstructionSet = InstructionSet.CC,
++    GameInstructionSet = InstructionSet.SGHD,
+     UseReturnIds = true,
+ 
+     ScrWorkChaStructSize = 40,
+diff --git a/profiles/sg-pc/hud/backlogmenu.lua b/profiles/sg-pc/hud/backlogmenu.lua
+index 91ee00996e94947643059d11e02702159217bbdd..7502728ea31a4f68f30d79aa4fee5e335e086af6 100644
+--- a/profiles/sg-pc/hud/backlogmenu.lua
++++ b/profiles/sg-pc/hud/backlogmenu.lua
+@@ -24,7 +24,7 @@ root.BacklogMenu = {
+     ScrollbarThumbLength = 87,
+ 
+     EntriesStart = { X = 547, Y = 149 },
+-    RenderingBounds = { X = 0, Y = 121, Width = 1920, Height = 868 },
++    RenderingBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     EntryYPadding = 26,
+ 
+     FadeInDuration = 0.5,
+@@ -36,41 +36,41 @@ root.BacklogMenu = {
+     PageUpDownHeight = 765,
+ 
+     BacklogMask = "BacklogMask",
+-    HoverBounds = { X = 380, Y = 145, Width = 1230, Height = 820 }
++    HoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["BacklogBackground"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     -- Height does *not* include the repeat overlap
+ };
+ 
+ root.Sprites["BacklogHeader"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 962, Y = 1210, Width = 542, Height = 542 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Sprites["BacklogControls"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 0, Y = 1153, Width = 1920, Height = 57 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Sprites["VoiceIcon"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1519, Y = 1216, Width = 43, Height = 43 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Sprites["EntryHighlight"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 0, Y = 1101, Width = 1920, Height = 52 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["ScrollbarThumb"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 2025, Y = 1113, Width = 23, Height = 87 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Sprites["ScrollbarTrack"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 2030, Y = 41, Width = 11, Height = 915 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+\ No newline at end of file
+diff --git a/profiles/sg-pc/hud/datedisplay.lua b/profiles/sg-pc/hud/datedisplay.lua
+index 9402991362c8bf012a777efad29a5a82e7d7e777..2e8c5be84186b808f059544fe60dd1b2effa8b3e 100644
+--- a/profiles/sg-pc/hud/datedisplay.lua
++++ b/profiles/sg-pc/hud/datedisplay.lua
+@@ -124,55 +124,30 @@ end
+ 
+ root.Sprites[name .. "MonthDaySeparator"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 2845.5,
+-        Y = 49.5,
+-        Width = 15,
+-        Height = 42
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.DateDisplay.MDSeparatorSprite = name .. "MonthDaySeparator";
+ 
+ root.Sprites[name .. "DayYearSeparator"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 2637,
+-        Y = 94.5,
+-        Width = 12,
+-        Height = 30
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.DateDisplay.DYSeparatorSprite = name .. "DayYearSeparator";
+ 
+ root.Sprites[name .. "OpenBracket"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 2649,
+-        Y = 94.5,
+-        Width = 12,
+-        Height = 30
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.DateDisplay.OpenBracketSprite = name .. "OpenBracket";
+ 
+ root.Sprites[name .. "CloseBracket"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 2664,
+-        Y = 94.5,
+-        Width = 12,
+-        Height = 30
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.DateDisplay.CloseBracketSprite = name .. "CloseBracket";
+ 
+ root.Sprites[name .. "Background"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 2287.5,
+-        Y = 2,
+-        Width = 675,
+-        Height = 42
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.DateDisplay.BackgroundSprite = name .. "Background";
+\ No newline at end of file
+diff --git a/profiles/sg-pc/hud/saveicon.lua b/profiles/sg-pc/hud/saveicon.lua
+index 789d4cfc552db501382577b2e52e141bb581bf68..fde5ab949480823aca657d88625286f8b9a0c271 100644
+--- a/profiles/sg-pc/hud/saveicon.lua
++++ b/profiles/sg-pc/hud/saveicon.lua
+@@ -26,5 +26,5 @@ MakeAnimation({
+ 
+ root.Sprites["SaveIconBg"] = {
+     Sheet = "Data",
+-    Bounds = { X = 630, Y = 479, Width = 179, Height = 62 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+\ No newline at end of file
+diff --git a/profiles/sg-pc/hud/selectiondisplay.lua b/profiles/sg-pc/hud/selectiondisplay.lua
+index 33a038e05f2cd9f4e880772f464932078fec01d9..ee068c9504bd109842672afede5ff9a4acfd6dac 100644
+--- a/profiles/sg-pc/hud/selectiondisplay.lua
++++ b/profiles/sg-pc/hud/selectiondisplay.lua
+@@ -21,55 +21,55 @@ root.SelectionDisplay = {
+ 
+ root.Sprites["SelectionBackground"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1, Y = 535, Width = 829, Height = 69 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameTopLeft"] = {
+     Sheet = "Data",
+-    Bounds = { X = 0, Y = 0, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameTopSide"] = {
+     Sheet = "Data",
+-    Bounds = { X = 16, Y = 0, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameTopRight"] = {
+     Sheet = "Data",
+-    Bounds = { X = 32, Y = 0, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameLeftSide"] = {
+     Sheet = "Data",
+-    Bounds = { X = 0, Y = 16, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameBottomLeft"] = {
+     Sheet = "Data",
+-    Bounds = { X = 0, Y = 32, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameRightSide"] = {
+     Sheet = "Data",
+-    Bounds = { X = 32, Y = 16, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameBottomRight"] = {
+     Sheet = "Data",
+-    Bounds = { X = 32, Y = 32, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameBottomSide"] = {
+     Sheet = "Data",
+-    Bounds = { X = 16, Y = 32, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["PlainSelectionFrameMiddle"] = {
+     Sheet = "Data",
+-    Bounds = { X = 16, Y = 16, Width = 16, Height = 16 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites["SelectionHighlight"] = {
+     Sheet = "Data",
+-    Bounds = { X = 65, Y = 33, Width = 94, Height = 30 }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+diff --git a/profiles/sg-pc/hud/sysmesboxdisplay.lua b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+index 8053ae6a88125c5261681f389785355fcc5bd81f..3e9e0d0d0af156577fd9ceb57fc9d2879cd421d5 100644
+--- a/profiles/sg-pc/hud/sysmesboxdisplay.lua
++++ b/profiles/sg-pc/hud/sysmesboxdisplay.lua
+@@ -36,89 +36,44 @@ root.SysMesBoxDisplay = {
+     FadeInDuration = 0.4,
+     FadeOutDuration = 0.4,
+ 
+-    ButtonYesHoverBounds = {
+-        X = 1128,
+-        Y = 847,
+-        Width = 141,
+-        Height = 103
+-    },
+-    ButtonNoHoverBounds = {
+-        X = 1224,
+-        Y = 744,
+-        Width = 156,
+-        Height = 121
+-    },
+-    ButtonOkHoverBounds = {
+-        X = 0,
+-        Y = 0,
+-        Width = 0,
+-        Height = 0
+-    }
++    ButtonYesHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
++    ButtonNoHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
++    ButtonOkHoverBounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ 
+ root.Sprites[name .. "ButtonYes"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 640,
+-        Y = 1229,
+-        Width = 232,
+-        Height = 298
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonYes = name .. "ButtonYes";
+ 
+ root.Sprites[name .. "ButtonNo"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 1109,
+-        Y = 1124,
+-        Width = 244,
+-        Height = 200
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonNo = name .. "ButtonNo";
+ 
+ root.Sprites[name .. "ButtonOK"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 0,
+-        Y = 1229,
+-        Width = 318,
+-        Height = 298
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonOK = name .. "ButtonOK";
+ 
+ root.Sprites[name .. "ButtonYesHighlighted"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 874,
+-        Y = 1229,
+-        Width = 232,
+-        Height = 298
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonYesHighlighted = name .. "ButtonYesHighlighted";
+ 
+ root.Sprites[name .. "ButtonNoHighlighted"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 1109,
+-        Y = 1326,
+-        Width = 244,
+-        Height = 200
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonNoHighlighted = name .. "ButtonNoHighlighted";
+ 
+ root.Sprites[name .. "ButtonOKHighlighted"] = {
+     Sheet = sheet,
+-    Bounds = {
+-        X = 320,
+-        Y = 1229,
+-        Width = 318,
+-        Height = 298
+-    }
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 }
+ };
+ root.SysMesBoxDisplay.ButtonOKHighlighted = name .. "ButtonOKHighlighted";
+ 
+diff --git a/profiles/sg-pc/hud/systemmenu.lua b/profiles/sg-pc/hud/systemmenu.lua
+index 92b25e0d99bbf1778815220ce9126e91eb159248..d513ba82ce875fb1e818691a72c5dafd6366971c 100644
+--- a/profiles/sg-pc/hud/systemmenu.lua
++++ b/profiles/sg-pc/hud/systemmenu.lua
+@@ -75,7 +75,7 @@ end
+ 
+ root.Sprites["SystemMenuBackground"] = {
+     Sheet = "Menu",
+-    Bounds = { X = 0, Y = 1088, Width = 1920, Height = 1080 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+ };
+ 
+ root.Sprites["SystemMenuButtonBackground"] = {
+@@ -86,24 +86,24 @@ root.Sprites["SystemMenuButtonBackground"] = {
+ 
+ root.Sprites["SystemMenuSkyBackground"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1383, Y = 534, Width = 418, Height = 90 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+ };
+ 
+ root.Sprites["SystemMenuSkyArrow"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1802, Y = 534, Width = 70, Height = 90 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+ };
+ 
+ root.Sprites["SystemMenuSkyText"] = {
+     Sheet = "Data",
+-    Bounds = { X = 1875, Y = 587, Width = 119, Height = 30 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+ };
+ 
+ root.Sprites["SystemMenuButtonPrompts"] = {
+     Sheet = "Menu",
+-    Bounds = { X = 1231, Y = 528, Width = 400, Height = 21 },
++    Bounds = { X = 3040, Y = 1700, Width = 8, Height = 8 },
+     BaseScale = { X = 1280 / 960, Y = 720 / 544 }
+ };
+\ No newline at end of file
+diff --git a/profiles/sg-pc/hud/titlemenu.lua b/profiles/sg-pc/hud/titlemenu.lua
+index 231587efd5839b0a57497b867f8c63c212f9563b..f9df4182d9a93524cfe5a33cf3db0019dd2c5822 100644
+--- a/profiles/sg-pc/hud/titlemenu.lua
++++ b/profiles/sg-pc/hud/titlemenu.lua
+@@ -1,44 +1,53 @@
++-- STEINS;GATE (Steam) title screen, drawn by the Chaos;Child PC title menu class (TitleMenuType.CC), which has the same
++-- structure: a main list (START / LOAD / EXTRA / CONFIG / HELP), a LOAD sub list (QUICK LOAD, LOAD) and an EXTRA sub
++-- list. All art is on TITLE_CHIP.DDS (system.mpk id 30, 3072x1536): the background with the logo and the copyright
++-- line is one 1920x1080 picture at (0,0); the main entries are pairs (normal | highlighted) at x=1922 / x=2123;
++-- the sub entries are 249x37 cells at x=1957 (light) / 2245 (dark) with an orange pointer at x=1930.
++-- Positions on screen are estimates (no reference screenshot of the Windows game): a left aligned list.
++-- The Chaos;Child specific layers (fence, smoke, overlay, menu backing) are neutralised with a fully transparent pixel.
++local clear = { X = 3040, Y = 1500, Width = 8, Height = 8 };
++
+ root.TitleMenu = {
+     Type = TitleMenuType.CC,
+     DrawType = DrawComponentType.SystemMenu,
+-    PressToStartPos = { X = 816, Y = 738 },
++    PressToStartPos = { X = 140, Y = 995 },
+     PressToStartAnimDurationIn = 0.7,
+     PressToStartAnimDurationOut = 0.7,
+     PressToStartAnimFastDurationIn = 0.1,
+     PressToStartAnimFastDurationOut = 0.1,
+     BackgroundX = 0,
+     BackgroundY = 0,
+-    BackgroundBoundsX = 580,
+-    BackgroundBoundsYNormal = 1,
+-    BackgroundBoundsYTrue = 1535,
++    BackgroundBoundsX = 0,
++    BackgroundBoundsYNormal = 0,
++    BackgroundBoundsYTrue = 0,
+     BackgroundBoundsWidth = 1920,
+-    BackgroundBoundsHeight = 318,
++    BackgroundBoundsHeight = 1080,
+     FenceX = 0,
+-    FenceY = 288,
+-    FenceBoundsX = 1536,
+-    FenceBoundsYNormal = 1,
+-    FenceBoundsYTrue = 865,
+-    FenceBoundsWidth = 1920,
+-    FenceBoundsHeight = 862,
+-    CopyrightX = 640,
+-    CopyrightY = 947,
+-    CopyrightXMoveOffset = 1536,
++    FenceY = 0,
++    FenceBoundsX = 3040,
++    FenceBoundsYNormal = 1500,
++    FenceBoundsYTrue = 1500,
++    FenceBoundsWidth = 8,
++    FenceBoundsHeight = 8,
++    CopyrightX = 0,
++    CopyrightY = 0,
++    CopyrightXMoveOffset = 0,
+     SmokeX = 0,
+-    SmokeY = 580,
+-    SmokeBoundsX = 20,
+-    SmokeBoundsY = 1800,
+-    SmokeBoundsWidth = 1920,
+-    SmokeBoundsHeight = 500,
+-    SmokeAnimationBoundsXOffset = 20,
+-    SmokeAnimationBoundsXMax = 1919,
+-    SmokeOpacityNormal = 0.25,
++    SmokeY = 0,
++    SmokeBoundsX = 3040,
++    SmokeBoundsY = 1500,
++    SmokeBoundsWidth = 8,
++    SmokeBoundsHeight = 8,
++    SmokeAnimationBoundsXOffset = 0,
++    SmokeAnimationBoundsXMax = 0,
++    SmokeOpacityNormal = 0.0,
+     SmokeAnimationDurationIn = 32,
+     SmokeAnimationDurationOut = 32,
+     MoveLeftAnimationDurationIn = 0.7,
+     MoveLeftAnimationDurationOut = 0.7,
+     MenuSprite = "TitleMenuMenu",
+-    MenuX = 27,
+-    MenuY = 26,
++    MenuX = 0,
++    MenuY = 0,
+     PressToStartSprite = "TitleMenuPressToStart",
+     BackgroundSprite = "TitleMenuBackground",
+     FenceSprite = "TitleMenuFence",
+@@ -46,15 +55,17 @@ root.TitleMenu = {
+     OverlaySprite = "TitleMenuOverlay",
+     SmokeSprite = "TitleMenuSmoke",
+     ItemHighlightSprite = "TitleMenuItemHighlight",
+-    ItemHighlightOffsetX = 174,
+-    ItemHighlightOffsetY = 7,
++    -- main entries are drawn at (2 * ItemHighlightOffsetX, ItemYBase + i * ItemPadding)
++    ItemHighlightOffsetX = 80,
++    ItemHighlightOffsetY = 0,
+     ItemHighlightPointerSprite = "TitleMenuPointerItemHighlight",
+-    ItemHighlightPointerY = 89,
+-    ItemPadding = 56,
+-    ItemYBase = 335,
+-    SecondaryFirstItemHighlightOffsetX = 225,
+-    SecondarySecondItemHighlightOffsetX = 370,
+-    SecondaryThirdItemHighlightOffsetX = 590,
++    ItemHighlightPointerY = 40,
++    ItemPadding = 64,
++    ItemYBase = 420,
++    -- sub entries are drawn at (2 * Secondary*ItemHighlightOffsetX, ItemYBase + row * ItemPadding)
++    SecondaryFirstItemHighlightOffsetX = 220,
++    SecondarySecondItemHighlightOffsetX = 220,
++    SecondaryThirdItemHighlightOffsetX = 220,
+     LoadSprite = "TitleMenuLoad",
+     LoadHighlightSprite = "TitleMenuLoadHighlight",
+     QuickLoadSprite = "TitleMenuQLoad",
+@@ -70,123 +81,35 @@ root.TitleMenu = {
+     MenuEntriesNum = 5
+ };
+ 
++-- main entries: START, LOAD, EXTRA, CONFIG at x=1922 / 2123 (rows y=1, 50, 100, 149); HELP at x=2324 / 2525 (y=1)
++local mainRows = { 1, 50, 100, 149 };
+ for i = 0, 4 do
+-    root.Sprites["TitleMenuEntry" .. i] = {
+-        Sheet = "TitleChip",
+-        Bounds = {
+-            X = 4,
+-            Y = 324 + i * root.TitleMenu.ItemPadding,
+-            Width = 220,
+-            Height = 30
+-        }
+-    };
++    local nx, hx, y = 1922, 2123, mainRows[i + 1];
++    if i == 4 then nx, hx, y = 2324, 2525, 1; end
++    root.Sprites["TitleMenuEntry" .. i] = { Sheet = "TitleChip", Bounds = { X = nx, Y = y, Width = 197, Height = 48 } };
++    root.Sprites["TitleMenuEntryH" .. i] = { Sheet = "TitleChip", Bounds = { X = hx, Y = y, Width = 197, Height = 48 } };
+     root.TitleMenu.MenuEntriesSprites[#root.TitleMenu.MenuEntriesSprites + 1] = "TitleMenuEntry" .. i;
++    root.TitleMenu.MenuEntriesHighlightedSprites[#root.TitleMenu.MenuEntriesHighlightedSprites + 1] = "TitleMenuEntryH" .. i;
+ end
+ 
+-for i = 0, 4 do
+-    root.Sprites["TitleMenuEntry" .. i] = {
+-        Sheet = "TitleChip",
+-        Bounds = {
+-            X = 4,
+-            Y = 324 + i * root.TitleMenu.ItemPadding,
+-            Width = 220,
+-            Height = 30
+-        }
+-    };
+-    root.TitleMenu.MenuEntriesHighlightedSprites[#root.TitleMenu.MenuEntriesHighlightedSprites + 1] = "TitleMenuEntry" .. i;
++-- sub entries (light 1957 | dark 2245), rows pitch 39 from y=199
++local function sub(name, row)
++    local y = 199 + row * 39;
++    root.Sprites["TitleMenu" .. name] = { Sheet = "TitleChip", Bounds = { X = 1957, Y = y, Width = 249, Height = 37 } };
++    root.Sprites["TitleMenu" .. name .. "Highlight"] = { Sheet = "TitleChip", Bounds = { X = 2245, Y = y, Width = 249, Height = 37 } };
+ end
+-
+-root.Sprites["TitleMenuItemHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 896, Y = 64, Width = 638, Height = 50 },
+-};
+-
+-root.Sprites["TitleMenuLoad"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 417, Y = 288, Width = 114, Height = 39 },
+-};
+-
+-root.Sprites["TitleMenuLoadHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 414, Y = 342, Width = 116, Height = 39 },
+-};
+-
+-root.Sprites["TitleMenuQLoad"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 553, Y = 288, Width = 245, Height = 39 },
+-};
+-
+-root.Sprites["TitleMenuQLoadHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 550, Y = 342, Width = 249, Height = 39 },
+-};
+-
+-root.Sprites["TitleMenuTips"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 416, Y = 402, Width = 95, Height = 34 },
+-};
+-
+-root.Sprites["TitleMenuTipsHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 417, Y = 457, Width = 96, Height = 36 },
+-};
+-
+-root.Sprites["TitleMenuLibrary"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 535, Y = 402, Width = 178, Height = 34 },
+-};
+-
+-root.Sprites["TitleMenuLibraryHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 535, Y = 457, Width = 180, Height = 36 },
+-};
+-
+-root.Sprites["TitleMenuEndingList"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 736, Y = 401, Width = 258, Height = 35 },
+-};
+-
+-root.Sprites["TitleMenuEndingListHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 736, Y = 457, Width = 260, Height = 36 },
+-};
+-
+-root.Sprites["TitleMenuPointerItemHighlight"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 805, Y = 78, Width = 56, Height = 36 },
+-};
+-
+-root.Sprites["TitleMenuPressToStart"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 1508, Y = 689, Width = 304, Height = 94 },
+-};
+-
+-root.Sprites["TitleMenuFence"] = {
+-    Sheet = "Title",
+-    Bounds = { X = 1536, Y = 1, Width = 1920, Height = 862 },
+-};
+-
+-root.Sprites["TitleMenuCopyright"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 1, Y = 667, Width = 860, Height = 20 },
+-};
+-
+-root.Sprites["TitleMenuMenu"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 971, Y = 705, Width = 521, Height = 236 },
+-};
+-
+-root.Sprites["TitleMenuBackground"] = {
+-    Sheet = "TitleChip",
+-    Bounds = { X = 580, Y = 1, Width = 1920, Height = 318 },
+-};
+-
+-root.Sprites["TitleMenuOverlay"] = {
+-    Sheet = "MenuChip",
+-    Bounds = { X = 155, Y = 142, Width = 1898, Height = 1058 },
+-};
+-
+-root.Sprites["TitleMenuSmoke"] = {
+-    Sheet = "MenuChip",
+-    Bounds = { X = 0, Y = 1900, Width = 2000, Height = 410 },
+-};
+\ No newline at end of file
++sub("QLoad", 0);        -- QUICK LOAD
++sub("Load", 1);         -- LOAD
++sub("EndingList", 2);   -- CLEAR LIST
++sub("Library", 3);      -- CG LIBRARY
++sub("Tips", 6);         -- TIPS
++
++root.Sprites["TitleMenuItemHighlight"] = { Sheet = "TitleChip", Bounds = clear };
++root.Sprites["TitleMenuPointerItemHighlight"] = { Sheet = "TitleChip", Bounds = { X = 1930, Y = 206, Width = 25, Height = 25 } };
++root.Sprites["TitleMenuPressToStart"] = { Sheet = "TitleChip", Bounds = { X = 100, Y = 1076, Width = 460, Height = 49 } };
++root.Sprites["TitleMenuBackground"] = { Sheet = "TitleChip", Bounds = { X = 0, Y = 0, Width = 1920, Height = 1080 } };
++root.Sprites["TitleMenuFence"] = { Sheet = "TitleChip", Bounds = clear };
++root.Sprites["TitleMenuCopyright"] = { Sheet = "TitleChip", Bounds = clear };
++root.Sprites["TitleMenuMenu"] = { Sheet = "TitleChip", Bounds = clear };
++root.Sprites["TitleMenuOverlay"] = { Sheet = "TitleChip", Bounds = clear };
++root.Sprites["TitleMenuSmoke"] = { Sheet = "TitleChip", Bounds = clear };
+diff --git a/profiles/sg-pc/scriptvars.lua b/profiles/sg-pc/scriptvars.lua
+index 7b4129ea2e9a436e217f38c176c62164cc4a49f1..e87b7ffc430d67f6ac371cfcf11afa1210a061c9 100644
+--- a/profiles/sg-pc/scriptvars.lua
++++ b/profiles/sg-pc/scriptvars.lua
+@@ -20,4 +20,8 @@ sv.SW_MASK1SIZEX = 4405;
+ sv.SW_MASK1SIZEY = 4406;
+ sv.SW_MESMODE0 = 4363;
+ 
+-sv.SF_SYSTEMMENUCAPTURE=1378;
+\ No newline at end of file
++sv.SF_SYSTEMMENUCAPTURE=1378;
++
++-- The common table puts SW_MESWIN0TYPE at 4422, which is the second mask priority in STEINS;GATE (the scripts write 34 / 100
++-- there). The scripts never set a window type, so read an unused block instead (draw window and text).
++sv.SW_MESWIN0TYPE = 7970;
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index 237c7ff44c181cb8d6c61122f0d4e4791876b256..d241ba09c1110d38a4a62a5f193f799940c0fb7b 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -1,59 +1,63 @@
++-- STEINS;GATE (Steam) sprite sheets. Ids are the order of the system.mpk table of contents:
++--  2 BACKLOG, 3 BLOGMASK, 6 DATA01, 9 FONT, 27 SYSMESSWINDOW, 30 TITLE_CHIP (see docs/steins-gate-steam-sghd.md).
++-- The sheets below that are not measured yet ("MesBox", "NamePlate", "Menu", "MenuChip", "Title", "SysMesBox") alias
++-- the Data sheet so that the copied Chaos;Child HUD definitions still load; their sprites are placeholders.
+ root.SpriteSheets = {
+-    ["BacklogMask"] = {
+-        Path = { Mount = "system", Id = 2 },
+-        DesignWidth = 1920,
+-        DesignHeight = 1080
+-    },
+     ["Data"] = {
+-        Path = { Mount = "system", Id = 5 },
++        Path = { Mount = "system", Id = 6 },
+         DesignWidth = 3072,
+-        DesignHeight = 1536
+-    },
+-  	["MesBox"] = {
+-        Path = { Mount = "system", Id = 20 },
+-        DesignWidth = 1920,
+-        DesignHeight = 600
++        DesignHeight = 1788
+     },
+     ["Font"] = {
+-        Path = { Mount = "system", Id = 8 },
++        Path = { Mount = "system", Id = 9 },
+         DesignWidth = 3072,
+         DesignHeight = 6000
+     },
+-    ["Menu"] = {
+-        Path = { Mount = "system", Id = 8 },
+-        DesignWidth = 2048,
+-        DesignHeight = 1024
+-    },
+-    ["Title"] = {
+-        Path = { Mount = "system", Id = 29 },
+-        DesignWidth = 3456,
+-        DesignHeight = 1728
+-    },
+     ["TitleChip"] = {
+         Path = { Mount = "system", Id = 30 },
+-        DesignWidth = 2528,
+-        DesignHeight = 2048
+-    },
+-    ["MenuChip"] = {
+-        Path = { Mount = "system", Id = 19 },
+-        DesignWidth = 4096,
+-        DesignHeight = 3072
+-    },
+-    ["SysMesBox"] = {
+-        Path = { Mount = "system", Id = 26 },
+-        DesignWidth = 2048,
+-        DesignHeight = 1528
++        DesignWidth = 3072,
++        DesignHeight = 1536
+     },
+     ["Backlog"] = {
+-        Path = { Mount = "system", Id = 1 },
++        Path = { Mount = "system", Id = 2 },
+         DesignWidth = 2048,
+-        DesignHeight = 2048
++        DesignHeight = 1080
++    },
++    ["BacklogMask"] = {
++        Path = { Mount = "system", Id = 3 },
++        DesignWidth = 1920,
++        DesignHeight = 1080
++    },
++    ["MesBox"] = {
++        Path = { Mount = "system", Id = 6 },
++        DesignWidth = 3072,
++        DesignHeight = 1788
+     },
+     ["NamePlate"] = {
+-        Path = { Mount = "system", Id = 23 },
+-        DesignWidth = 4096,
+-        DesignHeight = 2268
++        Path = { Mount = "system", Id = 6 },
++        DesignWidth = 3072,
++        DesignHeight = 1788
++    },
++    ["Menu"] = {
++        Path = { Mount = "system", Id = 6 },
++        DesignWidth = 3072,
++        DesignHeight = 1788
++    },
++    ["MenuChip"] = {
++        Path = { Mount = "system", Id = 6 },
++        DesignWidth = 3072,
++        DesignHeight = 1788
++    },
++    ["Title"] = {
++        Path = { Mount = "system", Id = 30 },
++        DesignWidth = 3072,
++        DesignHeight = 1536
++    },
++    ["SysMesBox"] = {
++        Path = { Mount = "system", Id = 6 },
++        DesignWidth = 3072,
++        DesignHeight = 1788
+     }
+ };
+ 
+-root.Sprites = {};
+\ No newline at end of file
++root.Sprites = {};

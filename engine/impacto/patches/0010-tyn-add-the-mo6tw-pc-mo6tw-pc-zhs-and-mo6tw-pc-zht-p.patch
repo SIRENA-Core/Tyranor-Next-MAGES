@@ -2050,7 +2050,7 @@ index 0000000000000000000000000000000000000000..44417eaedbe2f3c394247bc8bcb39b6e
 +};
 diff --git a/profiles/mo6tw-pc/profile.lua b/profiles/mo6tw-pc/profile.lua
 new file mode 100644
-index 0000000000000000000000000000000000000000..489e0518ab0f9ba8d34ac444b9e905b7000aa6fe
+index 0000000000000000000000000000000000000000..e930a3eb174d6e23c906805f6918da8fa097c99c
 --- /dev/null
 +++ b/profiles/mo6tw-pc/profile.lua
 @@ -0,0 +1,64 @@
@@ -2100,7 +2100,7 @@ index 0000000000000000000000000000000000000000..489e0518ab0f9ba8d34ac444b9e905b7
 +include(profileDir .. 'vfs.lua');
 +include(profileDir .. 'sprites.lua');
 +include(root.BasePaths.RootProfilesDir .. '/common/animation.lua');
-+include(root.BasePaths.RootProfilesDir .. '/common/achievementnotification.lua');
++include(root.BasePaths.RootProfilesDir .. '/common/overlay.lua');
 +include(profileDir .. 'charset.lua');
 +include(profileDir .. 'font-widths.lua');
 +include(profileDir .. 'font.lua');
