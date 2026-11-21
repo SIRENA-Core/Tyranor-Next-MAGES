@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.4.0（versionCode 7）
 
-- 新增：`engine/impacto/profiles.json` 打包进宿主 APK（资产 `tyn/profiles.json`），Tyranor Next 可以从已安装的宿主读取游戏识别规则，宿主新增 profile 后主应用不用发版就能识别。为此给所有 profile 补全了 `detect`（上游 profile 的条目取自主应用现有的目录表），并新增 `unsupportedLayouts`：「像 MAGES. 但没有 profile」的目录布局（Windows／Steam 版 `USRDIR/` 里的 `script.mpk` + `system.mpk` → 尝试 `sg-pc`，`data/` 里的 `script.cpk` + `system.cpk` → `mo6tw-pc`，根目录 `script.mpk` + `system.mpk` + `bgm.mpk` → `cclcc`，`script.cpk` + `system.cpk` + `bgm.cpk` → `chlcc`；至少两个档案，单个常见档名不算，免得收进其他用 CRI 档案的游戏），主应用把这类目录列为「暂不支持」并允许尝试运行。发布工作流核对 APK 里的资产与仓库文件逐字节相同；`test-profiles.py` 检查每个 profile 都有规则、路径格式与 `tryProfile`。宿主版本升到 0.3.1（versionCode 6）。
+- 新增（补丁 0033–0037，S;G 的数据仅 TYN，`SGHD` 指令集文件为新文件）：`sg-pc` 的手机按原版 Game.exe 做出来（之前 `10:37` 只是跳过操作数的桩，需要打电话、发邮件的剧情点走不通，各章结尾的分歧只能进角色结局）。逻辑取自原版的手机主例程 0x453800 与各画面例程（`10:37` 的邮件状态位、跳转、可通话／可发邮件的联系人、收发件箱、通讯录、拨号盘、来电、附件、铃声、`10:38` 附件文本页）；绘制取自各画面的绘制例程（图集 `PHONE*.DDS`、`PACG`、`PWCG`）；鼠标／触摸的点击区来自原版的表 0x52ea58（判定 0x433040）；左上角的小手机（0x45a9a0）在有新邮件时闪烁，点它打开手机（原版的鼠标模式，标志 2363，0x434d40）；宿主的屏幕按键第一页加了 Z（L2／手机）键。手机的按键不再同时隐藏文本框。MuMu（Android 15，**不是真机**）上，原版英文数据和汉化数据都验证了：第 1 章拨号盘输入 120#、第 6 章结尾发送准备好的邮件（不进铃羽结局）、第 7 章结尾发送 D-mail（不进菲莉丝结局）、第 8 章结尾给登记的联系人打电话（不进琉华结局），之后进入第 9、10 章。
+- 新增（补丁 0038–0040，仅 TYN 与一处通用容错）：`sg-pc` 的视频（`USRDIR/movie/1920x1080`，按原版程序 0xd42698 的表给文件编号，文件夹挂载支持固定的文件编号）；FFmpeg 解不了的视频（Bink 2）不再让脚本一直等待或崩溃，直接跳过；`10:3A`（时间跳跃的日期）读完它的六个表达式（之前当作 CC 的 `YesNoTrigger` 解析，第一次时间跳跃崩溃）；时间跳跃结束后清掉标志 2472（之前画面一直黑着）。时间跳跃的日期计数动画还没画。
+- 新增（宿主工具，不进 APK）：`tools/impacto/sghd/convert_bink2.py` 用你自己游戏目录里的 `bink2w32.dll`（32 位小程序 `bink2dump`，源码在 `tools/impacto/sghd/bink2dump/`）把 24 个 Bink 2 视频转换成 H.264／AAC，文件名不变，替换到 `USRDIR/movie/1920x1080` 后引擎就能播（世界线变动的辉光管动画 `IMV*`、标题背景、时间跳跃背景）；`tools/impacto/sghd/import_steam_save.py` 把 Steam 版 `SAVEDATA.DAT` 的系统数据（已读标记、CG／BGM／TIPS 解锁、通关标志）并入 `sg-pc` 的存档，存档格保留。MuMu 上转换后的标题视频能播，导入后已读文本能按「只跳过已读」快进。
+- 修复（宿主）：游戏界面的 `configChanges` 补全（语言、密度、键盘、导航、界面模式等）。之前系统语言列表变化等配置变化会让 Android 重建 Activity，SDL 不能重建，游戏直接退出（MuMu 上实际遇到）。
+- 汉化数据：`sg-pc` 用 2018 年的汉化补丁数据（`script.mpk`、`system.mpk`、`bg.mpk`、`manual.mpk`）验证过：字体图集只替换了汉字格子、格子数不变；汉化的 `CLEARLIST`／`CONFIG`／`DATA01`／`MOVMENU` 是同尺寸的 PNG（扩展名仍是 `.DDS`），引擎按内容识别。已知：汉化字体里 id 226（间隔号）变成全宽，字宽表仍按原版的 32。
+
+- 新增：`engine/impacto/profiles.json` 打包进宿主 APK（资产 `tyn/profiles.json`），Tyranor Next 可以从已安装的宿主读取游戏识别规则，宿主新增 profile 后主应用不用发版就能识别。为此给所有 profile 补全了 `detect`（上游 profile 的条目取自主应用现有的目录表），并新增 `unsupportedLayouts`：「像 MAGES. 但没有 profile」的目录布局（Windows／Steam 版 `USRDIR/` 里的 `script.mpk` + `system.mpk` → 尝试 `sg-pc`，`data/` 里的 `script.cpk` + `system.cpk` → `mo6tw-pc`，根目录 `script.mpk` + `system.mpk` + `bgm.mpk` → `cclcc`，`script.cpk` + `system.cpk` + `bgm.cpk` → `chlcc`；至少两个档案，单个常见档名不算，免得收进其他用 CRI 档案的游戏），主应用把这类目录列为「暂不支持」并允许尝试运行。发布工作流核对 APK 里的资产与仓库文件逐字节相同；`test-profiles.py` 检查每个 profile 都有规则、路径格式与 `tryProfile`。宿主版本随本版发布（0.3.1 没有单独发布）。
 - 文档：README 精简为入口、仓库规则、支持的游戏、与 Tyranor Next 的约定和构建发布，验证细节留在 CHANGELOG 与 `docs/`；`AGENTS.md` 增加 `profiles.json` 契约的维护规则。
 ## 0.3.0（versionCode 5）
 
