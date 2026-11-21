@@ -1,0 +1,197 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 13:50:31 -0800
+Subject: [PATCH] tyn: sg-pc movies (USRDIR/movie/1920x1080), folder mounts
+ with fixed file ids, no crash on undecodable video
+
+- sg-pc mounts USRDIR/movie/1920x1080 as "movie". The play number of the scripts indexes the movie table of
+  Game.exe (0xd42698: ar, ending_c..s, imv001..imv051, op, op2, prologue01/02, timeleapbg, title); imv049 is in the
+  table but not shipped, so plain sorted ids would shift.
+- Folder mounts take an optional Names list (profile key Names): Names[i] gets file id i, matched
+  case-insensitively (the Steam data mixes IMV006 / imv007 / OP); other files are left out, missing ones leave a
+  gap.
+- 13 of the 37 Steam movies are Bink 1 (BIKi: OP, op2, prologue01/02, the endings, ar, imv005/041/042) and play
+  with FFmpeg's bink demuxer / decoders. The other 24 are Bink 2 (KB2j: title, timeleapbg, most imv), which FFmpeg
+  cannot decode: the demuxer gives codec id NONE. The player dereferenced the missing codec descriptor and the
+  missing stream and crashed; now it logs the container and streams, skips a movie without a decodable video
+  stream as if it were missing, and the scripts go on (as before when no movie was mounted).
+
+Checked on MuMu (Android 15, not a real device, Steam data): title (title.bk2, Bink 2) skipped without a crash,
+new game plays prologue01.bk2 (Bink 1).
+
+TYN only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/profiles/sg-pc/vfs.lua b/profiles/sg-pc/vfs.lua
+index 4102eb47a471230c45af029e64c309b55cd1495c..ea5d588a7ebe89832532f5b8827484e655a291e2 100644
+--- a/profiles/sg-pc/vfs.lua
++++ b/profiles/sg-pc/vfs.lua
+@@ -12,6 +12,22 @@ root.Vfs = {
+         ["bg"] = {dataDir .. "/bg.mpk"},
+         ["chara"] = {dataDir .. "/chara.mpk"},
+         ["mask"] = {dataDir .. "/mask.mpk"},
+-        ["manual"] = {dataDir .. "/manual.mpk"}
++        ["manual"] = {dataDir .. "/manual.mpk"},
++        -- Movies are Bink (BIKi) files in USRDIR/movie/1920x1080; the play number indexes the table of Game.exe
++        -- (0xd42698), which is the order below (imv049 is not shipped with the Steam data).
++        ["movie"] = {
++            {
++                Path = dataDir .. "/movie/1920x1080",
++                Names = {
++                    "ar.bk2", "ending_c.bk2", "ending_f.bk2", "ending_m.bk2", "ending_r.bk2", "ending_s.bk2",
++                    "imv001.bk2", "imv002.bk2", "imv003.bk2", "imv004.bk2", "imv005.bk2", "imv006.bk2",
++                    "imv007.bk2", "imv008.bk2", "imv009.bk2", "imv010.bk2", "imv018.bk2", "imv023.bk2",
++                    "imv027.bk2", "imv034.bk2", "imv034b.bk2", "imv036.bk2", "imv037.bk2", "imv038.bk2",
++                    "imv039.bk2", "imv041.bk2", "imv042.bk2", "imv043.bk2", "imv047.bk2", "imv049.bk2",
++                    "imv050.bk2", "imv051.bk2", "op.bk2", "op2.bk2", "prologue01.bk2", "prologue02.bk2",
++                    "timeleapbg.bk2", "title.bk2",
++                },
++            },
++        }
+     }
+ };
+diff --git a/src/io/fsfolderarchive.cpp b/src/io/fsfolderarchive.cpp
+index 05cc4699015a4537bfdacb70ce8ed595ee69f139..44d57decfcf0baaf64ee92eb73b4f2d7b5d72f34 100644
+--- a/src/io/fsfolderarchive.cpp
++++ b/src/io/fsfolderarchive.cpp
+@@ -8,6 +8,7 @@
+ #include <sstream>
+ #include <filesystem>
+ #include <regex>
++#include <unordered_map>
+ #ifndef IMPACTO_DISABLE_MMAP
+ #include "memorymappedfilestream.h"
+ #else
+@@ -164,6 +165,35 @@ IoError FSFolderArchive::Create(Stream* stream, VfsArchive** outArchive,
+     return code;
+   }
+ 
++  if (params && params->Names) {
++    // ids from the given names, as the game's own table numbers the files
++    std::unordered_map<std::string, uint32_t> idOfName;
++    for (uint32_t i = 0; i < params->Names->size(); i++) {
++      std::string name = (*params->Names)[i];
++      MakeLowerCase(name);
++      idOfName.emplace(std::move(name), i);
++    }
++    std::vector<TextMetaEntry> named;
++    for (auto& entry : result->TOC) {
++      std::string name = entry.FileName;
++      MakeLowerCase(name);
++      auto it = idOfName.find(name);
++      if (it == idOfName.end()) continue;
++      entry.Id = it->second;
++      named.push_back(entry);
++    }
++    result->TOC = std::move(named);
++    std::sort(result->TOC.begin(), result->TOC.end(),
++              [](TextMetaEntry const& a, TextMetaEntry const& b) { return a.Id < b.Id; });
++    for (auto&& entry : result->TOC) {
++      result->IdsToFiles[entry.Id] = &entry;
++      result->NamesToIds[entry.FileName] = entry.Id;
++    }
++    result->IsInit = true;
++    *outArchive = result;
++    return IoError_OK;
++  }
++
+   if (params && params->OrderFilePath) {
+     Stream* orderFile;
+     IoError err;
+diff --git a/src/io/fsfolderarchive.h b/src/io/fsfolderarchive.h
+index d6ada41bc6c80d278b592b3768c3db01719dba6e..3f98aa8eac30bf9044fa1ef6b0ab61feb26250f5 100644
+--- a/src/io/fsfolderarchive.h
++++ b/src/io/fsfolderarchive.h
+@@ -12,6 +12,8 @@ struct TextMetaEntry;
+ struct FolderArchiveParameters {
+   std::optional<std::string> OrderFilePath;
+   std::optional<std::string> WhitelistPattern;
++  // file ids by name (case-insensitive): Names[i] gets id i; other files are left out, missing ones leave a gap
++  std::optional<std::vector<std::string>> Names;
+ };
+ 
+ class FSFolderArchive : public VfsArchive {
+diff --git a/src/profile/profile_internal.h b/src/profile/profile_internal.h
+index 22525300a553c521e0c2ad787c002181620754b6..58f744477f43787bb9c5d29aa5e04a273ad85c11 100644
+--- a/src/profile/profile_internal.h
++++ b/src/profile/profile_internal.h
+@@ -555,6 +555,18 @@ struct TryGetImpl<Io::FolderArchiveParameters> {
+     Io::FolderArchiveParameters result;
+     result.OrderFilePath = TryGetMember<std::string>("Order");
+     result.WhitelistPattern = TryGetMember<std::string>("Whitelist");
++    if (TryPushMember("Names")) {
++      if (lua_istable(LuaState, -1)) {
++        std::vector<std::string> names(lua_rawlen(LuaState, -1));
++        for (size_t i = 0; i < names.size(); i++) {
++          lua_rawgeti(LuaState, -1, static_cast<lua_Integer>(i + 1));
++          if (char const* str = lua_tostring(LuaState, -1)) names[i] = str;
++          lua_pop(LuaState, 1);
++        }
++        result.Names = std::move(names);
++      }
++      Pop();
++    }
+     return result;
+   }
+ };
+diff --git a/src/video/ffmpegplayer.cpp b/src/video/ffmpegplayer.cpp
+index e162e3726c2067bc7e90dca1422294a0461863a0..fd49d15e152154948f5abd61a388e7e6df4c7cc4 100644
+--- a/src/video/ffmpegplayer.cpp
++++ b/src/video/ffmpegplayer.cpp
+@@ -187,6 +187,11 @@ std::optional<av::Codec> findDecoderCodec(av::Stream const& avStream) {
+ 
+   if constexpr (MediaType == AVMEDIA_TYPE_VIDEO) {
+     const AVCodecDescriptor* desc = avcodec_descriptor_get(codecId);
++    if (!desc) {
++      ImpLog(LogLevel::Error, LogChannel::Video, "No codec descriptor for codec id {}\n",
++             static_cast<int>(codecId));
++      return std::nullopt;
++    }
+ #ifdef __ANDROID__
+     const std::string decoderName = fmt::format("{}_mediacodec", desc->name);
+ #else
+@@ -213,6 +218,7 @@ void FFmpegPlayer::OpenCodec(std::optional<FFmpegStream<MediaType>>& streamOpt,
+   std::optional<av::Codec> codec = findDecoderCodec<MediaType>(avStream);
+   if (!codec) {
+     avStream.reset();
++    return;  // no decoder: the stream is left out instead of dereferencing nothing
+   }
+ 
+   DecodingContext_t<MediaType> decoderContext{avStream, *codec};
+@@ -335,8 +341,13 @@ void FFmpegPlayer::Play(Io::Stream* stream, bool looping, bool alpha) {
+   av::Stream audioStream;
+   int audioStreamId = AVERROR_STREAM_NOT_FOUND;
+   std::vector<std::pair<av::Stream, int>> embeddedSubStreams;
++  ImpLog(LogLevel::Info, LogChannel::Video, "Container {:s}, {:d} streams\n",
++         FormatContext.raw()->iformat ? FormatContext.raw()->iformat->name : "?", FormatContext.streamsCount());
+   for (size_t i = 0; i < FormatContext.streamsCount(); ++i) {
+     auto st = FormatContext.stream(i);
++    ImpLog(LogLevel::Info, LogChannel::Video, "  stream {:d}: type {:d} codec {:d} tag {:08x} {:d}x{:d}\n", i,
++           static_cast<int>(st.raw()->codecpar->codec_type), static_cast<int>(st.raw()->codecpar->codec_id),
++           st.raw()->codecpar->codec_tag, st.raw()->codecpar->width, st.raw()->codecpar->height);
+     if (st.isVideo()) {
+       videoStreamId = (int)i;
+       videoStream = st;
+@@ -354,12 +365,19 @@ void FFmpegPlayer::Play(Io::Stream* stream, bool looping, bool alpha) {
+     OpenCodec<AVMEDIA_TYPE_VIDEO>(VideoStream, std::move(videoStream),
+                                   videoStreamId);
+     ScrWork[SW_MOVIEFRAME] = 0;
+-    ScrWork[SW_MOVIETOTALFRAME] = VideoStream->Duration;
++    if (VideoStream) ScrWork[SW_MOVIETOTALFRAME] = VideoStream->Duration;
++  }
++  if (!VideoStream) {
++    // e.g. Bink 2, which FFmpeg cannot decode: behave as if the movie were missing, the scripts go on
++    ImpLog(LogLevel::Error, LogChannel::Video, "No decodable video stream, movie skipped\n");
++    FormatContext.close();
++    StreamPtr.reset();
++    return;
+   }
+   if (audioStream.isAudio() && audioStream.isValid()) {
+     OpenCodec<AVMEDIA_TYPE_AUDIO>(AudioStream, std::move(audioStream),
+                                   audioStreamId);
+-    AudioPlayer->InitConvertContext(AudioStream->CodecContext.raw());
++    if (AudioStream) AudioPlayer->InitConvertContext(AudioStream->CodecContext.raw());
+   }
+   VideoClock = Clock();
+   MasterClock = &VideoClock;

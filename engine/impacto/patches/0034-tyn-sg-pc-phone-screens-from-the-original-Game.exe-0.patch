@@ -1,0 +1,1239 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 09:13:46 -0800
+Subject: [PATCH] tyn: sg-pc phone screens from the original Game.exe (0x453800
+ and the screen routines)
+
+The STEINS;GATE (Steam) phone is drawn as the original draws it, on the layer GlobalVars[6842] (0x428790):
+
+- Body sliding in with the open counter GlobalVars[6801] (0x453800), the opening animation of the default phone
+  (0x45a320, PHONE3), antenna / battery bar (0x44d520), the unread mark, the frame over the screen.
+- All screens of the phone modes: home with wallpaper, new mail and incoming call (0x44d8f0, 0x45c150, 0x45a3e0),
+  main menu (0x44fb80), mail menu (0x44f5e0), inbox / sent lists with read and answered marks and page numbers
+  (0x451f10, 0x451340), received / sent mails and the answer with date, sender, subject, separator, scrolling text
+  and scroll arrows (0x452be0, 0x452440, 0x44fe80), the phone trigger mail with its underlined words, blue, the
+  chosen one white on blue (0x450980 with 0x444b90 / 0x4453d0), sending / sent notices (0x453640, 0x450530), the
+  answer / attachment choice (0x44f4c0, 0x4511a0), address book and call / mail choice (0x453380, 0x453530,
+  0x451e50), calling, dialling with the key pad, connecting (0x44dd30, 0x44dfb0, 0x450310, 0x4506f0, 0x450830,
+  the moving dotted frames 0x454130 / 0x453e60), settings, wallpapers with thumbnails, call and mail ringtones,
+  vibration lists and their set / try panels (0x44e130, 0x44e430, 0x44e860, 0x44eb60, 0x44ef00, 0x44f1e0,
+  0x4512d0, 0x451810, 0x451c50, 0x451cc0, 0x451d60, 0x451da0, 0x451dd0, 0x452400), the music player with the
+  scrolling title and the play time (0x451870), the mail behind the attachment modes (0x44fb60).
+- Panels, choice boxes and title bars (0x45a530, 0x45a620, 0x45bbd0 with the table 0x52e9c0).
+- Text as the original lays it out (0x444f70): the phone strings of the mail table, wrapped to the given width,
+  skipped / limited lines, line breaks; the line counts of the scroll ranges now use the same layout.
+- The phone textures are the ones the scripts load (LoadTexture: 15 MUSIC, 16..20 PHONE.._E, 21 PHONE2, 22 PHONE3,
+  23 PWCG, 24 PWCGTHUM); the sg-pc profile lists them as script handled sheets and the phone draws a surface from
+  the sheet whose file the script loaded there. The phone design is GlobalVars[6856].
+
+Fixed in the phone logic: the string bases of 10:37:04 are the values stored at the label (not the label numbers).
+
+Not done here: the camera view of mode 12 (the original copies part of the screen into the phone; the frame only),
+the attachment overlays (pictures, picture stories, text pages: 0x44f840, 0x44f980, 0x44d120), mouse / touch hit
+areas, the keyboard walk over the words of the phone trigger.
+
+Checked on MuMu (Android 15, not a real device, original English data): phone opens with the slide, home with
+wallpaper, menu with the entry descriptions, mail menu, inbox with the read mark, the prologue mail (date, sender,
+subject, separator, text), settings, address book (Daru, PhoneWave, Faris, Mayuri, Lukako) and the call choice.
+
+TYN only.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 684f98fb3f67166782205a456ba16a4a8e13619d..90cc99a39ab4bb14f8b705743e09fd56fc5fe766 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -268,6 +268,10 @@ set(Impacto_Src
+     src/games/sghd/tipsmenu.cpp
+     src/games/sghd/tipssystem.cpp
+     src/games/sghd/phone.cpp
++    src/games/sghd/phonerender.cpp
++    src/games/sghd/phonescreens.cpp
++    src/games/sghd/phonescreens2.cpp
++    src/games/sghd/phonescreens3.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -651,6 +655,7 @@ set(Impacto_Header
+     src/games/sghd/tipssystem.h
+     src/games/sghd/phone.h
+     src/games/sghd/phonestate.h
++    src/games/sghd/phonerender.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index d241ba09c1110d38a4a62a5f193f799940c0fb7b..2a579ba8640968cc2400b1872ceb7f3755175f28 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -3,6 +3,68 @@
+ -- The sheets below that are not measured yet ("MesBox", "NamePlate", "Menu", "MenuChip", "Title", "SysMesBox") alias
+ -- the Data sheet so that the copied Chaos;Child HUD definitions still load; their sprites are placeholders.
+ root.SpriteSheets = {
++    -- The phone textures are loaded by the scripts (LoadTexture into surfaces 170..179), so these sheets are script
++    -- handled: 15 MUSIC, 16..20 PHONE / _B.._E (one per phone design), 21 PHONE2, 22 PHONE3, 23 PWCG, 24 PWCGTHUM.
++    ["Phone"] = {
++        Path = { Mount = "system", Id = 16 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["PhoneB"] = {
++        Path = { Mount = "system", Id = 17 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["PhoneC"] = {
++        Path = { Mount = "system", Id = 18 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["PhoneD"] = {
++        Path = { Mount = "system", Id = 19 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["PhoneE"] = {
++        Path = { Mount = "system", Id = 20 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["Phone2"] = {
++        Path = { Mount = "system", Id = 21 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["Phone3"] = {
++        Path = { Mount = "system", Id = 22 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["PhoneWallpapers"] = {
++        Path = { Mount = "system", Id = 23 },
++        DesignWidth = 4096,
++        DesignHeight = 2048,
++        ScriptHandled = true
++    },
++    ["PhoneWallpaperThumbs"] = {
++        Path = { Mount = "system", Id = 24 },
++        DesignWidth = 768,
++        DesignHeight = 768,
++        ScriptHandled = true
++    },
++    ["PhoneMusic"] = {
++        Path = { Mount = "system", Id = 15 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
+     ["Data"] = {
+         Path = { Mount = "system", Id = 6 },
+         DesignWidth = 3072,
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+index c20482ec0f837342710ae1a33031aaddfbafb015..6cf220740c69ed490c77be75a971c7f07a2b23e6 100644
+--- a/src/games/sghd/phone.cpp
++++ b/src/games/sghd/phone.cpp
+@@ -6,6 +6,7 @@
+ #include <ctime>
+ 
+ #include "phonestate.h"
++#include "phonerender.h"
+ #include "../../audio/audiosystem.h"
+ #include "../../audio/audiochannel.h"
+ #include "../../inputsystem.h"
+@@ -82,30 +83,8 @@ const uint8_t* ScriptString(uint32_t strNo) {
+   return &ScriptBuffers[S.ScriptBuffer][ScriptGetStrAddress(S.ScriptBuffer, strNo)];
+ }
+ 
+-// Number of lines of a script string wrapped to width (0x442790). Approximation until the phone text layout is in:
+-// one em per character, explicit line breaks counted.
+-int LineCount(uint32_t strNo, int width, int size) {
+-  const uint8_t* p = ScriptString(strNo);
+-  int lines = 1, x = 0;
+-  while (*p != 0xff) {
+-    const uint8_t b = *p;
+-    if (b == 0x00) {  // line break
+-      lines++;
+-      x = 0;
+-      p++;
+-    } else if (b < 0x80) {  // other tags: skip the tag byte (their operands are rare in mails)
+-      p++;
+-    } else {
+-      x += size;
+-      if (x > width) {
+-        lines++;
+-        x = size;
+-      }
+-      p += 2;
+-    }
+-  }
+-  return x == 0 && lines > 1 ? lines - 1 : lines;
+-}
++// Number of lines of a script string wrapped to width (0x442790), with the phone text layout.
++int LineCount(uint32_t strNo, int width, int size) { return LineCountOf(ScriptString(strNo), width, size); }
+ 
+ // Mail state bit (mail * 5 + bit) in the saved bit field and in the byte mirror.
+ void SetMailBit(int mail, int bit, bool value) {
+@@ -1686,7 +1665,8 @@ void Instruction(Sc3VmThread* thread) {
+       auto at = [&](uint16_t label) {
+         return (const uint16_t*)&ScriptBuffers[buf][ScriptGetLabelAddress(buf, label)];
+       };
+-      MailInit(buf, at(labels[0]), labels[1], labels[2], at(labels[3]), at(labels[4]), at(labels[5]));
++      // labels 1 and 2 hold the first string numbers of the phone texts and of the contacts (names, numbers)
++      MailInit(buf, at(labels[0]), *at(labels[1]), *at(labels[2]), at(labels[3]), at(labels[4]), at(labels[5]));
+       break;
+     }
+     case 0x05:
+@@ -1793,7 +1773,11 @@ void Instruction(Sc3VmThread* thread) {
+   }
+ }
+ 
+-void RenderLayer(int /*layer*/) {}
++// 0x428790: the phone and the attachment screens are drawn on the layer GlobalVars[6842]
++void RenderLayer(int layer) {
++  if (layer != SW(0x6ae8)) return;
++  if ((uint32_t)SW(0x6b0c) < 0xff && (uint32_t)SW(0x6b10) < 0xff) RenderPhone();
++}
+ 
+ }  // namespace Phone
+ }  // namespace SGHD
+diff --git a/src/games/sghd/phonerender.cpp b/src/games/sghd/phonerender.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f107cdac107a1b53bd7fd5c1566b4a0beef4afde
+--- /dev/null
++++ b/src/games/sghd/phonerender.cpp
+@@ -0,0 +1,382 @@
++// Drawing of the STEINS;GATE phone, translated from the original draw routines (0x453800 and the screens it calls).
++// The original works in 1280x720 units and draws its 1920x1080 textures with the coordinates multiplied by 1.5;
++// destinations below are in 1280x720 units (Spr / Rect / Text scale them), texture sources are texture pixels.
++#include "phonerender.h"
++
++#include <cstdio>
++#include <string>
++
++#include "phonestate.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/sprites.h"
++#include "../../renderer/renderer.h"
++#include "../../text/text.h"
++#include "../../vm/vm.h"
++#include "../../vm/sc3stream.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++using namespace Impacto::Vm;
++
++namespace {
++
++constexpr float Scale = 1.5f;
++uint32_t Blink = 0;
++// DAT_0052e9c0: per screen title, the string (StrBaseA +) and the row of the title bar sprite
++constexpr uint8_t TitleBars[] = {0, 0, 1, 0, 40, 0, 39, 0, 41, 2, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 44, 0};  // DAT_018eb090: blink clock of the "new" marks, advanced by every mark drawn
++
++// The phone textures are loaded by the scripts (LoadTexture into surfaces 170..179); the profile lists them as script
++// handled sheets, so a surface is drawn from the sheet whose file the script put there.
++const SpriteSheet* SurfaceSheet(int surf) {
++  auto surfIt = Renderer->SurfToId.find(surf);
++  if (surfIt == Renderer->SurfToId.end()) return nullptr;
++  for (auto const& [name, sheet] : Profile::SpriteSheets) {
++    if (!sheet.ScriptHandled) continue;
++    auto idIt = Renderer->SheetPathToId.find(sheet.Path);
++    if (idIt == Renderer->SheetPathToId.end()) continue;
++    auto keyIt = Renderer->SheetPathToId.find(Io::AssetPathKey::KeyToAssetPath(surfIt->second));
++    if (keyIt != Renderer->SheetPathToId.end() && keyIt->second == idIt->second) return &sheet;
++  }
++  return nullptr;
++}
++
++glm::vec4 Tint(uint32_t rgb, int alpha) {
++  return glm::vec4(((rgb >> 16) & 0xff) / 255.0f, ((rgb >> 8) & 0xff) / 255.0f, (rgb & 0xff) / 255.0f,
++                   std::clamp(alpha, 0, 256) / 256.0f);
++}
++
++}  // namespace
++
++int PhoneSurface() { return SW(0x6b20) + 0xaf; }
++
++// 0x432230: part (sx, sy, w, h) of a surface at (dx, dy); w / h are drawn 1:1
++void Spr(int surf, float sx, float sy, float w, float h, float dx, float dy, int alpha, uint32_t rgb) {
++  const SpriteSheet* sheet = SurfaceSheet(surf);
++  if (!sheet || alpha <= 0) return;
++  Sprite sprite(*sheet, sx, sy, w, h);
++  Renderer->DrawSprite(sprite, RectF(dx * Scale, dy * Scale, w, h), Tint(rgb, alpha));
++}
++
++// 0x432710: part of a surface stretched over a rectangle (screen pixels)
++void SprStretch(int surf, float sx, float sy, float w, float h, float x0, float y0, float x1, float y1, int alpha) {
++  const SpriteSheet* sheet = SurfaceSheet(surf);
++  if (!sheet || alpha <= 0) return;
++  Sprite sprite(*sheet, sx, sy, w, h);
++  Renderer->DrawSprite(sprite, RectF(x0, y0, x1 - x0, y1 - y0), Tint(0xffffff, alpha));
++}
++
++// 0x42f890: filled rectangle (screen pixels)
++void Rect(float x, float y, float w, float h, uint32_t rgb, int alpha) {
++  if (alpha <= 0) return;
++  Renderer->DrawQuad(RectF(x, y, w, h), Tint(rgb, alpha));
++}
++
++namespace {
++
++float Advance(int glyph, int size) {
++  const Font& font = *Profile::Dialogue::DialogueFont;
++  return font.GetAdvanceWidth(glyph) * size / font.BitmapEmWidth;
++}
++
++// Walks a script string like 0x444f70: glyphs wrapped at maxWidth, line breaks (0x00), colour tags (0x04 + expression)
++// and the skipped one byte tags. visit(glyph, x, line, color) for every glyph.
++template <typename F>
++void Layout(const uint8_t* str, int maxWidth, int size, uint32_t color, F&& visit) {
++  if (maxWidth == 0) maxWidth = 0x500;
++  float x = 0;
++  int line = 0;
++  int link = -1, links = 0;  // underlined words: 0x09 starts one, 0x0b ends it (numbered in order)
++  while (*str != 0xff) {
++    const uint8_t b = *str;
++    if (b & 0x80) {
++      const int glyph = ((b & 0x7f) << 8) | str[1];
++      const float w = Advance(glyph, size);
++      if (x + w > maxWidth) {
++        line++;
++        x = 0;
++        continue;  // the glyph goes to the next line
++      }
++      visit(glyph, x, line, color, link, w);
++      x += w;
++      str += 2;
++    } else if (b == 0x00) {
++      line++;
++      x = 0;
++      str++;
++    } else if (b == 0x04) {  // colour: an expression follows; the phone mails do not change colour, skip it
++      Sc3Stream stream(const_cast<uint8_t*>(str + 1));
++      StringToken token;
++      str++;
++      while (*str != 0xff && !(*str & 0x80) && *str != 0x00) str++;
++      (void)stream;
++      (void)token;
++    } else if (b == 0x09) {
++      link = links;
++      str++;
++    } else if (b == 0x0b) {
++      link = -1;
++      links++;
++      str++;
++    } else {
++      str++;
++    }
++  }
++}
++
++}  // namespace
++
++int LineCountOf(const uint8_t* str, int maxWidth, int size) {
++  int lines = 0;
++  bool any = false;
++  Layout(str, maxWidth, size, 0, [&](int, float, int line, uint32_t, int, float) {
++    any = true;
++    lines = std::max(lines, line + 1);
++  });
++  // explicit line breaks after the last glyph count too
++  int breaks = 0;
++  for (const uint8_t* p = str; *p != 0xff; p += (*p & 0x80) ? 2 : 1)
++    if (*p == 0) breaks++;
++  return any ? std::max(lines, 1) : breaks;
++}
++
++int TextWidth(const uint8_t* str, int size) {  // 0x4462e0 (first line)
++  float w = 0;
++  for (; *str != 0xff && *str != 0; str += (*str & 0x80) ? 2 : 1)
++    if (*str & 0x80) w += Advance(((*str & 0x7f) << 8) | str[1], size);
++  return (int)w;
++}
++
++// 0x444f70: a script string from line `skip` on, at most `lines` lines
++void Text(int x, int y, int maxWidth, const uint8_t* str, int skip, int lines, uint32_t color, int size, int alpha) {
++  if (alpha <= 0) return;
++  const Font& font = *Profile::Dialogue::DialogueFont;
++  std::vector<ProcessedTextGlyph> glyphs;
++  Layout(str, maxWidth, size, color, [&](int glyph, float gx, int line, uint32_t c, int, float) {
++    if (line < skip || line >= skip + lines) return;
++    glm::vec2 pos((x + gx) * Scale, (y + (line - skip) * size) * Scale);
++    glyphs.push_back(font.PlaceGlyph(glyph, pos, size * Scale, DialogueColorPair{c, 0}, 1.0f));
++  });
++  Profile::Dialogue::DialogueFont->DrawProcessedText(glyphs, std::clamp(alpha, 0, 256) / 256.0f);
++}
++
++// 0x444b90 + 0x4453d0: a mail text whose words can be chosen: words blue and underlined, the chosen word white on
++// blue
++void TextLinks(int x, int y, int maxWidth, const uint8_t* str, int skip, int lines, int size, int alpha, int sel) {
++  if (alpha <= 0) return;
++  const Font& font = *Profile::Dialogue::DialogueFont;
++  std::vector<ProcessedTextGlyph> glyphs;
++  Layout(str, maxWidth, size, 0, [&](int glyph, float gx, int line, uint32_t, int link, float w) {
++    if (line < skip || line >= skip + lines) return;
++    const float px = (x + gx) * Scale, py = (y + (line - skip) * size) * Scale;
++    uint32_t c = 0;
++    if (link >= 0) {
++      c = link == sel ? 0xffffff : 0x0000ff;
++      if (link == sel) Rect(px, py, w * Scale, size * Scale, 0x0000ff, alpha);
++      Rect(px, py + size * Scale - 3, w * Scale, 1.5f, c, alpha);  // underline
++    }
++    glyphs.push_back(font.PlaceGlyph(glyph, glm::vec2(px, py), size * Scale, DialogueColorPair{c, 0}, 1.0f));
++  });
++  Profile::Dialogue::DialogueFont->DrawProcessedText(glyphs, std::clamp(alpha, 0, 256) / 256.0f);
++}
++
++// 0x445ca0: an ASCII string
++void TextAscii(int x, int y, const std::string& str, uint32_t color, int size, int alpha) {
++  if (alpha <= 0) return;
++  auto glyphs = TextLayoutPlainString(str, *Profile::Dialogue::DialogueFont, size * Scale, DialogueColorPair{color, 0},
++                                      1.0f, glm::vec2(x * Scale, y * Scale), TextAlignment::Left);
++  Profile::Dialogue::DialogueFont->DrawProcessedText(glyphs, std::clamp(alpha, 0, 256) / 256.0f);
++}
++
++const uint8_t* Str(uint32_t strNo) { return &ScriptBuffers[S.ScriptBuffer][ScriptGetStrAddress(S.ScriptBuffer, strNo)]; }
++
++std::string Num2(uint32_t v) {  // 0x46dfd0 with width 2: right aligned with spaces
++  char buf[16];
++  std::snprintf(buf, sizeof(buf), "%2u", v);
++  return buf;
++}
++
++// ------------------------------------------------------------------------------------------------ common parts
++
++// 0x44d520: antenna / battery bar (out of range unless flag 2601)
++void DrawStatusBar(int x, int y, int alpha) {
++  Spr(PhoneSurface(), 2656.5f, GetFlag(0xa29) ? 1.5f : 49.5f, 414, 45, x, y, alpha);
++}
++
++// 0x45a3e0: blinking mark (0 = call, 1 = mail)
++void DrawMark(int kind, int x, int y, int alpha) {
++  Blink = (Blink + 1) & 0x3f;
++  if (kind == 0)
++    Spr(PhoneSurface(), (float)((Blink > 0x1f ? 0x60c : 0x5d4) + 1) * Scale, 1422, 81, 112.5f, x, y, alpha);
++  else
++    Spr(PhoneSurface(), (float)((Blink > 0x1f ? 0x614 : 0x5d4) + 1) * Scale, 1320, 93, 99, x, y, alpha);
++}
++
++// 0x45c150: wallpaper GlobalVars[2875] (9 per row of the wallpaper sheet)
++void DrawWallpaper(int x, int y, int alpha) {
++  const uint32_t w = SW(0x2eec);
++  if (w == 0xffff) return;
++  Spr(0xaa, (float)((w % 9) * 0x19f), (float)((w / 9) * 0x1dd), 414, 476, x, y, alpha);
++}
++
++// 0x45bbd0: screen title bar
++void DrawTitleBar(int which, int x, int y, int alpha) {
++  const uint8_t strOffset = TitleBars[which * 2], row = TitleBars[which * 2 + 1];
++  Spr(PhoneSurface(), 2656.5f, (float)(row * 0x1f + 0x41) * Scale, 414, 43.5f, x, y, alpha);
++  Text(x + 0x20, y + 2, 0xf4, Str(S.StrBaseA + strOffset), 0, 1, 0xffffff, 0x18, alpha);
++}
++
++// 0x45a530: message panel
++void DrawPanel(int strOffset, int x, int y, uint32_t color, int alpha) {
++  Spr(PhoneSurface(), 2239.5f, 252, 414, 210, x, y + 0x54, alpha);
++  Text(x + 0x1d, y + 100, 0xdc, Str(S.StrBaseA + strOffset), 0, 4, color, 0x14, alpha);
++}
++
++// 0x45a620: two entry choice panel (sel 0xff = none)
++void DrawChoice(int str0, int str1, int sel, int x, int y, int alpha) {
++  Spr(PhoneSurface(), 2239.5f, 252, 414, 210, x, y + 0x54, alpha);
++  if (sel != 0xff) Spr(PhoneSurface(), 2434.5f, 1012.5f, 21, 36, x + 0x1d, sel * 0x18 - 1 + y + 0x5c, alpha);
++  Text(x + 0x31, y + 0x5c, 0xdc, Str(S.StrBaseA + str0), 0, 1, sel == 0 ? Red : 0, 0x14, alpha);
++  if (str1 != 9999) Text(x + 0x31, y + 0x74, 0xdc, Str(S.StrBaseA + str1), 0, 1, sel == 1 ? Red : 0, 0x14, alpha);
++}
++
++// 0x45a320: the opening animation (PHONE3), the default phone only
++void DrawOpening() {
++  const uint32_t ct = SW(0x6a44);
++  SprStretch(0xae, (float)(((ct % 0xe) / 2) * 0x124 + 1) * Scale, (float)((ct / 0xe) * 0x1f9 + 1) * Scale, 436.5f, 756,
++             1248, 0, 1872, 1080, 0x100);
++}
++
++// ------------------------------------------------------------------------------------------------ screens
++
++// 0x44d8f0 mode 0: home (wallpaper, incoming call / new mail)
++void DrawHome(int x, int y, int alpha) {
++  const int surf = PhoneSurface();
++  DrawWallpaper(x, y, alpha);
++  if (!GetFlag(0xa2d)) {
++    if (GetFlag(0xa2c)) {  // new mail
++      Spr(surf, 2239.5f, 1.5f, 414, 247.5f, x, y + 0x4c, alpha);
++      DrawMark(1, x + 0x69, y + 0x50, alpha);
++      const uint8_t* s = Str(S.StrBaseA + 9);
++      const int w = std::min(TextWidth(s, 0x18), 0xfe);
++      Text(x - (w >> 1) + 0x8a, y + 0x96, 0xfe, s, 0, 2, Red, 0x18, alpha);
++    }
++    return;
++  }
++  // incoming call: number drawn with the digit sprites, name, "incoming call"
++  const int caller = SW(0x6a6c);
++  Spr(surf, 2239.5f, 1.5f, 414, 247.5f, x, y + 0x4c, alpha);
++  const uint8_t* digits = Str(S.StrBaseB);
++  const uint8_t* number = Str(S.StrBaseB + caller * 2 + 2);
++  int dx = x + 0x48;
++  for (; *number != 0xff; number += 2, dx += 0x10) {
++    int i = 0;
++    const uint8_t* d = digits;
++    for (; *d != 0xff; d += 2, i++)
++      if (((number[0] & 0x7f) << 8 | number[1]) == ((d[0] & 0x7f) << 8 | d[1])) break;
++    if (*d == 0xff) continue;
++    const int sx = i * 0x12 + 0x5d5;
++    Spr(surf, sx * Scale, 976.5f, 24, 33, dx, y + 0xbe, alpha);
++  }
++  DrawMark(0, x + 0x32, y + 0x50, alpha);
++  Text(x + 0x18, y + 0xa2, 0x108, Str(S.StrBaseB + caller * 2 + 1), 0, 2, 0, 0x14, alpha);
++  Text(x + 0x6a, y + 0x6e, 0xc0, Str(S.StrBaseA + 0xd), 0, 2, Red, 0x20, alpha);
++}
++
++// 0x44f5e0 mode 1: mail menu
++void DrawMailMenu(int x, int y, int alpha) {
++  const int surf = PhoneSurface(), sel = SW(0x6a4c);
++  Spr(surf, 2656.5f, 763.5f, 414, 294, x, y, alpha);
++  Spr(surf, 2656.5f, 579, 414, 181.5f, x, y + 0xc4, alpha);
++  if (sel != 0xff) Spr(surf, 2434.5f, 1012.5f, 21, 36, x + 0x10, sel * 0x18 - 1 + y + 0x3e, alpha);
++  Text(x + 0x24, y + 0x3e, 0x116, Str(S.StrBaseA), 0, 1, sel == 0 ? Red : 0, 0x14, alpha);
++  Text(x + 0x24, y + 0x56, 0x116, Str(S.StrBaseA + 1), 0, 1, sel == 1 ? Red : 0, 0x14, alpha);
++  if (sel != 0xff) Text(x + 0x12, y + 0xe0, 0xf0, Str(S.StrBaseA + 0x2a + sel), 0, 2, 0xffffff, 0x14, alpha);
++}
++
++// mail list (0x451340 sent, 0x451f10 inbox): 12 rows of date + subject, page numbers
++void DrawMailList(bool inbox, int x, int y, int alpha) {
++  const int surf = PhoneSurface();
++  const uint32_t count = inbox ? S.InboxCount : S.SentCount;
++  DrawTitleBar(inbox ? 0 : 1, x, y, alpha);
++  const int top = y + 0x1d;
++  Rect(x * Scale, top * Scale, 414, 432, 0xffffff, alpha);
++  if (count == 0) {
++    DrawPanel(2, x, y, 0, alpha);
++    return;
++  }
++  if (SW(0x6a58) != 0xff) Rect(x * Scale, (top + SW(0x6a58) * 0x18) * Scale, 414, 36, 0xffba95, alpha);
++  const uint32_t first = SW(0x6a54) * 12;
++  for (uint32_t i = 0; i < 12 && first + i < count; i++) {
++    const uint32_t mail = (inbox ? S.Inbox : S.Sent)[first + i];
++    const int ry = top + i * 0x18;
++    if (inbox) {
++      // unread / read / answered marks (0x451f10)
++      const int mark = MailBit(mail, 4) ? 0x19d : (MailBit(mail, 1) ? 0x183 : 0x169);
++      Spr(surf, (mark + 0x32) * Scale, 577.5f, 36, 36, x, ry, alpha);
++    } else {
++      Spr(surf, 616.5f, 577.5f, 36, 36, x, ry, alpha);
++    }
++    if (S.Mails[mail][MailAttach] != 999) Spr(surf, 733.5f, 577.5f, 36, 36, x + 0x60, ry, alpha);
++  }
++  TextAscii(0x470, 0x9a, Num2(SW(0x6a54) + 1) + "/" + Num2(SW(0x6a50) + 1), S.ArrowHover ? 0xffee88 : 0xffffff, 0x10,
++            alpha);
++  for (uint32_t i = 0; i < 12 && first + i < count; i++) {
++    const uint32_t mail = (inbox ? S.Inbox : S.Sent)[first + i];
++    const int ry = top + i * 0x18;
++    const uint32_t date = S.Mails[mail][MailDateHi];
++    TextAscii(x + 0x18, ry, Num2(date / 100) + "/" + Num2(date % 100), 0, 0x18, alpha);
++    const int tx = S.Mails[mail][MailAttach] != 999 ? x + 0x78 : x + 0x60;
++    Text(tx, ry, x - tx + 0x116, Str(S.Mails[mail][MailText] + 1), 0, 1, 0, 0x18, alpha);
++  }
++  Spr(surf, 2239.5f, 465, 414, 432, x, top, alpha);
++}
++
++void DrawScreen(int mode, int x, int y, int alpha) {
++  switch (mode) {
++    case 0: DrawHome(x, y, alpha); break;
++    case 1: DrawMailMenu(x, y, alpha); break;
++    case 2: DrawMailList(false, x, y, alpha); break;
++    case 3: DrawMailList(true, x, y, alpha); break;
++    case 0x14:
++    case 0x15: DrawMainMenu(x, y, alpha); break;
++    default: DrawMoreScreens(mode, x, y, alpha); break;
++  }
++}
++
++// 0x44fb80 modes 20/21: main menu (mail, address book, ..., settings)
++void DrawMainMenu(int x, int y, int alpha) {
++  const int surf = PhoneSurface(), sel = SW(0x6a70);
++  Spr(surf, 2656.5f, 285, 414, 475.5f, x, y, alpha);
++  const float iconSx[4] = {2656.5f, 2758.5f, 2860.5f, 2962.5f};
++  const int ix[4] = {x + 0x2e, x + 0x96, x + 0x2e, x + 0x96}, iy[4] = {y + 0x2f, y + 0x2f, y + 0x85, y + 0x85};
++  for (int i = 0; i < 4; i++)
++    Spr(surf, iconSx[i], (float)((sel == i ? 0x3b3 : 0x36f) + 1) * Scale, 99, 99, ix[i], iy[i], alpha);
++  if ((uint32_t)sel < 4) Text(x + 0x12, y + 0xe0, 0xf0, Str(S.StrBaseA + sel + 0x23), 0, 2, 0xffffff, 0x14, alpha);
++}
++
++// 0x453800: the phone on its layer
++void RenderPhone() {
++  const uint32_t ct = SW(0x6a44);
++  if (ct == 0) return;
++  if (SW(0x6b20) == 0 && ct < 0x14) {
++    DrawOpening();
++    return;
++  }
++  const int slide = ct * -0xe;
++  const int alpha = (ct << 8) / 0x14;
++  const int surf = PhoneSurface();
++  Spr(surf, 1.5f, 1.5f, 567, 1077, slide + 0x470, 2, alpha);
++  const int mode = SW(0x6a48);
++  DrawScreen(mode, slide + 0x4a3, 0x91, alpha);
++  if (mode != 99) {
++    DrawStatusBar(slide + 0x4a3, 0x73, alpha);
++    if (S.HasUnread) Spr(surf, 835.5f, 1291.5f, 40.5f, 28.5f, slide + 0x567, 0x77, alpha);
++  }
++  Spr(surf, 616.5f, 631.5f, 414, 447, slide + 0x4a3, 0x73, alpha);  // frame over the screen
++}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonerender.h b/src/games/sghd/phonerender.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b6629b353c043222b8e636628e4a11c2357ffac
+--- /dev/null
++++ b/src/games/sghd/phonerender.h
+@@ -0,0 +1,47 @@
++#pragma once
++
++#include <cstdint>
++#include <string>
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++constexpr uint32_t Red = 0xff1111;  // highlighted text of the phone
++
++// phone.cpp
++bool MailBit(int mail, int bit);
++
++// phonerender.cpp: drawing helpers (destinations in the original's 1280x720 units, sources in texture pixels)
++int PhoneSurface();
++void Spr(int surf, float sx, float sy, float w, float h, float dx, float dy, int alpha, uint32_t rgb = 0xffffff);
++void SprStretch(int surf, float sx, float sy, float w, float h, float x0, float y0, float x1, float y1, int alpha);
++void Rect(float x, float y, float w, float h, uint32_t rgb, int alpha);
++void Text(int x, int y, int maxWidth, const uint8_t* str, int skip, int lines, uint32_t color, int size, int alpha);
++void TextLinks(int x, int y, int maxWidth, const uint8_t* str, int skip, int lines, int size, int alpha, int sel);
++void TextAscii(int x, int y, const std::string& str, uint32_t color, int size, int alpha);
++int TextWidth(const uint8_t* str, int size);
++int LineCountOf(const uint8_t* str, int maxWidth, int size);
++const uint8_t* Str(uint32_t strNo);
++std::string Num2(uint32_t v);
++void DrawStatusBar(int x, int y, int alpha);
++void DrawMark(int kind, int x, int y, int alpha);
++void DrawWallpaper(int x, int y, int alpha);
++void DrawTitleBar(int which, int x, int y, int alpha);
++void DrawPanel(int strOffset, int x, int y, uint32_t color, int alpha);
++void DrawChoice(int str0, int str1, int sel, int x, int y, int alpha);
++void DrawMainMenu(int x, int y, int alpha);
++
++// the remaining screens (phonescreens.cpp)
++void DrawMoreScreens(int mode, int x, int y, int alpha);
++void DrawMailWithLinks(int titleBar, int mail, int top, int count, float subjectIcon, bool links, int linkSel, int x,
++                       int y, int alpha);
++void DrawDotsRing(int x, int y, int alpha);  // 0x453e60
++void DrawRemainingScreens(int mode, int x, int y, int alpha);  // phonescreens2.cpp
++void DrawLastScreens(int mode, int x, int y, int alpha);       // phonescreens3.cpp
++
++void RenderPhone();
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonescreens.cpp b/src/games/sghd/phonescreens.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2a11ed23299092af1dcd8b72b97a8224aa5028d
+--- /dev/null
++++ b/src/games/sghd/phonescreens.cpp
+@@ -0,0 +1,180 @@
++// The phone screens not drawn in phonerender.cpp, translated from the original draw routines (addresses in the
++// comments). Destinations are in the original's 1280x720 units, texture sources in texture pixels.
++#include "phonerender.h"
++#include "phonestate.h"
++
++#include "../../mem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++namespace {
++constexpr float Scale = 1.5f;
++
++// scroll arrows of a text screen (hover from the mouse, 0xffee88)
++void DrawScrollArrows(int x, int y, int top, int count, int alpha) {
++  if (count <= 0xc) return;
++  const int surf = PhoneSurface();
++  if (top != 0) Spr(surf, 2239.5f, 943.5f, 414, 13.5f, x, y + 0x1d, alpha, S.ScrollHover == 1 ? 0xffee88 : 0xffffff);
++  if (top + 0xc < count)
++    Spr(surf, 2239.5f, 960, 414, 13.5f, x, y + 0x134, alpha, S.ScrollHover == 2 ? 0xffee88 : 0xffffff);
++}
++
++// A mail: 0x452be0 (received), 0x452440 (sent), 0x44fe80 (the answer). Rows scroll by `top`; the first rows are the
++// date (not for the answer), the subject, the address block (text + 0) and a separator, then the text (text + 2).
++void DrawMail(int titleBar, int mail, int top, int count, float subjectIcon, bool answer, int x, int y, int alpha,
++              bool links = false, int linkSel = 0xff) {
++  const int surf = PhoneSurface();
++  DrawTitleBar(titleBar, x, y, alpha);
++  const int areaY = y + 0x1d;
++  Rect(x * Scale, areaY * Scale, 414, 432, 0xffffff, alpha);
++  const auto& m = S.Mails[mail];
++  const int dateRows = answer ? 0 : 1;  // rows before the subject
++  int iconY = areaY;
++  if (!answer) {
++    if (top == 0) {
++      Spr(surf, 2239.5f, 1012.5f, 36, 36, x, areaY, alpha);
++      if (m[MailAttach] != 999) Spr(surf, 2395.5f, 1012.5f, 36, 36, x + 0xfc, areaY, alpha);
++      iconY = y + 0x35;
++    }
++  }
++  if (top < dateRows + 1) {
++    Spr(surf, subjectIcon, 1012.5f, 36, 36, x, iconY, alpha);
++    iconY += 0x18;
++  }
++  int addrLines = LineCountOf(Str(m[MailText]), 0xfe, 0x18);
++  if (addrLines == 0) addrLines = 1;
++  const int headRows = addrLines + dateRows + 1;
++  if (top <= headRows) {
++    int shown;
++    if (top < dateRows + 2) {
++      Spr(surf, 2356.5f, 1012.5f, 36, 36, x, iconY, alpha);
++      shown = addrLines;
++    } else {
++      shown = addrLines - top + dateRows + 1;
++    }
++    iconY = shown * 0x18 - 1 + iconY;
++    Rect(x * Scale, iconY * Scale, 414, 1.5f, 0, alpha);
++  }
++  int rowsLeft = 0xc, ty = areaY;
++  if (!answer && top == 0) {
++    const uint32_t d = m[MailDateHi], t = m[MailDateLo];
++    std::string s = Num2(d / 100) + "/" + Num2(d % 100) + " " + Num2(t / 100) + ":" + Num2(t % 100);
++    if (s[9] == ' ') s[9] = '0';
++    TextAscii(x + 0x18, areaY, s, 0, 0x18, alpha);
++    ty = y + 0x35;
++    rowsLeft = 0xb;
++  }
++  if (top < dateRows + 1) {
++    Text(x + 0x18, ty, answer ? 0xfe : 0xfc, Str(m[MailText] + 1), 0, 1, 0, 0x18, alpha);
++    ty += 0x18;
++    rowsLeft--;
++  }
++  if (top <= headRows) {
++    const int shown = top > dateRows + 1 ? addrLines - top + dateRows + 1 : addrLines;
++    Text(x + 0x18, ty, 0xfe, Str(m[MailText]), addrLines - shown, shown, 0, 0x18, alpha);
++    rowsLeft -= shown;
++    ty += shown * 0x18;
++  }
++  const int bodySkip = top < headRows ? 0 : top - addrLines - dateRows - 1;
++  if (links)
++    TextLinks(x, ty, 0x114, Str(m[MailText] + 2), bodySkip, rowsLeft, 0x18, alpha, linkSel);
++  else
++    Text(x, ty, answer ? 0x116 : 0x114, Str(m[MailText] + 2), bodySkip, rowsLeft, 0, 0x18, alpha);
++  DrawScrollArrows(x, y, top, count, alpha);
++  Spr(surf, 2239.5f, 465, 414, 432, x, areaY, alpha);
++}
++
++void DrawReadInbox(int x, int y, int alpha) {  // mode 5
++  DrawMail(2, SW(0x6a5c), SW(0x6a74), SW(0x6a78), 2278.5f, false, x, y, alpha);
++}
++void DrawReadSent(int x, int y, int alpha) {  // mode 4
++  DrawMail(3, SW(0x6a5c), SW(0x6a74), SW(0x6a78), 2317.5f, false, x, y, alpha);
++}
++void DrawAnswer(int x, int y, int alpha) {  // mode 22
++  DrawMail(10, SW(0x6a84), SW(0x6a88), SW(0x6a8c), 2317.5f, true, x, y, alpha);
++}
++
++// 0x44f4c0 mode 19: the mail with the answer / attachment choice
++void DrawMailActions(int x, int y, int alpha) {
++  if (SW(0x6a4c) == 0)
++    DrawReadInbox(x, y, alpha);
++  else
++    DrawReadSent(x, y, alpha);
++  const int mail = SW(0x6a5c);
++  const bool canAnswer = GetFlag(0xa29) && MailBit(mail, 2) && !MailBit(mail, 4) && S.Mails[mail][MailReply] != 999;
++  const bool attach = S.Mails[mail][MailAttach] != 999;
++  if (!canAnswer && !attach) return;
++  if (canAnswer && attach)
++    DrawChoice(10, 0xb, SW(0x6a80), x, y + 0x1d, alpha);
++  else if (!canAnswer)
++    DrawChoice(0xb, 9999, SW(0x6a80), x, y + 0x1d, alpha);
++  else
++    DrawChoice(10, 9999, SW(0x6a80), x, y + 0x1d, alpha);
++}
++
++// 0x453380 mode 6: address book
++void DrawAddressBook(int x, int y, int alpha) {
++  DrawTitleBar(4, x, y, alpha);
++  const int top = y + 0x1d;
++  Rect(x * Scale, top * Scale, 414, 424.5f, 0xffffff, alpha);
++  if (SW(0x6a94) != 0xff) Rect(x * Scale, (top + SW(0x6a94) * 0x18) * Scale, 414, 36, 0xffba95, alpha);
++  for (uint32_t i = 0; i < S.ContactCount; i++)
++    Text(x + 0xc, top + i * 0x18, 0x116, Str(S.StrBaseB + S.Contacts[i] * 2 + 1), 0, 1, 0, 0x18, alpha);
++  Spr(PhoneSurface(), 2239.5f, 465, 414, 432, x, top, alpha);
++}
++
++// 0x453530 mode 7: call / mail the contact
++void DrawContact(int x, int y, int alpha) {
++  const uint32_t c = S.Contacts[SW(0x6a94)];
++  const bool canMail = GetFlag(0xa2a) && S.CanMail[c];
++  const bool canCall = GetFlag(0xa2b) && S.CanCall[c];
++  DrawAddressBook(x, y, alpha);
++  if (canMail && canCall)
++    DrawChoice(0x10, 0x11, SW(0x6b04), x, y + 0x1d, alpha);
++  else if (!canMail)
++    DrawChoice(0x10, 9999, SW(0x6b04), x, y + 0x1d, alpha);
++  else
++    DrawChoice(0x11, 9999, SW(0x6b04), x, y + 0x1d, alpha);
++}
++
++// a box over the screen with a blinking mail mark and a centred red text (0x453640 sending, 0x450530 sent)
++void DrawMailNotice(int strOffset, int x, int y, int alpha) {
++  Spr(PhoneSurface(), 2239.5f, 1.5f, 414, 247.5f, x, y + 0x4c, alpha);
++  DrawMark(1, x + 0x69, y + 0x50, alpha);
++  const uint8_t* s = Str(S.StrBaseA + strOffset);
++  const int w = std::min(TextWidth(s, 0x18), 0xfe);
++  Text(x - (w >> 1) + 0x8a, y + 0x96, 0xfe, s, 0, 2, Red, 0x18, alpha);
++}
++
++}  // namespace
++
++void DrawMailWithLinks(int titleBar, int mail, int top, int count, float subjectIcon, bool links, int linkSel, int x,
++                       int y, int alpha) {
++  DrawMail(titleBar, mail, top, count, subjectIcon, false, x, y, alpha, links, linkSel);
++}
++
++void DrawMoreScreens(int mode, int x, int y, int alpha) {
++  switch (mode) {
++    case 4: DrawReadSent(x, y, alpha); break;
++    case 5: DrawReadInbox(x, y, alpha); break;
++    case 6: DrawAddressBook(x, y, alpha); break;
++    case 7: DrawContact(x, y, alpha); break;
++    case 9:  // 0x453640: sending
++      DrawAnswer(x, y, alpha);
++      DrawMailNotice(0xe, x, y, alpha);
++      break;
++    case 0x13: DrawMailActions(x, y, alpha); break;
++    case 0x16: DrawAnswer(x, y, alpha); break;
++    case 0x18:  // 0x450530: sent
++      DrawAnswer(x, y, alpha);
++      DrawMailNotice(0xc, x, y, alpha);
++      break;
++    default: DrawRemainingScreens(mode, x, y, alpha); break;
++  }
++}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonescreens2.cpp b/src/games/sghd/phonescreens2.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..4613009a8569a4e93cefea599ee563dc57118f43
+--- /dev/null
++++ b/src/games/sghd/phonescreens2.cpp
+@@ -0,0 +1,229 @@
++// Phone screens, part 2: calls, settings, wallpapers, ringtones (original draw routines in the comments).
++#include "phonerender.h"
++#include "phonestate.h"
++
++#include "../../mem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++namespace {
++constexpr float Scale = 1.5f;
++uint32_t DotClock = 0, DotPhase = 0;  // DAT_018ec74c / 750
++
++// 0x454130 / 0x453e60: the moving dotted frame around the caller (w x h dots from (x, y))
++void DrawDots(int x, int y, int across, int down, int alpha) {
++  if (++DotClock > 4) {
++    DotPhase = (DotPhase + 1) & 7;
++    DotClock = 0;
++  }
++  const int surf = PhoneSurface();
++  uint32_t phase = DotPhase;
++  auto dot = [&](int dx, int dy) {
++    Spr(surf, (float)(int)(phase * 0xb + 0x14f) * Scale, 1350, 13.5f, 13.5f, dx, dy, alpha);
++    phase = (phase + 1) & 7;
++  };
++  int px = x, py = y;
++  for (int i = 0; i < across; i++, px += 0xc) dot(px, py);
++  px -= 0xc;
++  for (int i = 0; i < down; i++) dot(px, py += 0xc);
++  for (int i = 0; i < across - 1; i++) dot(px -= 0xc, py);
++  for (int i = 0; i < down - 1; i++) dot(px, py -= 0xc);
++}
++
++}  // namespace
++
++void DrawDotsRing(int x, int y, int alpha) {  // 0x453e60
++  DrawDots(x + 0x12, y + 0x3e, 0x14, 5, alpha);
++}
++
++namespace {
++
++void Black(int x, int y, int alpha) { Rect(x * Scale, y * Scale, 414, 468, 0, alpha); }
++
++// number of a contact with the large digit sprites (0x44dd30)
++void DrawNumber(int caller, int x, int y, int alpha) {
++  const uint8_t* digits = Str(S.StrBaseB);
++  const uint8_t* number = Str(S.StrBaseB + caller * 2 + 2);
++  int dx = x;
++  for (; *number != 0xff; number += 2) {
++    int i = 0;
++    const uint8_t* d = digits;
++    for (; *d != 0xff; d += 2, i++)
++      if (((number[0] & 0x7f) << 8 | number[1]) == ((d[0] & 0x7f) << 8 | d[1])) break;
++    if (*d != 0xff) Spr(PhoneSurface(), (float)(i * 0x18 + 0x14f) * Scale, 1366.5f, 33, 45, dx, y, alpha);
++    dx += 0x18;
++  }
++}
++
++void CentredWhite(int strOffset, int x, int y, int alpha) {
++  const uint8_t* s = Str(S.StrBaseA + strOffset);
++  const int w = std::min(TextWidth(s, 0x18), 0xc0);
++  Text(x - (w >> 1) + 0x8a, y + 0x40, 0xc0, s, 0, 2, 0xffffff, 0x18, alpha);
++}
++
++// 0x44dd30 mode 10: calling someone / being called (number, name, "calling")
++void DrawCall(int x, int y, int alpha) {
++  const int caller = SW(0x6a6c);
++  Black(x, y, alpha);
++  DrawDots(x + 0x42, y + 0x2a, 0xc, 5, alpha);
++  DrawNumber(caller, x + 6, y + 0xd4, alpha);
++  Text(x + 0x12, y + 0xb0, 0x108, Str(S.StrBaseB + caller * 2 + 1), 0, 2, 0xffffff, 0x18, alpha);
++  CentredWhite(0xf, x, y, alpha);
++}
++
++// 0x44dfb0 mode 11: dial screen
++void DrawDial(int x, int y, int alpha) {
++  Black(x, y, alpha);
++  Spr(PhoneSurface(), 502.5f, 1293, 276, 54, x + 0x2e, y + 0x88, alpha);
++}
++
++// 0x44e090 mode 12: the camera (the original shows the scene through the phone; the frame only here)
++void DrawCamera(int x, int y, int alpha) { Spr(PhoneSurface(), 616.5f, 109.5f, 414, 468, x, y, alpha); }
++
++// 0x450310 mode 23: dialling with the key pad
++void DrawDialPad(int x, int y, int alpha) {
++  const int surf = PhoneSurface();
++  DrawDial(x, y, alpha);
++  int dx = x - SW(0x6ac0) * 0x18 + 0x10e;
++  for (int i = 0; i < SW(0x6ac0) && i < 4; i++, dx += 0x18)
++    Spr(surf, (float)(S.Dial[i] * 0x18 + 0x14f) * Scale, 1366.5f, 33, 45, dx, y + 0xd4, alpha);
++  // the key pad over the screen, fading with GlobalVars[6815] (screen pixels in the original: 708, 342)
++  Spr(surf, 1033.5f, 367.5f, 502.5f, 369, 708 / Scale, 342 / Scale, SW(0x6a7c));
++  const uint32_t key = SW(0x6abc);
++  if (key != 0xff && SW(0x6a7c) > 0xfe) {
++    const int row = (key / 3) * 0x2f, col = (key % 3) * 0x4d;
++    Spr(surf, (float)(col + 0x2e6) * Scale, (float)(row + 0x21c) * Scale, 112.5f, 67.5f, col + 0x20d, row + 0x114,
++        SW(0x6a7c));
++  }
++}
++
++// 0x4506f0 mode 25: connecting
++void DrawConnecting(int x, int y, int alpha) {
++  Black(x, y, alpha);
++  DrawDots(x + 0x42, y + 0x2a, 0xc, 5, alpha);
++  Spr(PhoneSurface(), 418.5f, 1120.5f, 132, 73.5f, x + 0x5e, y + 0xc1, alpha);
++  CentredWhite(0x12, x, y, alpha);
++}
++
++// 0x450830 mode 26: a mail arrives during a call
++void DrawConnectingMail(int x, int y, int alpha) {
++  DotClock = 0;
++  DrawConnecting(x, y, alpha);
++  Spr(PhoneSurface(), 1.5f, 1120.5f, 393, 270, x + 7, y + 0x46, alpha);
++  Spr(PhoneSurface(), 418.5f, 1120.5f, 132, 73.5f, x + 0x5e, y + 0x5d, alpha);
++  Text(x + 0x2a, y + 0x98, 0xc0, Str(S.StrBaseA + 9), 0, 2, 0, 0x18, alpha);
++}
++
++// 0x44e130 mode 13: settings menu
++void DrawSettings(int x, int y, int alpha) {
++  const int surf = PhoneSurface(), sel = SW(0x6aec);
++  Spr(surf, 2656.5f, 1060.5f, 414, 75, x, y, alpha);
++  Spr(surf, 2656.5f, 838.5f, 414, 219, x, y + 0x32, alpha);
++  Spr(surf, 2656.5f, 579, 414, 181.5f, x, y + 0xc4, alpha);
++  if (sel != 0xff) Spr(surf, 2434.5f, 1012.5f, 21, 36, x + 0x10, sel * 0x18 - 1 + y + 0x3e, alpha);
++  for (int i = 0; i < 3; i++)
++    Text(x + 0x24, y + 0x3e + i * 0x18, 0x116, Str(S.StrBaseA + 4 + i), 0, 1, sel == i ? Red : 0, 0x14, alpha);
++  if (sel != 0xff) Text(x + 0x12, y + 0xe0, 0xf0, Str(S.StrBaseA + 0x2d + sel), 0, 2, 0xffffff, 0x14, alpha);
++}
++
++void ListArea(int titleBar, int sel, int x, int y, int alpha) {
++  DrawTitleBar(titleBar, x, y, alpha);
++  const int top = y + 0x1d;
++  Rect(x * Scale, top * Scale, 414, 432, 0xffffff, alpha);
++  if (sel != 0xff) Rect(x * Scale, (top + sel * 0x18) * Scale, 414, 36, 0xffba95, alpha);
++}
++
++// 0x44e430 mode 14: wallpapers (6 per page, thumbnails)
++void DrawWallpapers(int x, int y, int alpha) {
++  DrawTitleBar(5, x, y, alpha);
++  const int top = y + 0x1d;
++  Rect(x * Scale, top * Scale, 414, 432, 0xffffff, alpha);
++  if (S.WpSel != 0xff) Rect(x * Scale, (S.WpSel * 0x30 + top) * Scale, 414, 72, 0xffba95, alpha);
++  for (uint32_t i = 0; i < 6; i++) {
++    const uint32_t n = i + S.WpPage * 6;
++    if (n > S.WallpaperListCount - 1 || S.WallpaperListCount == 0) break;
++    const int w = S.WallpaperList[n];
++    Rect(x * Scale, (y + 0x4c + i * 0x30) * Scale - 0.3f, 414, 2.1f, 0x808080, alpha);
++    const int ry = top + i * 0x30;
++    Spr(0xad, (float)((w % 0xc) * 0x2a + 1) * Scale, (float)((w / 0xc) * 0x30 + 1) * Scale, 61.5f, 70.5f, x + 9, ry,
++        alpha);
++    if (SW(0x1f68) == w) Spr(PhoneSurface(), 2562, 1425, 61.5f, 70.5f, x + 9, ry, alpha);
++  }
++  TextAscii(0x470, 0x9a, Num2(S.WpPage + 1) + "/" + Num2(S.WpPages), S.ArrowHover ? 0xffee88 : 0xffffff, 0x10, alpha);
++  for (uint32_t i = 0; i < 6; i++) {
++    const uint32_t n = i + S.WpPage * 6;
++    if (n > S.WallpaperListCount - 1 || S.WallpaperListCount == 0) break;
++    Text(x + 0x3c, top + i * 0x30, 0xd8, Str(S.StrBaseA + S.Wallpapers[S.WallpaperList[n]][1]), 0, 2, 0, 0x18,
++         alpha);
++  }
++  Spr(PhoneSurface(), 2239.5f, 465, 414, 432, x, top, alpha);
++}
++
++// 0x44e860 / 0x44eb60 modes 15 / 16: ringtones for calls / mails (first row: none)
++void DrawRingtones(bool mail, int x, int y, int alpha) {
++  const int surf = PhoneSurface(), var = mail ? 0x1f74 : 0x1f6c;
++  ListArea(mail ? 7 : 6, SW(0x6af0), x, y, alpha);
++  const int top = y + 0x1d;
++  if (SW(var) == 0xffff) {
++    Spr(surf, 2491.5f, 1012.5f, 27, 36, x, top, alpha);
++  } else {
++    for (uint32_t i = 0; i < S.RingtoneListCount; i++)
++      if ((uint32_t)SW(var) == S.Ringtones[S.RingtoneList[i]][mail ? 1 : 0]) {
++        Spr(surf, 2461.5f, 1012.5f, 27, 36, x, top + (i + 1) * 0x18, alpha);
++        break;
++      }
++  }
++  Text(x + 0x14, top, mail ? 0x116 : 0xfe, Str(S.StrBaseA + 0x17), 0, 1, 0, 0x18, alpha);
++  int ry = y + 0x35;
++  for (uint32_t i = 0; i < S.RingtoneListCount; i++, ry += 0x18) {
++    const uint8_t* name = Str(S.Ringtones[S.RingtoneList[i]][2] + S.StrBaseA);
++    if (!mail || TextWidth(name, 0x18) < 0xff) {
++      Text(x + 0x14, ry, 0xfe, name, 0, 1, 0, 0x18, alpha);
++    } else {  // too long: cut and an ellipsis
++      Text(x + 0x14, ry, 0xf2, name, 0, 1, 0, 0x18, alpha);
++      static const uint8_t ellipsis[] = {0xff, 0x80, 0xff};
++      Text(x + 0x106, ry, 0xf2, ellipsis + 1, 0, 1, 0, 0x18, alpha);
++    }
++  }
++  Spr(surf, 2239.5f, 465, 414, 432, x, top, alpha);
++}
++
++// 0x44ef00 / 0x44f1e0 modes 17 / 18: four entry lists (none + 3)
++void DrawFour(bool second, int x, int y, int alpha) {
++  const int surf = PhoneSurface(), var = second ? 0x1f78 : 0x1f70;
++  ListArea(second ? 9 : 8, SW(0x6af0), x, y, alpha);
++  const int top = y + 0x1d;
++  if (SW(var) == 0xffff)
++    Spr(surf, 2491.5f, 1012.5f, 27, 36, x, top, alpha);
++  else
++    Spr(surf, 2461.5f, 1012.5f, 27, 36, x, top + (SW(var) * 3 + 3) * 8, alpha);
++  for (int i = 0; i < 4; i++)
++    Text(x + 0x14, i == 0 ? top : y + 0x35 + (i - 1) * 0x18, 0x116, Str(S.StrBaseA + 0x17 + i), 0, 1, 0, 0x18, alpha);
++  Spr(surf, 2239.5f, 465, 414, 432, x, top, alpha);
++}
++
++}  // namespace
++
++void DrawRemainingScreens(int mode, int x, int y, int alpha) {
++  switch (mode) {
++    case 10: DrawCall(x, y, alpha); break;
++    case 11: DrawDial(x, y, alpha); break;
++    case 12: DrawCamera(x, y, alpha); break;
++    case 0xd: DrawSettings(x, y, alpha); break;
++    case 0xe: DrawWallpapers(x, y, alpha); break;
++    case 0xf: DrawRingtones(false, x, y, alpha); break;
++    case 0x10: DrawRingtones(true, x, y, alpha); break;
++    case 0x11: DrawFour(false, x, y, alpha); break;
++    case 0x12: DrawFour(true, x, y, alpha); break;
++    case 0x17: DrawDialPad(x, y, alpha); break;
++    case 0x19: DrawConnecting(x, y, alpha); break;
++    case 0x1a: DrawConnectingMail(x, y, alpha); break;
++    default: DrawLastScreens(mode, x, y, alpha); break;
++  }
++}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonescreens3.cpp b/src/games/sghd/phonescreens3.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a5db16d067e9b97bb6090900b5b69506dbac70e
+--- /dev/null
++++ b/src/games/sghd/phonescreens3.cpp
+@@ -0,0 +1,167 @@
++// Phone screens, part 3: the phone trigger mail, ringtone / wallpaper / vibration actions, music, attachments.
++#include "phonerender.h"
++#include "phonestate.h"
++
++#include <cstdio>
++
++#include "../../mem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++namespace {
++constexpr float Scale = 1.5f;
++
++// 0x450980 mode 27: a received mail whose underlined words can be chosen (selected word S.LinkSel)
++void DrawTriggerMail(int x, int y, int alpha) {
++  const int mail = SW(0x6a5c);
++  DrawMailWithLinks(2, mail, SW(0x6a74), SW(0x6a78), 2278.5f, !MailBit(mail, 4), (int)S.LinkSel, x, y, alpha);
++}
++
++// 0x4511a0 mode 28
++void DrawTriggerActions(int x, int y, int alpha) {
++  DrawTriggerMail(x, y, alpha);
++  const int mail = SW(0x6a5c);
++  const bool canAnswer = GetFlag(0xa29) && GetFlag(0xa35) && mail == SW(0x6aa0) && S.Mails[mail][MailReply] != 999 &&
++                         !MailBit(mail, 4) && S.LinkSel != 0xff;
++  const bool attach = S.Mails[mail][MailAttach] != 999;
++  if (!canAnswer && !attach) return;
++  if (canAnswer && attach)
++    DrawChoice(10, 0xb, SW(0x6a80), x, y + 0x1d, alpha);
++  else if (!canAnswer)
++    DrawChoice(0xb, 9999, SW(0x6a80), x, y + 0x1d, alpha);
++  else
++    DrawChoice(10, 9999, SW(0x6a80), x, y + 0x1d, alpha);
++}
++
++void DrawRingtoneList(int x, int y, int alpha) {
++  DrawRemainingScreens(SW(0x6aec) == 1 ? 0xf : 0x10, x, y, alpha);
++}
++void DrawFourList(int x, int y, int alpha) { DrawRemainingScreens(SW(0x6aec) == 3 ? 0x11 : 0x12, x, y, alpha); }
++
++// 0x451870 modes 31 / 206: playing a piece of music (name scrolls when too long, play time)
++void DrawMusic(int x, int y, int alpha) {
++  const int surf = PhoneSurface();
++  Spr(surf, 877.5f, 1293, 297, 45, x + 0x24, y + 0x3c, alpha);
++  DrawDotsRing(x, y - 0x18, alpha);
++  const uint8_t* name = Str(S.Ringtones[S.PlayingIdx][2] + S.StrBaseA);
++  const uint8_t* from = name;
++  if (TextWidth(name, 0x18) > 0xdc) {
++    if (S.Unk_6f58 == 0) {
++      S.Unk_6f54++;
++      S.Unk_6f58 = 8;
++    } else {
++      S.Unk_6f58--;
++    }
++    uint32_t i = 0;
++    bool end = false;
++    for (; i < S.Unk_6f54; i++, from += 2)
++      if (from[1] == 0xff) {
++        end = true;
++        break;
++      }
++    if (end || *from == 0xff) {
++      S.Unk_6f58 = 0x78;
++      S.Unk_6f54 = 0;
++      from = name;
++    }
++  }
++  Text(x + 0x18, y + 0x94, 0xdc, from, 0, 1, 0xffffff, 0x18, alpha);
++  Spr(surf, 2239.5f, 1060.5f, 414, 75, x, y + 0xec, alpha);
++  const uint32_t secs = S.PlayTime / 0x3c;
++  char t[16];
++  std::snprintf(t, sizeof(t), "%02u:%02u:%02u", (secs / 0xe10) % 100, (secs % 0xe10) / 0x3c, (secs % 0xe10) % 0x3c);
++  int dx = x + 0x28;
++  for (int i = 0; i < 8; i++, dx += 0x18) {
++    const int sx = t[i] == ':' ? 0x29e : (t[i] - '0') * 0x18 + 0x14e;
++    Spr(surf, (float)(sx + 1) * Scale, 1366.5f, 33, 45, dx, y + 0xd6, alpha);
++  }
++}
++
++}  // namespace
++
++void DrawLastScreens(int mode, int x, int y, int alpha) {
++  switch (mode) {
++    case 0x1b: DrawTriggerMail(x, y, alpha); break;
++    case 0x1c: DrawTriggerActions(x, y, alpha); break;
++    case 0x1d:  // 0x4512d0: set / listen
++      DrawRingtoneList(x, y, alpha);
++      if (SW(0x6af0) == 0)
++        DrawChoice(0x16, 9999, SW(0x6af8), x, y + 0x1d, alpha);
++      else
++        DrawChoice(0x15, 0x16, SW(0x6af8), x, y + 0x1d, alpha);
++      break;
++    case 0x1e:  // 0x451810: "set"
++      DrawRingtoneList(x, y, alpha);
++      DrawPanel(SW(0x6aec) == 1 ? 0x22 : 0x33, x, y + 0x1d, 0, alpha);
++      break;
++    case 0x1f:
++    case 0xce: DrawMusic(x, y, alpha); break;
++    case 0x20:  // 0x451c50
++      DrawFourList(x, y, alpha);
++      if (SW(0x6af0) == 0)
++        DrawChoice(0x16, 9999, SW(0x6af8), x, y + 0x1d, alpha);
++      else
++        DrawChoice(0x32, 0x16, SW(0x6af8), x, y + 0x1d, alpha);
++      break;
++    case 0x21:  // 0x451cc0
++      DrawFourList(x, y, alpha);
++      DrawPanel(SW(0x6aec) == 3 ? 0x34 : 0x35, x, y + 0x1d, 0, alpha);
++      break;
++    case 0x22:  // 0x451d20: send the answer?
++      DrawMoreScreens(0x16, x, y, alpha);
++      DrawChoice(0x36, 0x37, SW(0x6afc), x, y + 0x1d, alpha);
++      break;
++    case 0x23:  // 0x451d60
++      DrawRemainingScreens(0xe, x, y, alpha);
++      DrawChoice(0x4c, 0x16, SW(0x6af8), x, y + 0x1d, alpha);
++      break;
++    case 0x24:  // 0x451da0
++      DrawRemainingScreens(0xe, x, y, alpha);
++      DrawPanel(0x4b, x, y + 0x1d, 0, alpha);
++      break;
++    case 0x25: DrawWallpaper(x, y, alpha); break;  // 0x45c150
++    case 0x26:  // 0x451dd0
++      DrawFourList(x, y, alpha);
++      if (SW(0x6af0) == 0)
++        DrawChoice(0x16, 9999, SW(0x6af8), x, y + 0x1d, alpha);
++      else
++        DrawChoice(0x32, 0x16, SW(0x6af8), x, y + 0x1d, alpha);
++      DrawPanel(0x4f, x, y + 0x1d, 0, alpha);
++      break;
++    case 0x27: {  // 0x451e50
++      DrawMoreScreens(6, x, y, alpha);
++      if (!GetFlag(0xa2a))
++        DrawChoice(0x10, 9999, 0, x, y + 0x1d, alpha);
++      else if (!GetFlag(0xa2b))
++        DrawChoice(0x11, 9999, 0, x, y + 0x1d, alpha);
++      else
++        DrawChoice(0x10, 0x11, SW(0x6b04), x, y + 0x1d, alpha);
++      break;
++    }
++    case 0x28:  // 0x452400
++      DrawMoreScreens(0x16, x, y, alpha);
++      DrawChoice(0x36, 9999, SW(0x6afc), x, y + 0x1d, alpha);
++      break;
++    case 200:
++    case 0xc9:
++    case 0xca:
++    case 0xcb:
++    case 0xcc:
++    case 0xcd:
++    case 0xcf:
++    case 0xd0:
++    case 0xd1:  // 0x44fb60: the mail stays on the phone while an attachment is shown
++      if (S.ReturnMode == 5)
++        DrawMoreScreens(5, x, y, alpha);
++      else if (S.ReturnMode == 0x1b)
++        DrawTriggerMail(x, y, alpha);
++      break;
++    default: break;
++  }
++}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto

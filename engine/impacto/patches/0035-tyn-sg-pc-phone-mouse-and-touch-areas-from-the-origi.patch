@@ -1,0 +1,149 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 09:22:28 -0800
+Subject: [PATCH] tyn: sg-pc phone mouse and touch areas from the original
+ Game.exe (0x433040, table 0x52ea58)
+
+The phone can be used with the mouse and on touch screens as in the original's mouse mode (DAT_0052e6b0): the entries
+follow the pointer, a click / tap chooses, the wheel pages and scrolls. Hit areas are the phone group (0x14) of the
+original table 0x52ea58 (id, parent: 1 = relative to the phone screen at 1360,217, rectangle in screen pixels); id 0
+is the whole screen ("click anywhere", wheel). The underlined words of the phone trigger get their areas from the
+text as it is drawn (like 0x45b9f0; ids 48 + 20 * word as the original numbers them). Touch counts as the mouse.
+
+Checked on MuMu (Android 15, not a real device, original English data): phone opened with Z, then by taps only:
+home -> menu -> address book -> PhoneWave -> call; the call scene follows.
+
+TYN only.
+
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+index 6cf220740c69ed490c77be75a971c7f07a2b23e6..11332377b2db8922bf0e5177ffdc1c75bf1d1269 100644
+--- a/src/games/sghd/phone.cpp
++++ b/src/games/sghd/phone.cpp
+@@ -10,6 +10,7 @@
+ #include "../../audio/audiosystem.h"
+ #include "../../audio/audiochannel.h"
+ #include "../../inputsystem.h"
++#include <glm/glm.hpp>
+ #include "../../log.h"
+ #include "../../mem.h"
+ #include "../../vm/expression.h"
+@@ -60,10 +61,63 @@ void ClickDecide() { InDown |= BtnDecide; }
+ 
+ }  // namespace
+ 
+-// Mouse mode of the original: no keyboard cursor, the entries follow the pointer. The phone hit areas are not
+-// implemented yet, so the phone is always driven like with a pad (the host's on-screen keys provide the buttons).
+-bool MouseMode() { return false; }
+-bool Hit(int /*id*/, int /*kind*/) { return false; }
++// Mouse mode of the original (DAT_0052e6b0): no keyboard cursor, the entries follow the pointer; touch counts as the
++// mouse. Hit areas of the phone (table 0x52ea58, group 0x14): id, parent (1 = relative to the phone screen), x, y, w,
++// h in screen pixels; the underlined words of the phone trigger get theirs from the text layout (ids 48 + 20 * word).
++bool MouseMode() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++
++namespace {
++struct HitArea {
++  int Id, Parent, X, Y, W, H;
++};
++constexpr HitArea HitAreas[] = {
++    {0, 0xffff, 0, 0, 1920, 1080},  {1, 0xffff, 1360, 217, 414, 476}, {2, 1, 85, 71, 88, 88},
++    {3, 1, 241, 71, 88, 88},        {4, 1, 241, 199, 88, 88},          {5, 1, 0, 90, 414, 36},
++    {6, 1, 0, 126, 414, 36},        {7, 1, 0, 162, 414, 36},           {8, 1, 0, 198, 414, 36},
++    {9, 1, 0, 234, 414, 36},        {10, 1, 30, 179, 353, 36},         {11, 1, 30, 215, 353, 36},
++    {12, 1, 0, 43, 414, 36},        {13, 1, 0, 79, 414, 36},           {14, 1, 0, 115, 414, 36},
++    {15, 1, 0, 151, 414, 36},       {16, 1, 0, 187, 414, 36},          {17, 1, 0, 223, 414, 36},
++    {18, 1, 0, 259, 414, 36},       {19, 1, 0, 295, 414, 36},          {20, 1, 0, 331, 414, 36},
++    {21, 1, 0, 367, 414, 36},       {22, 1, 0, 403, 414, 36},          {23, 1, 0, 439, 414, 36},
++    {24, 1, 0, 0, 207, 43},         {25, 1, 207, 0, 207, 43},          {26, 0xffff, 546, 66, 828, 32},
++    {27, 0xffff, 546, 986, 828, 32}, {28, 1, 0, 43, 414, 72},          {29, 1, 0, 115, 414, 72},
++    {30, 1, 0, 187, 414, 72},       {31, 1, 0, 259, 414, 72},          {32, 1, 0, 331, 414, 72},
++    {33, 1, 0, 403, 414, 72},       {34, 0xffff, 775, 414, 124, 70},   {35, 0xffff, 900, 414, 118, 70},
++    {36, 0xffff, 1018, 414, 124, 70}, {37, 0xffff, 775, 484, 124, 70}, {38, 0xffff, 900, 484, 118, 70},
++    {39, 0xffff, 1018, 484, 124, 70}, {40, 0xffff, 775, 555, 124, 70}, {41, 0xffff, 900, 555, 118, 70},
++    {42, 0xffff, 1018, 555, 124, 70}, {43, 0xffff, 775, 625, 124, 70}, {44, 0xffff, 900, 625, 118, 70},
++    {45, 0xffff, 1018, 625, 124, 70}, {46, 1, 0, 39, 414, 28},         {47, 1, 0, 452, 414, 28},
++};
++
++bool Inside(float x, float y, float w, float h) {
++  const glm::vec2 p = Input::CurMousePos;
++  return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
++}
++}  // namespace
++
++// 0x433040: kind 1 = the pointer is over the area, 8 = clicked / tapped in it, 0x200 / 0x400 = wheel up / down
++bool Hit(int id, int kind) {
++  if (!MouseMode()) return false;
++  if (kind == 0x200) return id == 0 && Input::MouseWheelDeltaY > 0;
++  if (kind == 0x400) return id == 0 && Input::MouseWheelDeltaY < 0;
++  const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++  if (kind == 8 && !click) return false;
++  if (id >= 48) {  // a word of the phone trigger
++    const int word = (id - 48) / 20;
++    for (const auto& r : S.LinkAreas)
++      if (r.Word == word && Inside(r.X, r.Y, r.W, r.H)) return true;
++    return false;
++  }
++  for (const HitArea& a : HitAreas) {
++    if (a.Id != id) continue;
++    float x = a.X, y = a.Y;
++    if (a.Parent == 1) x += 1360, y += 217;
++    return Inside(x, y, a.W, a.H);
++  }
++  return false;
++}
+ 
+ void PlaySe(int id) { Audio::PlayInGroup(Audio::ACG_SE, "se", id, false, 0.0f); }
+ 
+@@ -249,7 +303,7 @@ void CheckUnread() {
+     }
+ }
+ 
+-void ClearLinkHitAreas() { S.LinkAreaCount = 0; }  // 0x45a950
++void ClearLinkHitAreas() { S.LinkAreas.clear(); }  // 0x45a950
+ 
+ // ------------------------------------------------------------------------------------------------ modes
+ 
+diff --git a/src/games/sghd/phonerender.cpp b/src/games/sghd/phonerender.cpp
+index f107cdac107a1b53bd7fd5c1566b4a0beef4afde..491467dd266ce5ff7fd54739d346ad16f67cf48e 100644
+--- a/src/games/sghd/phonerender.cpp
++++ b/src/games/sghd/phonerender.cpp
+@@ -167,11 +167,13 @@ void TextLinks(int x, int y, int maxWidth, const uint8_t* str, int skip, int lin
+   if (alpha <= 0) return;
+   const Font& font = *Profile::Dialogue::DialogueFont;
+   std::vector<ProcessedTextGlyph> glyphs;
++  S.LinkAreas.clear();  // like 0x45b9f0, the hit areas follow the text as it is shown
+   Layout(str, maxWidth, size, 0, [&](int glyph, float gx, int line, uint32_t, int link, float w) {
+     if (line < skip || line >= skip + lines) return;
+     const float px = (x + gx) * Scale, py = (y + (line - skip) * size) * Scale;
+     uint32_t c = 0;
+     if (link >= 0) {
++      S.LinkAreas.push_back({link, px, py, w * Scale, size * Scale});
+       c = link == sel ? 0xffffff : 0x0000ff;
+       if (link == sel) Rect(px, py, w * Scale, size * Scale, 0x0000ff, alpha);
+       Rect(px, py + size * Scale - 3, w * Scale, 1.5f, c, alpha);  // underline
+diff --git a/src/games/sghd/phonestate.h b/src/games/sghd/phonestate.h
+index 5c3a92fc6fdc478b8e52d1c1a43834914beff399..6f1d3bd5e2ee61376d00bda1791dd74fe1357f4e 100644
+--- a/src/games/sghd/phonestate.h
++++ b/src/games/sghd/phonestate.h
+@@ -2,6 +2,7 @@
+ 
+ #include <array>
+ #include <cstdint>
++#include <vector>
+ 
+ #include "../../mem.h"
+ 
+@@ -60,7 +61,11 @@ struct State {
+   uint32_t NoticeTimer = 0;    // DAT_018f685c
+   uint32_t Hover = 0;          // DAT_018eab50
+   uint32_t Unk_eb994 = 0;
+-  uint32_t LinkAreaCount = 0;  // hit areas of the underlined words (DAT_0052f064)
++  struct LinkArea {
++    int Word;
++    float X, Y, W, H;  // screen pixels
++  };
++  std::vector<LinkArea> LinkAreas;  // hit areas of the underlined words (DAT_0052f064), from the last drawn mail
+   bool ParticlesInit = false;  // 0x45b6f0
+ };
+ 

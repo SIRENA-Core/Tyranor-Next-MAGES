@@ -1,0 +1,2293 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 05:19:46 -0800
+Subject: [PATCH] tyn: sg-pc phone logic from the original Game.exe (10:37,
+ phone button, mails, address book)
+
+STEINS;GATE (Steam) could not get past the prologue: instruction 10:37 (the phone) was a stub, and the scripts wait
+on the native phone, e.g. the address book macro called in SG00_01 loops until GlobalVars[6822] names the contact at
+row GlobalVars[6821]. The phone is now translated from the original routines (addresses of the Steam Game.exe):
+
+- SGHD::Phone (src/games/sghd/phone.*): all 10:37 sub instructions (0x467f60): mail state bits (0x454880 /
+  0x454860), the mail, attachment, ringtone and wallpaper tables read from six script labels (0x45bcf0), inbox /
+  sent lists, address book order and the contacts that can be called or mailed (0x4544e0, order table 0x52e9d8),
+  the selected mail (0x454420), mail and answer line counts (0x45b8e0 / 0x45b840), contacts (0x44d4e0 /
+  0x44d4a0), the mail that is answered by a word (0x45a7f0 / 0x45a880), callable / mailable contacts
+  (0x459ca0), the address book row (0x454400), dialling (0x45a000, keys 0x52ea08), today's date (0x4544a0 /
+  0x45bb90), and one frame of the open phone (0x459ce0): all 40 modes of the original (home, menu, inbox / sent
+  lists, reading, answering, the phone trigger words, address book, call / mail, settings, wallpapers, ringtones,
+  attachments: pictures, picture stories, text pages, music).
+- The open / close counter GlobalVars[6801] and the unread check run once per frame (0x459a30, 0x44d850) through the
+  new GameSpecificType.SGHD (sg-pc gamespecific.lua).
+- The phone's 500 byte bit field (mail states, registered contacts) is kept in every save like in the original
+  (0x45d1c0): MO6TWPC save file version 2 stores game data per entry (version 1 files are still read; their
+  entries have no phone data, so S;G saves from before this change start with an empty phone).
+- Phone button: the original sets PADcustom[22] to L2 | R2 (Z / C on the keyboard, 0x44ce30); the sg-pc profile now
+  does the same, the scripts open the phone with it.
+- The message wait sets flag 1611 while it waits for the player (the only time the phone may be opened) and clears
+  it when the message advances (as 0x45f5a0); while the player has the phone open (flag 2610) the message waits.
+- New game clears the phone (0x45c240 from the work clear of the init instruction).
+
+Not done here: the phone is not drawn yet (next patch), mouse / touch hit areas of the phone (the phone is driven
+with the pad / keyboard buttons, on Android through the host's on-screen keys), the keyboard walk over the words of
+the phone trigger (needs the phone text layout), Steam achievements.
+
+Checked on MuMu (Android 15, not a real device, original English data): new game, skip through the prologue (the
+address book macro passes, 646 mails, 5 contacts), in SG01_03 the phone opens with Z, menu -> address book ->
+PhoneWave -> call, the call scene follows; save and load keep the phone data.
+
+TYN only.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4bf2c55279e0c45e1247a32cd202e3c3c13c781c..684f98fb3f67166782205a456ba16a4a8e13619d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -267,6 +267,7 @@ set(Impacto_Src
+     src/games/sghd/sysmesbox.cpp
+     src/games/sghd/tipsmenu.cpp
+     src/games/sghd/tipssystem.cpp
++    src/games/sghd/phone.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+@@ -648,6 +649,8 @@ set(Impacto_Header
+     src/games/sghd/sysmesbox.h
+     src/games/sghd/tipsmenu.h
+     src/games/sghd/tipssystem.h
++    src/games/sghd/phone.h
++    src/games/sghd/phonestate.h
+     src/games/mo8/savemenu.h
+ 
+     src/games/darling/sysmesbox.h
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index 04e74833560a3a60964483daffefd7830e52ff18..c933376f9a924255ba9c31fd3b130f4ca1c69003 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -41,6 +41,9 @@ root.Vm = {
+ root.PlatformId = 131072;
+ 
+ include(root.BasePaths.RootProfilesDir .. '/common/scriptinput.lua');
++-- The phone opens with PADcustom[22], which the original sets to L2 | R2 (Z / C on the keyboard, 0x44ce30).
++root.Input.PADcustomA[23] = root.PADinput.PAD1L2 | root.PADinput.PAD1R2;
++root.Input.PADcustomB[23] = root.PADinput.PAD1L2 | root.PADinput.PAD1R2;
+ include(root.BasePaths.RootProfilesDir .. '/common/scriptvars.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/scriptvars.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/savedata.lua');
+@@ -67,3 +70,4 @@ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/sysmesboxdisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/selectiondisplay.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/tipsmenu.lua');
+ include(root.BasePaths.RootProfilesDir .. '/sg-pc/hud/tipsnotification.lua');
++include(root.BasePaths.RootProfilesDir .. '/sg-pc/gamespecific.lua');
+diff --git a/profiles/sg-pc/gamespecific.lua b/profiles/sg-pc/gamespecific.lua
+new file mode 100644
+index 0000000000000000000000000000000000000000..98b6295f0e035dc180b2efa96a665930a1336aa9
+--- /dev/null
++++ b/profiles/sg-pc/gamespecific.lua
+@@ -0,0 +1,4 @@
++root.GameSpecific = {
++  -- the phone (SGHD::Phone): per frame update and drawing on its layer
++  Type = GameSpecificType.SGHD
++}
+diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
+index f2e510b55a366c1bbf67fa6d50215b9b461178b2..fa3ff56300b4383057215bbc2792c93227e4c250 100644
+--- a/src/games/mo6twpc/savesystem.cpp
++++ b/src/games/mo6twpc/savesystem.cpp
+@@ -13,6 +13,7 @@
+ #endif
+ 
+ #include "../../mem.h"
++#include "../sghd/phone.h"
+ #include "../../util.h"
+ #include "../../vm/vm.h"
+ #include "../../profile/data/savesystem.h"
+@@ -52,7 +53,7 @@
+ //
+ // File format (little endian, own format, written atomically via temp file +
+ // rename):
+-//   "MO6S" u32 version(1)
++//   "MO6S" u32 version(2; version 1 files are read too, their entries have no game data)
+ //   u32 systemSize, system blob (see SaveSystemData)
+ //   u32 fullCount (48), u32 quickCount (48)
+ //   per slot (full then quick, physical order): u8 status; if status != 0 the
+@@ -70,7 +71,7 @@ namespace Cfg = Impacto::Profile::ConfigSystem;
+ 
+ namespace {
+ 
+-constexpr uint32_t FileVersion = 1;
++constexpr uint32_t FileVersion = 2;
+ constexpr char FileMagic[4] = {'M', 'O', '6', 'S'};
+ 
+ uint32_t Crc32(const uint8_t* data, size_t size) {
+@@ -159,9 +160,10 @@ void WriteEntry(Writer& w, const SaveFileEntry& e) {
+   for (int i = 0; i < 16; i++) w.Put<int32_t>(e.MainThreadVariables[i]);
+   w.Put<uint32_t>(e.MainThreadDialoguePageId);
+   w.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
++  w.Raw(e.GameData.data(), e.GameData.size());
+ }
+ 
+-void ReadEntry(Reader& r, SaveFileEntry& e) {
++void ReadEntry(Reader& r, SaveFileEntry& e, uint32_t version) {
+   e.Status = 1;
+   e.Flags = r.Get<uint8_t>();
+   e.SaveType = r.Get<uint32_t>();
+@@ -191,6 +193,7 @@ void ReadEntry(Reader& r, SaveFileEntry& e) {
+   e.MainThreadDialoguePageId = r.Get<uint32_t>();
+   r.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
+   e.HasThumbnailData = true;
++  if (version >= 2) r.Raw(e.GameData.data(), e.GameData.size());
+ }
+ 
+ // SaveFilePath is UTF-8 (it comes from the profile). Building the path from
+@@ -458,7 +461,7 @@ SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
+   char magic[4];
+   r.Raw(magic, 4);
+   const uint32_t version = r.Get<uint32_t>();
+-  if (version != FileVersion) return SaveError::Corrupted;
++  if (version != 1 && version != FileVersion) return SaveError::Corrupted;
+   const uint32_t systemSize = r.Get<uint32_t>();
+   if (systemSize > r.Remaining()) return SaveError::Corrupted;
+   std::vector<uint8_t> system(systemSize);
+@@ -474,7 +477,7 @@ SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
+   for (uint32_t i = 0; i < fullCount + quickCount; i++) {
+     auto entry = std::make_unique<SaveFileEntry>();
+     const uint8_t status = r.Get<uint8_t>();
+-    if (status != 0) ReadEntry(r, *entry);
++    if (status != 0) ReadEntry(r, *entry, version);
+     if (!r.Ok) return SaveError::Corrupted;
+     parsed.push_back(std::move(entry));
+   }
+@@ -601,6 +604,8 @@ void SaveSystem::SaveMemory() {
+               WorkingSaveEntry->ScrWorkScript1.begin());
+   std::copy_n(ScrWork.begin() + ScrWorkScript2Src, ScrWorkScript2Len,
+               WorkingSaveEntry->ScrWorkScript2.begin());
++  if (GameInstructionSet == InstructionSet::SGHD)
++    std::copy_n(SGHD::Phone::SaveData(), SGHD::Phone::SaveDataSize, WorkingSaveEntry->GameData.begin());
+ 
+   const int threadId = ScrWork[SW_MAINTHDP];
+   Sc3VmThread* thd = &ThreadPool[threadId & 0x7FFFFFFF];
+@@ -670,6 +675,10 @@ void SaveSystem::LoadMemoryNew(LoadProcess load) {
+                       ScrWork.begin() + ScrWorkScript1Src);
+     std::ranges::copy(WorkingSaveEntry->ScrWorkScript2,
+                       ScrWork.begin() + ScrWorkScript2Src);
++    if (GameInstructionSet == InstructionSet::SGHD) {
++      std::copy_n(WorkingSaveEntry->GameData.begin(), SGHD::Phone::SaveDataSize, SGHD::Phone::SaveData());
++      SGHD::Phone::AfterLoad();
++    }
+     LoadScrWork();
+   } else if (load == LoadProcess::Thread && ScrWork[SW_MAINTHDP] != 0) {
+     const int threadId = ScrWork[SW_MAINTHDP];
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index 877553abf6e9aaf2e3547deb7dde65e76e2c0c8b..ce924263dd8a830d1d2203944cd8cb1a5d1ab95f 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -51,6 +51,8 @@ struct SaveFileEntry : SaveFileEntryBase {
+   std::array<int, ScrWorkScript2Len> ScrWorkScript2{};
+   std::array<uint8_t, ThumbnailBytes> ThumbnailData{};
+   bool HasThumbnailData = false;
++  // Game specific data saved with the entry (file version 2): the STEINS;GATE phone bit field (SGHD::Phone).
++  std::array<uint8_t, 500> GameData{};
+ };
+ 
+ class SaveSystem final : public SaveSystemBase {
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..c20482ec0f837342710ae1a33031aaddfbafb015
+--- /dev/null
++++ b/src/games/sghd/phone.cpp
+@@ -0,0 +1,1800 @@
++#include "phone.h"
++
++#include <algorithm>
++#include <array>
++#include <cstring>
++#include <ctime>
++
++#include "phonestate.h"
++#include "../../audio/audiosystem.h"
++#include "../../audio/audiochannel.h"
++#include "../../inputsystem.h"
++#include "../../log.h"
++#include "../../mem.h"
++#include "../../vm/expression.h"
++#include "../../vm/interface/input.h"
++#include "../../vm/thread.h"
++#include "../../vm/vm.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++using namespace Impacto::Vm;
++using namespace Impacto::Vm::Interface;
++
++State S;
++
++// ------------------------------------------------------------------------------------------------ helpers
++
++namespace {
++
++// Input bits of the original (0x44ce30); the phone reads "went down" and "repeat" masks.
++constexpr uint32_t BtnDecide = 0x1000, BtnCancel = 0x2000, BtnUp = 0x10000, BtnDown = 0x20000,
++                   BtnLeft = 0x40000, BtnRight = 0x80000;
++uint32_t InDown = 0, InRepeat = 0;
++void ReadInput() {
++  InDown = InRepeat = 0;
++  const uint32_t wentDown = PADinputButtonWentDown | PADinputMouseWentDown,
++                 repeat = PADinputButtonRepeatDown | PADinputButtonWentDown;
++  auto map = [](uint32_t pad, uint32_t& out) {
++    if (pad & PAD1A) out |= BtnDecide;
++    if (pad & PAD1B) out |= BtnCancel;
++    if (pad & PAD1UP) out |= BtnUp;
++    if (pad & PAD1DOWN) out |= BtnDown;
++    if (pad & PAD1LEFT) out |= BtnLeft;
++    if (pad & PAD1RIGHT) out |= BtnRight;
++  };
++  map(wentDown, InDown);
++  map(repeat, InRepeat);
++}
++
++bool Decide() { return InDown & BtnDecide; }
++bool Cancel() { return InDown & BtnCancel; }
++bool Up() { return InRepeat & BtnUp; }
++bool Down() { return InRepeat & BtnDown; }
++bool Left() { return InRepeat & BtnLeft; }
++bool Right() { return InRepeat & BtnRight; }
++void ClickDecide() { InDown |= BtnDecide; }
++
++}  // namespace
++
++// Mouse mode of the original: no keyboard cursor, the entries follow the pointer. The phone hit areas are not
++// implemented yet, so the phone is always driven like with a pad (the host's on-screen keys provide the buttons).
++bool MouseMode() { return false; }
++bool Hit(int /*id*/, int /*kind*/) { return false; }
++
++void PlaySe(int id) { Audio::PlayInGroup(Audio::ACG_SE, "se", id, false, 0.0f); }
++
++void Achievement(int /*id*/) {}  // Steam achievements (0x45c790, 0x45c7b0)
++
++// Background music requests of the mail attachments (DAT_026da670.. in the original).
++void PlayBgm(uint32_t id, bool loop) {
++  if (id == 0xffffffff) {
++    Audio::Channels[Audio::AC_BGM0]->Stop(0.0f);
++    return;
++  }
++  Audio::Channels[Audio::AC_BGM0]->Play("bgm", id, loop, 0.0f);
++}
++bool BgmPlaying(uint32_t /*id*/) { return Audio::Channels[Audio::AC_BGM0]->GetState() == Audio::ACS_Playing; }
++
++const uint8_t* ScriptString(uint32_t strNo) {
++  return &ScriptBuffers[S.ScriptBuffer][ScriptGetStrAddress(S.ScriptBuffer, strNo)];
++}
++
++// Number of lines of a script string wrapped to width (0x442790). Approximation until the phone text layout is in:
++// one em per character, explicit line breaks counted.
++int LineCount(uint32_t strNo, int width, int size) {
++  const uint8_t* p = ScriptString(strNo);
++  int lines = 1, x = 0;
++  while (*p != 0xff) {
++    const uint8_t b = *p;
++    if (b == 0x00) {  // line break
++      lines++;
++      x = 0;
++      p++;
++    } else if (b < 0x80) {  // other tags: skip the tag byte (their operands are rare in mails)
++      p++;
++    } else {
++      x += size;
++      if (x > width) {
++        lines++;
++        x = size;
++      }
++      p += 2;
++    }
++  }
++  return x == 0 && lines > 1 ? lines - 1 : lines;
++}
++
++// Mail state bit (mail * 5 + bit) in the saved bit field and in the byte mirror.
++void SetMailBit(int mail, int bit, bool value) {
++  const uint32_t i = mail * 5 + bit;
++  S.MailState[i] = value;
++  if (value)
++    S.Bits[i >> 3] |= 1 << (i & 7);
++  else
++    S.Bits[i >> 3] &= ~(1 << (i & 7));
++}
++bool MailBit(int mail, int bit) { return S.MailState[mail * 5 + bit] != 0; }
++
++bool ContactBit(int contact) {
++  const uint32_t i = contact + 0xdac;
++  return (S.Bits[i >> 3] >> (i & 7)) & 1;
++}
++void SetContactBit(int contact, bool value) {
++  const uint32_t i = contact + 0xdac;
++  if (value)
++    S.Bits[i >> 3] |= 1 << (i & 7);
++  else
++    S.Bits[i >> 3] &= ~(1 << (i & 7));
++}
++
++// Lines of a mail (header + text), for the scroll range (as in 0x457ca0 and others).
++uint32_t MailLines(int mail) {
++  int n = LineCount(S.Mails[mail][MailText] + 2, 0x116, 0x18) + 2;
++  int t = LineCount(S.Mails[mail][MailText], 0xfe, 0x18);
++  return n + (t == 0 ? 1 : t);
++}
++
++// ------------------------------------------------------------------------------------------------ data
++
++// 0x45bcf0 (10:37:04): the mail table and the attachment, ringtone and wallpaper tables from six script labels.
++void MailInit(int scriptBufferId, const uint16_t* mails, uint16_t strA, uint16_t strB, const uint16_t* attach,
++              const uint16_t* ringtones, const uint16_t* wallpapers) {
++  S.ScriptBuffer = scriptBufferId;
++  S.StrBaseA = strA;
++  S.StrBaseB = strB;
++  S.MailCount = 0;
++  while (mails[0] != 0xff && S.MailCount < MaxMails) {
++    auto& m = S.Mails[S.MailCount++];
++    m[MailKind] = mails[0];
++    m[MailDateHi] = mails[1];
++    m[MailDateLo] = mails[2];
++    m[MailAttach] = mails[3];
++    for (int i = 0; i < 8; i++) m[MailReply + i] = mails[4 + i];
++    m[MailText] = mails[12];
++    mails += 15;
++  }
++  S.AttachCount = 0;
++  for (; attach[0] != 0xff && S.AttachCount < MaxAttach; attach += 2) {
++    auto& a = S.Attach[S.AttachCount];
++    a.fill(0);
++    a[0] = attach[0];
++    a[1] = attach[1];
++    const uint16_t* d = (const uint16_t*)&ScriptBuffers[scriptBufferId][ScriptGetLabelAddress(scriptBufferId, attach[1])];
++    if (a[0] == 1 || a[0] == 5 || a[0] == 2) {
++      const int last = a[0] == 2 ? 7 : 12;
++      for (int i = 2; i < last; i++) {
++        a[i] = d[i - 2];
++        if (d[i - 2] == 0xff) break;
++      }
++    } else if (a[0] == 3) {
++      for (int i = 0; i < 5; i++) {  // (entry, value, flag) triples
++        a[2 + i * 3] = d[i * 3];
++        if (d[i * 3] == 0xff) break;
++        a[3 + i * 3] = d[i * 3 + 1];
++        a[4 + i * 3] = d[i * 3 + 2];
++      }
++    }
++    S.AttachCount++;
++  }
++  S.RingtoneCount = 0;
++  for (; ringtones[0] != 0xffff && S.RingtoneCount < MaxRingtones; ringtones += 4) {
++    for (int i = 0; i < 4; i++) S.Ringtones[S.RingtoneCount][i] = ringtones[i];
++    S.RingtoneCount++;
++  }
++  S.WallpaperCount = 0;
++  for (; wallpapers[0] != 0xffff && S.WallpaperCount < MaxWallpapers; wallpapers += 3) {
++    for (int i = 0; i < 3; i++) S.Wallpapers[S.WallpaperCount][i] = wallpapers[i];
++    S.WallpaperCount++;
++  }
++}
++
++// 0x459f60: ringtones and wallpapers that are unlocked (no flag or the flag set).
++void BuildUnlocked() {
++  S.RingtoneListCount = 0;
++  for (uint32_t i = 0; i < S.RingtoneCount; i++)
++    if (S.Ringtones[i][3] == 0 || GetFlag(S.Ringtones[i][3])) S.RingtoneList[S.RingtoneListCount++] = i;
++  S.WallpaperListCount = 0;
++  for (uint32_t i = 0; i < S.WallpaperCount; i++)
++    if (S.Wallpapers[i][2] == 0 || GetFlag(S.Wallpapers[i][2])) S.WallpaperList[S.WallpaperListCount++] = i;
++}
++
++bool MailNewer(uint32_t a, uint32_t b) {  // sort key of 0x4544e0 (date, time), newest first
++  return S.Mails[a][MailDateHi] > S.Mails[b][MailDateHi] ||
++         (S.Mails[a][MailDateHi] == S.Mails[b][MailDateHi] && S.Mails[a][MailDateLo] > S.Mails[b][MailDateLo]);
++}
++
++// 0x4544e0 (10:37:05): inbox / sent lists, address book, who can be called / mailed.
++void BuildLists() {
++  SW(0x2eec) = SW(0x1f68);
++  S.SentCount = S.InboxCount = 0;
++  bool allRead = true;
++  for (uint32_t i = 0; i < S.MailCount; i++) {
++    if (!MailBit(i, 0)) continue;
++    if ((S.Mails[i][MailKind] & 1) == 0) {
++      if (!MailBit(i, 1)) allRead = false;
++      S.Inbox[S.InboxCount++] = i;
++    } else {
++      S.Sent[S.SentCount++] = i;
++    }
++  }
++  SetFlag(0xa3b, allRead);
++  std::stable_sort(S.Inbox.begin(), S.Inbox.begin() + S.InboxCount, MailNewer);
++  std::stable_sort(S.Sent.begin(), S.Sent.begin() + S.SentCount, MailNewer);
++  SW(0x6a60) = S.SentCount;
++  SW(0x6a64) = S.InboxCount;
++
++  S.ContactCount = 0;
++  for (uint32_t c = 0; c < MaxContacts; c++)
++    if (ContactBit(c)) S.Contacts[S.ContactCount++] = c;
++  std::stable_sort(S.Contacts.begin(), S.Contacts.begin() + S.ContactCount,
++                   [](uint32_t a, uint32_t b) { return S.ContactOrder[a] < S.ContactOrder[b]; });
++  SW(0x6a90) = S.ContactCount;
++
++  // the four bytes of GlobalVars[6830] / [6848] name the contacts that can be called / mailed (0x459ca0)
++  S.CanCall.fill(0);
++  S.CanMail.fill(0);
++  for (int i = 0; i < 4; i++) {
++    const uint32_t a = (SW(0x6ab8) >> (i * 8)) & 0xff, b = (SW(0x6b00) >> (i * 8)) & 0xff;
++    if (a < MaxContacts) S.CanCall[a] = 1;
++    if (b < MaxContacts) S.CanMail[b] = 1;
++  }
++  BuildUnlocked();
++}
++
++// 0x45b9a0: answered mail
++void MarkReplied(int mail) {
++  for (uint32_t i = 0; i < S.InboxCount; i++)
++    if (S.Inbox[i] == (uint32_t)mail) {
++      SetMailBit(mail, 4, true);
++      return;
++    }
++}
++
++// 0x44d460: a sent mail goes to the top of the sent list
++void PushSent(int mail) {
++  for (uint32_t i = S.SentCount; i > 0; i--) S.Sent[i] = S.Sent[i - 1];
++  S.Sent[0] = mail;
++  S.SentCount++;
++}
++
++// 0x44d850: is there an unread mail in the inbox?
++void CheckUnread() {
++  S.HasUnread = 0;
++  for (uint32_t i = 0; i < S.MailCount; i++)
++    if ((S.Mails[i][MailKind] & 1) == 0 && MailBit(i, 0) && !MailBit(i, 1)) {
++      S.HasUnread = 1;
++      return;
++    }
++}
++
++void ClearLinkHitAreas() { S.LinkAreaCount = 0; }  // 0x45a950
++
++// ------------------------------------------------------------------------------------------------ modes
++
++namespace {
++
++void SetMode(int mode) { SW(0x6a48) = mode; }
++
++void MailEnterRead(int mail) {  // shared by the inbox and sent lists
++  SW(0x6a74) = 0;
++  SW(0x6a78) = MailLines(mail);
++}
++
++// 0x4548d0 mode 0: home screen
++void ModeHome() {
++  S.Hover = 0;
++  if (MouseMode() && Hit(0, 8)) ClickDecide();
++  if (Cancel()) {
++    SetFlag(0xa30, 1);
++    SetFlag(0xa31, 1);
++    return;
++  }
++  if (!Decide()) return;
++  if (GetFlag(0xa2d)) {
++    SetFlag(0xa2f, 1);
++    SetFlag(0xa33, 1);
++    SetFlag(0xa31, 1);
++    return;
++  }
++  if (!GetFlag(0xa2c)) {
++    SetMode(0x14);
++    SW(0x6a70) = 0;
++    if (GetFlag(0xa3c) && GetFlag(800) && (GetFlag(0xa2b) || GetFlag(0xa2a))) SW(0x6a70) = 1;
++    if (MouseMode()) SW(0x6a70) = 0xff;
++    SW(0x6a7c) = 0;
++    return;
++  }
++  // a new mail arrived: straight into the inbox
++  SetFlag(0xa2c, 0);
++  SetFlag(0x643, 1);
++  S.Unk_eb994 = 0;
++  PlaySe(0x9c);
++  SetMode(3);
++  SW(0x6a54) = 0;
++  SW(0x6a58) = 0;
++  SW(0x6a4c) = 0;
++  if (MailBit(S.Inbox[SW(0x6a58) + SW(0x6a54) * 12], 1)) SW(0x6a58) = 1;
++  if (MouseMode()) SW(0x6a58) = 0xff;
++}
++
++// 0x455ae0 mode 1: mail menu (inbox / sent)
++void ModeMailMenu() {
++  if (Cancel()) {
++    SW(0x6a70) = 0;
++    SetMode(0x14);
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6a4c) = 0xff;
++    for (int i = 0; i < 2; i++)
++      if (Hit(i + 5, 1)) S.Hover = 1, SW(0x6a4c) = i;
++    for (int i = 0; i < 2; i++)
++      if (Hit(i + 5, 8)) ClickDecide();
++  }
++  if (!Decide()) {
++    if (Up()) SW(0x6a4c) = SW(0x6a4c) == 0xff ? 0 : SW(0x6a4c) ^ 1;
++    if (Down()) SW(0x6a4c) = SW(0x6a4c) == 0xff ? 0 : SW(0x6a4c) ^ 1;
++  } else if (SW(0x6a4c) != 0xff) {
++    SW(0x6a54) = 0;
++    SW(0x6a58) = 0;
++    if (SW(0x6a4c) == 0) {
++      SetMode(3);
++    } else {
++      SetMode(2);
++      Achievement(0x18);
++    }
++    if (MouseMode()) SW(0x6a58) = 0xff;
++  }
++}
++
++// paging of a 12 entry list (shared by 0x457ca0 and 0x4587f0)
++void ListPrevPage() { SW(0x6a54) = SW(0x6a54) == 0 ? SW(0x6a50) : SW(0x6a54) - 1; }
++void ListNextPage() {
++  if ((uint32_t)SW(0x6a54) < (uint32_t)SW(0x6a50))
++    SW(0x6a54)++;
++  else
++    SW(0x6a54) = 0;
++}
++
++void ListMouse(uint32_t count) {
++  SW(0x6a58) = 0xff;
++  S.ArrowHover = 0;
++  if (Hit(0, 0x200)) ListPrevPage();
++  if (Hit(0, 0x400)) ListNextPage();
++  if (Hit(0x18, 1)) S.Hover = 1, S.ArrowHover = 1;
++  if (Hit(0x19, 1)) S.Hover = 1, S.ArrowHover = 2;
++  if (Hit(0x18, 8)) ListPrevPage();
++  if (Hit(0x19, 8)) ListNextPage();
++  for (uint32_t i = 0; i < 12; i++)
++    if (Hit(i + 0xc, 1) && i + SW(0x6a54) * 12 < count) S.Hover = 1, SW(0x6a58) = i;
++  for (uint32_t i = 0; i < 12; i++)
++    if (Hit(i + 0xc, 8) && i + SW(0x6a54) * 12 < count) ClickDecide();
++}
++
++// keyboard movement in a 12 entry list (0x457ca0 / 0x4587f0)
++void ListKeys(uint32_t count, bool resetRowOnDownWrap) {
++  if (Up()) {
++    const int row = SW(0x6a58);
++    if (row == 0xff) {
++      SW(0x6a58) = 0;
++    } else if (row == 0) {
++      if (SW(0x6a54) == 0) {
++        SW(0x6a54) = SW(0x6a50);
++        SW(0x6a58) = count - SW(0x6a54) * 12 - 1;
++      } else {
++        SW(0x6a54)--;
++        SW(0x6a58) = 0xb;
++      }
++    } else {
++      SW(0x6a58) = row - 1;
++    }
++  }
++  if (Down()) {
++    const uint32_t row = SW(0x6a58);
++    if (row == 0xff) {
++      SW(0x6a58) = 0;
++    } else if (row < 0xb && row + SW(0x6a54) * 12 < count - 1) {
++      SW(0x6a58) = row + 1;
++    } else {
++      ListNextPage();
++      SW(0x6a58) = 0;
++    }
++  }
++  (void)resetRowOnDownWrap;
++  if (Left()) {
++    SW(0x6a58) = 0;
++    ListPrevPage();
++  }
++  if (Right()) {
++    SW(0x6a58) = 0;
++    ListNextPage();
++  }
++}
++
++// 0x457ca0 mode 2: sent mails
++void ModeSentList() {
++  if (S.SentCount == 0) {
++    if (Cancel()) {
++      SetMode(1);
++      if (MouseMode()) SW(0x6a4c) = 0xff;
++    }
++    if (!Decide()) return;
++    SetMode(1);
++    if (MouseMode()) SW(0x6a4c) = 0xff;
++    return;
++  }
++  SW(0x6a50) = (S.SentCount - 1) / 12;
++  if (Cancel()) {
++    SetMode(1);
++    if (MouseMode()) SW(0x6a4c) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) ListMouse(S.SentCount);
++  if (Decide()) {
++    if (SW(0x6a58) == 0xff) return;
++    MailEnterRead(SW(0x6a5c));
++    SetMode(4);
++    return;
++  }
++  ListKeys(S.SentCount, true);
++  if (SW(0x6a58) == 0xff) return;
++  SW(0x6a5c) = S.Sent[SW(0x6a58) + SW(0x6a54) * 12];
++}
++
++// 0x4587f0 mode 3: inbox
++void ModeInbox() {
++  if (S.InboxCount == 0) {
++    if (Cancel()) {
++      SetMode(1);
++      if (MouseMode()) SW(0x6a4c) = 0xff;
++    }
++    if (!Decide()) return;
++    SetMode(1);
++    if (MouseMode()) SW(0x6a4c) = 0xff;
++    return;
++  }
++  SW(0x6a50) = (S.InboxCount - 1) / 12;
++  if (Cancel()) {
++    SetMode(1);
++    if (MouseMode()) SW(0x6a4c) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) ListMouse(S.InboxCount);
++  int shown = -1;
++  if (SW(0x6a58) != 0xff) shown = SW(0x6a5c);
++  if (!Decide()) {
++    ListKeys(S.InboxCount, false);
++    if (SW(0x6a58) == 0xff) return;
++    SW(0x6a5c) = S.Inbox[SW(0x6a58) + SW(0x6a54) * 12];
++    return;
++  }
++  if (SW(0x6a58) == 0xff) return;
++  const int mail = SW(0x6a5c);
++  MailEnterRead(mail);
++  Achievement(0x19);
++  if (GetFlag(0xa35) && mail == SW(0x6aa0) && S.Mails[mail][MailReply] != 999) {
++    S.LinkSel = 0xff;
++    ClearLinkHitAreas();
++    SetMode(0x1b);  // the phone trigger: choose a word to answer
++  } else {
++    SetMode(5);
++  }
++  if (shown >= 0) SetMailBit(shown, 1, true);  // read
++}
++
++void MailScroll(int linesVar, int countVar, int topVar) {
++  (void)linesVar;
++  S.ScrollHover = 0;
++  if (MouseMode()) {
++    if (Hit(0, 0x200) && SW(topVar) != 0) SW(topVar)--;
++    if (Hit(0, 0x400) && (uint32_t)SW(countVar) > 0xc && (uint32_t)SW(topVar) < (uint32_t)SW(countVar) - 0xc)
++      SW(topVar)++;
++    if (Hit(0x2e, 1)) S.Hover = 1, S.ScrollHover = 1;
++    if (Hit(0x2f, 1)) S.Hover = 1, S.ScrollHover = 2;
++    if (Hit(0x2e, 8)) {
++      if (SW(topVar) != 0) SW(topVar)--;
++    } else if (Hit(0x2f, 8)) {
++      if ((uint32_t)SW(countVar) > 0xc && (uint32_t)SW(topVar) < (uint32_t)SW(countVar) - 0xc) SW(topVar)++;
++    } else if (Hit(0, 8)) {
++      ClickDecide();
++    }
++  }
++}
++
++void MailScrollKeys(int countVar, int topVar) {
++  if (Up() && SW(topVar) != 0) SW(topVar)--;
++  if (Down() && (uint32_t)SW(countVar) > 0xc && (uint32_t)SW(topVar) < (uint32_t)SW(countVar) - 0xc) SW(topVar)++;
++}
++
++// 0x458f90 mode 4: a sent mail
++void ModeReadSent() {
++  const int mail = SW(0x6a5c);
++  if (Cancel()) {
++    SetMode(2);
++    if (MouseMode()) SW(0x6a58) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  MailScroll(0, 0x6a78, 0x6a74);
++  if (!Decide()) {
++    MailScrollKeys(0x6a78, 0x6a74);
++    return;
++  }
++  if (S.Mails[mail][MailAttach] != 999) {
++    SW(0x6a80) = MouseMode() ? 0xff : 0;
++    SetMode(0x13);
++    return;
++  }
++  SetMode(2);
++  if (MouseMode()) SW(0x6a58) = 0xff;
++}
++
++void Finished() {  // the script closes the phone after this mail (a "phone trigger" mail)
++  SetFlag(0xa31, 1);
++  SetFlag(0xa2e, 1);
++  SetFlag(0xa33, 1);
++}
++
++// 0x4591e0 mode 5: a received mail
++void ModeReadInbox() {
++  const int mail = SW(0x6a5c);
++  if (Cancel()) {
++    if (MailBit(mail, 3) && !MailBit(mail, 2)) {
++      Finished();
++      return;
++    }
++    SetMode(3);
++    if (MouseMode()) SW(0x6a58) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  MailScroll(0, 0x6a78, 0x6a74);
++  if (!Decide()) {
++    MailScrollKeys(0x6a78, 0x6a74);
++    return;
++  }
++  if (MailBit(mail, 3) && !MailBit(mail, 2)) {
++    Finished();
++    return;
++  }
++  if (S.Mails[mail][MailAttach] == 999) {
++    if (!GetFlag(0xa29) || !MailBit(mail, 2) || MailBit(mail, 4) || S.Mails[mail][MailReply] == 999) {
++      SetMode(3);
++      if (MouseMode()) SW(0x6a58) = 0xff;
++      return;
++    }
++  }
++  SW(0x6a80) = MouseMode() ? 0xff : 0;
++  SetMode(0x13);
++}
++
++// 0x459520 mode 6: address book
++void ModeAddressBook() {
++  if (Cancel()) {
++    if (!GetFlag(0x65f)) {
++      SW(0x6a70) = MouseMode() ? 0xff : 1;
++      SetMode(0x14);
++    }
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6a94) = 0xff;
++    for (uint32_t i = 0; i < S.ContactCount; i++)
++      if (Hit(i + 0xc, 1)) S.Hover = 1, SW(0x6a94) = i;
++    for (uint32_t i = 0; i < S.ContactCount; i++)
++      if (Hit(i + 0xc, 8)) ClickDecide();
++  }
++  if (Decide() && SW(0x6a94) != 0xff) {
++    SW(0x6b04) = 0;
++    if (GetFlag(0xa29)) {
++      const uint32_t c = S.Contacts[SW(0x6a94)];
++      if ((GetFlag(0xa2a) && S.CanMail[c]) || (GetFlag(0xa2b) && S.CanCall[c])) {
++        SetMode(7);
++        if (MouseMode()) SW(0x6b04) = 0xff;
++        return;
++      }
++    }
++  }
++  if (Up()) {
++    const uint32_t row = SW(0x6a94);
++    SW(0x6a94) = row == 0xff ? 0 : (row == 0 ? S.ContactCount : row) - 1;
++  }
++  if (Down()) {
++    const uint32_t row = SW(0x6a94);
++    SW(0x6a94) = (row != 0xff && row < S.ContactCount - 1) ? row + 1 : 0;
++  }
++}
++
++// 0x459760 mode 7: call or mail the chosen contact
++void ModeContact() {
++  const uint32_t c = S.Contacts[SW(0x6a94)];
++  const bool canMail = GetFlag(0xa2a) && S.CanMail[c];
++  const bool canCall = GetFlag(0xa2b) && S.CanCall[c];
++  if (Cancel()) {
++    SetMode(6);
++    if (MouseMode()) SW(0x6a94) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6b04) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6b04) = 0;
++    if (Hit(0xb, 1) && canMail && canCall) S.Hover = 1, SW(0x6b04) = 1;
++    if (Hit(10, 8)) ClickDecide();
++    if (Hit(0xb, 8) && canMail && canCall) ClickDecide();
++  }
++  if (!Decide()) {
++    for (bool pressed : {Up(), Down()}) {
++      if (!pressed) continue;
++      if ((uint32_t)SW(0x6b04) == 0xff)
++        SW(0x6b04) = 0;
++      else if (canMail && canCall)
++        SW(0x6b04) ^= 1;
++    }
++    return;
++  }
++  if (SW(0x6b04) == 0xff) return;
++  SW(0x6a98) = S.Contacts[SW(0x6a94)];
++  SetFlag(SW(0x6b04) == 0 && canCall ? 0xa36 : 0xa37, 1);
++  SetFlag(0xa33, 1);
++  SetFlag(0xa31, 1);
++}
++
++// 0x4599c0 mode 9: "sent" notice
++void ModeSentNotice() {
++  if (S.NoticeTimer == 0) {
++    PlaySe(0xa2);
++    SetMode(0x18);
++    return;
++  }
++  S.NoticeTimer--;
++}
++
++// 0x454b20 mode 13: settings menu (wallpaper, ringtone, ...)
++void ModeSettings() {
++  if (Cancel()) {
++    SW(0x6a70) = 3;
++    SetMode(0x14);
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6aec) = 0xff;
++    for (int i = 0; i < 3; i++)
++      if (Hit(i + 5, 1)) S.Hover = 1, SW(0x6aec) = i;
++    for (int i = 0; i < 3; i++)
++      if (Hit(i + 5, 8)) ClickDecide();
++  }
++  if (!Decide()) {
++    if (Up()) SW(0x6aec) = SW(0x6aec) == 0xff ? 0 : (SW(0x6aec) == 0 ? 2 : SW(0x6aec) - 1);
++    if (Down()) {
++      const uint32_t v = SW(0x6aec);
++      SW(0x6aec) = (v == 0xff || v > 1) ? 0 : v + 1;
++    }
++    return;
++  }
++  switch (SW(0x6aec)) {
++    case 0: {  // wallpapers
++      uint32_t i = 0;
++      for (; i < S.WallpaperListCount; i++)
++        if ((uint32_t)SW(0x1f68) == S.WallpaperList[i]) break;
++      if (i == S.WallpaperListCount) i = S.WpSel;
++      S.WpPages = (S.WallpaperListCount + 5) / 6;
++      S.WpPage = i / 6;
++      S.WpSel = i % 6;
++      SetMode(0xe);
++      if (MouseMode()) S.WpSel = 0xff;
++      S.WpPrev = SW(0x1f68);
++      return;
++    }
++    case 1:
++    case 2: {  // ringtones for calls (1) and mails (2)
++      const int var = SW(0x6aec) == 1 ? 0x1f6c : 0x1f74;
++      SW(0x6af0) = 0;
++      if (SW(var) != 0xffff)
++        for (uint32_t i = 0; i < S.RingtoneListCount; i++)
++          if ((uint32_t)SW(var) == S.Ringtones[S.RingtoneList[i]][SW(0x6aec) == 1 ? 0 : 1]) {
++            SW(0x6af0) = i + 1;
++            break;
++          }
++      SW(0x6af4) = S.RingtoneListCount + 1;
++      SetMode(SW(0x6aec) == 1 ? 0xf : 0x10);
++      break;
++    }
++    case 3:
++      SW(0x6af0) = SW(0x1f70) == 0xffff ? 0 : SW(0x1f70) + 1;
++      SetMode(0x11);
++      break;
++    case 4:
++      SW(0x6af0) = SW(0x1f78) == 0xffff ? 0 : SW(0x1f78) + 1;
++      SetMode(0x12);
++      break;
++    default:
++      return;
++  }
++  if (MouseMode()) SW(0x6af0) = 0xff;
++}
++
++void WpPrevPage() { S.WpPage = (S.WpPage == 0 ? S.WpPages : S.WpPage) - 1; }
++void WpNextPage() { S.WpPage = S.WpPage < S.WpPages - 1 ? S.WpPage + 1 : 0; }
++
++// 0x454e90 mode 14: wallpapers
++void ModeWallpapers() {
++  if (Cancel()) {
++    SetMode(0xd);
++    SW(0x2eec) = SW(0x1f68);
++    if (MouseMode()) SW(0x6aec) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    S.WpSel = 0xff;
++    S.ArrowHover = 0;
++    if (Hit(0, 0x200)) WpPrevPage();
++    if (Hit(0, 0x400)) WpNextPage();
++    if (Hit(0x18, 1)) S.Hover = 1, S.ArrowHover = 1;
++    if (Hit(0x19, 1)) S.Hover = 1, S.ArrowHover = 2;
++    if (Hit(0x18, 8)) WpPrevPage();
++    if (Hit(0x19, 8)) WpNextPage();
++    for (uint32_t i = 0; i < 6; i++)
++      if (Hit(i + 0x1c, 1) && S.WpPage * 6 + 1 + i <= S.WallpaperListCount) S.Hover = 1, S.WpSel = i;
++    for (uint32_t i = 0; i < 6; i++)
++      if (Hit(i + 0x1c, 8) && S.WpPage * 6 + 1 + i <= S.WallpaperListCount) ClickDecide();
++  }
++  if (Decide() && S.WpSel != 0xff) {
++    SW(0x6af8) = MouseMode() ? 0xff : 0;
++    SetMode(0x23);
++  }
++  if (Up()) {
++    if (S.WpSel == 0xff) {
++      S.WpSel = 0;
++    } else if (S.WpSel == 0) {
++      if (S.WpPage != 0) {
++        S.WpPage--;
++        S.WpSel = 5;
++      } else {
++        S.WpPage = S.WpPages - 1;
++        S.WpSel = S.WallpaperListCount - S.WpPage * 6 - 1;
++      }
++    } else {
++      S.WpSel--;
++    }
++  }
++  if (Down()) {
++    if (S.WpSel == 0xff) {
++      S.WpSel = 0;
++    } else if (S.WpPage * 6 + 1 + S.WpSel == S.WallpaperListCount) {
++      S.WpPage = 0;
++      S.WpSel = 0;
++    } else if (S.WpSel < 5) {
++      S.WpSel++;
++    } else {
++      S.WpPage++;
++      S.WpSel = 0;
++    }
++  }
++  if (Left()) {
++    S.WpSel = 0;
++    WpPrevPage();
++  }
++  if (Right()) {
++    S.WpSel = 0;
++    WpNextPage();
++  }
++}
++
++// 0x455200 modes 15/16: ringtone list
++void ModeRingtones() {
++  if (Cancel()) {
++    SetMode(0xd);
++    if (MouseMode()) SW(0x6aec) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6af0) = 0xff;
++    for (uint32_t i = 0; i < 12; i++)
++      if (Hit(i + 0xc, 1) && i < (uint32_t)SW(0x6af4)) S.Hover = 1, SW(0x6af0) = i;
++    for (uint32_t i = 0; i < 12; i++)
++      if (Hit(i + 0xc, 8) && i < (uint32_t)SW(0x6af4)) ClickDecide();
++  }
++  if (Decide() && SW(0x6af0) != 0xff) {
++    SW(0x6af8) = MouseMode() ? 0xff : 0;
++    SetMode(0x1d);
++  }
++  if (Up()) SW(0x6af0) = SW(0x6af0) == 0xff ? 0 : (SW(0x6af0) == 0 ? SW(0x6af4) : SW(0x6af0)) - 1;
++  if (Down()) {
++    const uint32_t v = SW(0x6af0);
++    SW(0x6af0) = (v != 0xff && v < (uint32_t)SW(0x6af4) - 1) ? v + 1 : 0;
++  }
++}
++
++// 0x4553b0 modes 17/18: four entry lists (vibration, ...)
++void ModeFour() {
++  if (Cancel()) {
++    SetMode(0xd);
++    if (MouseMode()) SW(0x6aec) = 0xff;
++    return;
++  }
++  if (Decide()) {
++    SW(0x6af8) = 0;
++    SetMode(0x20);
++  }
++  if (Up()) SW(0x6af0) = SW(0x6af0) == 0 ? 3 : SW(0x6af0) - 1;
++  if (Down()) SW(0x6af0) = (uint32_t)SW(0x6af0) < 3 ? SW(0x6af0) + 1 : 0;
++}
++
++// what an attachment does, shared by 0x455470 (mode 19) and 0x457310 (mode 28)
++void OpenAttachment(int returnMode) {
++  const auto& a = S.Attach[S.AttachIdx];
++  if (a[0] == 5 && returnMode == 0x1b) return;  // not offered after a word was chosen (0x457310)
++  switch (a[0]) {
++    case 0:
++    case 4:  // picture
++      SetFlag(0xa3a, a[0] == 4);
++      SetMode(200);
++      SW(0x62e8) = SW(0x6ae8);
++      S.ReturnMode = returnMode;
++      S.SavedFlag9c6 = GetFlag(0x9c6);
++      S.SavedFlagA38 = GetFlag(0xa38);
++      SetFlag(0xa38, 0);
++      SetFlag(0x9c6, 0);
++      return;
++    case 1:  // a conversation with pictures
++      SetMode(0xca);
++      S.ReturnMode = returnMode;
++      break;
++    case 2: {  // music
++      SetMode(0xce);
++      S.ReturnMode = returnMode;
++      const uint32_t r = a[2];
++      S.AttachPos = 1;
++      PlayBgm(S.Ringtones[r][0], true);
++      SetFlag(S.Ringtones[r][3], 1);
++      S.PlayingId = S.Ringtones[r][0];
++      S.PlayTime = 0;
++      S.Unk_6f54 = 0;
++      S.Unk_6f58 = 0x78;
++      S.PlayingIdx = r;
++      Achievement(3);
++      return;
++    }
++    case 3: {  // text pages
++      SetMode(0xcc);
++      S.ReturnMode = returnMode;
++      S.SavedFlag9c6 = GetFlag(0x9c6);
++      S.SavedFlagA38 = GetFlag(0xa38);
++      SetFlag(0xa38, 0);
++      SetFlag(0x9c6, 0);
++      SetFlag(0x645, 1);
++      SW(0x6acc) = SW(0x6ae8);
++      SW(0x6ad4) = 0;
++      S.AttachPos = 0;
++      SW(0x6ad0) = a[2];
++      S.PageLines = a[3];
++      SW(0x6adc) = S.PageLines < 0x21 ? 0 : S.PageLines - 0x20;
++      SetFlag(a[4], 1);
++      S.AttachPos = 1;
++      Achievement(3);
++      return;
++    }
++    case 5:
++      SetMode(0xcf);
++      SW(0x2ef0) = 0;
++      S.ReturnMode = returnMode;
++      break;
++    default:
++      return;
++  }
++  if (a[0] == 1 || a[0] == 5) {
++    if (returnMode == 5) S.ReturnMode = 5 - (SW(0x6a4c) != 0);
++    S.SavedFlag9c6 = GetFlag(0x9c6);
++    S.SavedFlagA38 = GetFlag(0xa38);
++    SetFlag(0xa38, 0);
++    SetFlag(0x9c6, 0);
++    SetFlag(0x645, 1);
++    S.AttachPos = 2;
++    const uint32_t w = a[3];
++    SW(0x6b14) = a[2];
++    if (w != 999 && w < S.WallpaperCount && S.Wallpapers[w][2] != 0) SetFlag(S.Wallpapers[w][2], 1);
++    S.AttachPos += 2;
++    S.AttachToggle = 0;
++    SetFlag(0x647, 0);
++  }
++  Achievement(3);
++}
++
++void StartReply(int mail, int reply, int returnMode) {  // shared by 0x455470 and 0x457310
++  SetMode(0x16);
++  S.ReturnMode = returnMode;
++  SW(0x6a84) = reply;
++  SW(0x6a88) = 0;
++  const int n = LineCount(S.Mails[reply][MailText] + 2, 0x116, 0x18) + 1;
++  const int t = LineCount(S.Mails[reply][MailText], 0xfe, 0x18);
++  SW(0x6a8c) = n + (t == 0 ? 1 : t);
++  (void)mail;
++}
++
++// 0x455470 mode 19: answer / open attachment menu of a mail
++void ModeMailActions() {
++  const int mail = SW(0x6a5c);
++  bool canReply = false;
++  uint32_t entries = 0;
++  if (GetFlag(0xa29) && MailBit(mail, 2) && !MailBit(mail, 4) && S.Mails[mail][MailReply] != 999) {
++    canReply = true;
++    entries = 1;
++  }
++  if (S.Mails[mail][MailAttach] != 999) entries++;
++  if (Cancel()) {
++    SetMode(5 - (SW(0x6a4c) != 0));
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6a80) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6a80) = 0;
++    if (entries > 1 && Hit(0xb, 1)) S.Hover = 1, SW(0x6a80) = 1;
++    if (Hit(10, 8)) ClickDecide();
++    if (entries > 1 && Hit(0xb, 8)) ClickDecide();
++  }
++  const uint32_t sel = SW(0x6a80);
++  if (sel == 0xff || !Decide()) {
++    if (Up()) {
++      if (sel == 0xff)
++        SW(0x6a80) = 0;
++      else if (entries > 1)
++        SW(0x6a80) = sel ^ 1;
++    }
++    if (Down()) {
++      if ((uint32_t)SW(0x6a80) == 0xff)
++        SW(0x6a80) = 0;
++      else if (entries > 1)
++        SW(0x6a80) ^= 1;
++    }
++    return;
++  }
++  if (canReply && sel == 0) {
++    if (MailBit(mail, 3)) Finished();
++    StartReply(mail, S.Mails[mail][MailReply], 5);
++    return;
++  }
++  S.AttachIdx = S.Mails[mail][MailAttach];
++  OpenAttachment(5);
++  Achievement(3);
++}
++
++// 0x456550 mode 20: main menu (mail / address book / settings)
++void ModeMainMenu() {
++  if (Cancel()) {
++    SetMode(0);
++    SW(0x6a70) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6a70) = 0xff;
++    for (int i = 0; i < 3; i++)
++      if (Hit(i + 2, 1)) S.Hover = 1, SW(0x6a70) = i == 2 ? 3 : i;
++    for (int i = 0; i < 3; i++)
++      if (Hit(i + 2, 8)) ClickDecide();
++  }
++  if (!Decide()) {
++    const uint32_t v = SW(0x6a70);
++    if (InDown & (BtnLeft | BtnRight)) SW(0x6a70) = v == 0xff ? 0 : (v < 2 ? v ^ 1 : v);
++    if (InDown & (BtnUp | BtnDown)) SW(0x6a70) = (uint32_t)SW(0x6a70) == 0xff ? 0 : ((uint32_t)SW(0x6a70) < 2 ? 3 : 1);
++    return;
++  }
++  switch (SW(0x6a70)) {
++    case 0:
++      SW(0x6a4c) = MouseMode() ? 0xff : 0;
++      SetMode(1);
++      break;
++    case 1:
++      SW(0x6a94) = MouseMode() ? 0xff : 0;
++      SetMode(6);
++      break;
++    case 3:
++      SW(0x6aec) = MouseMode() ? 0xff : 0;
++      SetMode(0xd);
++      BuildUnlocked();
++      break;
++  }
++}
++
++// 0x4567d0 mode 21: the main menu entry chosen by the script
++void ModeMainMenuScripted() {
++  switch (SW(0x6a70)) {
++    case 0xff:
++      SetMode(0);
++      break;
++    case 0:
++      SW(0x6a4c) = MouseMode() ? 0xff : 0;
++      SetMode(1);
++      break;
++    case 2:
++      SW(0x6a94) = MouseMode() ? 0xff : 0;
++      SetMode(6);
++      break;
++    case 3:
++      SW(0x6aec) = MouseMode() ? 0xff : 0;
++      SetMode(0xd);
++      break;
++  }
++}
++
++void SendReply(int mail, int reply) {  // shared by 0x4568a0 and 0x458df0
++  SetMailBit(reply, 0, true);
++  if (GetFlag(0xa32)) PushSent(reply);
++  if (mail != 0xffff) {
++    if (GetFlag(0xa32)) MarkReplied(mail);
++    SetMailBit(mail, 4, true);
++  }
++  S.NoticeTimer = 0x3c;
++  SetMode(9);
++}
++
++// 0x4568a0 mode 22: the answer (shown before sending)
++void ModeReply() {
++  const int mail = SW(0x6a5c), reply = SW(0x6a84);
++  if (Cancel() && S.ReturnMode == 0x1b) {
++    SW(0x6b30) = 999;
++    SW(0x6b34) = 999;
++    ClearLinkHitAreas();
++    SetMode(0x1b);
++    if (MouseMode()) S.LinkSel = 0xff;
++    return;
++  }
++  S.ScrollHover = 0;
++  S.Hover = 0;
++  MailScroll(0, 0x6a8c, 0x6a88);
++  if (!Decide()) {
++    MailScrollKeys(0x6a8c, 0x6a88);
++    return;
++  }
++  if (S.ReturnMode != 0x1b) {
++    SendReply(mail, reply);
++    return;
++  }
++  SetMode(0x28);  // confirm the answer chosen by a word
++  if (MouseMode()) SW(0x6afc) = 0xff;
++}
++
++// 0x456ba0 mode 24: back to the mail after the notice
++void ModeAfterSend() {
++  const int mail = SW(0x6a5c);
++  if (S.ReturnMode == 5 || S.ReturnMode == 0x1b) Achievement(0x1a);
++  if (!Cancel()) {
++    S.Hover = 0;
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  if (mail != 0xffff) SetMode(S.ReturnMode);
++}
++
++// 0x456c30 mode 27: the phone trigger, choosing an underlined word of the mail. The keyboard walk over the words
++// needs the phone text layout (0x442520) and is not done yet; the words can be picked once the hit areas are in.
++void ModePhoneTrigger() {
++  const int mail = SW(0x6a5c);
++  if (Cancel()) {
++    SetMode(3);
++    if (MouseMode()) SW(0x6a58) = 0xff;
++    return;
++  }
++  S.ScrollHover = 0;
++  S.Hover = 0;
++  MailScroll(0, 0x6a78, 0x6a74);
++  if (Decide()) {
++    if (S.Mails[mail][MailAttach] == 999) {
++      if (!GetFlag(0xa29) || !GetFlag(0xa35) || mail != SW(0x6aa0) || S.Mails[mail][MailReply] == 999 ||
++          MailBit(mail, 4)) {
++        SetMode(3);
++        if (MouseMode()) SW(0x6a58) = 0xff;
++        return;
++      }
++      if (S.LinkSel == 0xff) return;
++    }
++    SW(0x6a80) = MouseMode() ? 0xff : 0;
++    SetMode(0x1c);
++    return;
++  }
++  if (!MouseMode()) MailScrollKeys(0x6a78, 0x6a74);
++}
++
++// 0x457310 mode 28: answer with the chosen word or open the attachment
++void ModeTriggerActions() {
++  const int mail = SW(0x6a5c);
++  bool canReply = false;
++  uint32_t entries = 0;
++  if (GetFlag(0xa29) && GetFlag(0xa35) && mail == SW(0x6aa0) && S.Mails[mail][MailReply] != 999 &&
++      !MailBit(mail, 4) && S.LinkSel != 0xff) {
++    canReply = true;
++    entries = 1;
++  }
++  if (S.Mails[mail][MailAttach] != 999) entries++;
++  if (Cancel()) {
++    ClearLinkHitAreas();
++    SetMode(0x1b);
++    if (MouseMode()) S.LinkSel = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6a80) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6a80) = 0;
++    if (entries > 1 && Hit(0xb, 1)) S.Hover = 1, SW(0x6a80) = 1;
++    if (Hit(10, 8)) ClickDecide();
++    if (entries > 1 && Hit(0xb, 8)) ClickDecide();
++  }
++  if (!Decide()) {
++    for (bool pressed : {Up(), Down()}) {
++      if (!pressed) continue;
++      if ((uint32_t)SW(0x6a80) == 0xff)
++        SW(0x6a80) = 0;
++      else if (entries > 1)
++        SW(0x6a80) ^= 1;
++    }
++    return;
++  }
++  if (SW(0x6a80) == 0xff) return;
++  if (canReply && SW(0x6a80) == 0) {
++    const int reply = S.Mails[mail][MailReply + S.LinkSel];
++    SW(0x6b30) = mail;
++    SW(0x6b34) = reply;
++    StartReply(mail, reply, 0x1b);
++    return;
++  }
++  S.AttachIdx = S.Mails[mail][MailAttach];
++  OpenAttachment(0x1b);
++}
++
++// 0x4579a0 mode 29: set or listen to a ringtone
++void ModeRingtoneActions() {
++  if (Cancel()) {
++    SetMode(SW(0x6aec) == 1 ? 0xf : 0x10);
++    if (MouseMode()) SW(0x6af0) = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6af8) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6af8) = 0;
++    if (SW(0x6af0) != 0 && Hit(0xb, 1)) S.Hover = 1, SW(0x6af8) = 1;
++    if (Hit(10, 8)) ClickDecide();
++    if (SW(0x6af0) != 0 && Hit(0xb, 8)) ClickDecide();
++  }
++  if (Decide() && SW(0x6af8) != 0xff) {
++    const int sel = SW(0x6af0);
++    if (SW(0x6af8) == 1 || sel == 0) {
++      SetMode(0x1e);
++      const int col = SW(0x6aec) == 1 ? 0 : 1;
++      const int var = SW(0x6aec) == 1 ? 0x1f6c : 0x1f74;
++      SW(var) = sel == 0 ? 0xffff : S.Ringtones[S.RingtoneList[sel - 1]][col];
++    } else {
++      SetMode(0x1f);
++      const uint32_t r = S.RingtoneList[sel - 1];
++      S.PlayTime = 0;
++      S.ReturnMode = (SW(0x6aec) != 1) + 0xf;
++      S.Unk_6f54 = 0;
++      S.PlayingIdx = r;
++      S.Unk_6f58 = 0x78;
++      S.PlayingId = S.Ringtones[r][0];
++      PlayBgm(S.PlayingId, true);
++    }
++  }
++  for (bool pressed : {Up(), Down()}) {
++    if (!pressed) continue;
++    if ((uint32_t)SW(0x6af8) == 0xff)
++      SW(0x6af8) = 0;
++    else if (SW(0x6af0) != 0)
++      SW(0x6af8) ^= 1;
++  }
++}
++
++void ResumeSceneBgm() {  // 0x458220 / 0x456220: back to the music of the scene
++  if (SW(0x4358) != 0xffff)
++    PlayBgm(SW(0x4358), GetFlag(0x9b4));
++  else
++    PlayBgm(0xffffffff, false);
++}
++
++void CountPlayTime() {
++  if (BgmPlaying(S.PlayingId) && ++S.PlayTime > 21599999) S.PlayTime -= 21600000;
++}
++
++// 0x458190 mode 30: "ringtone set" notice
++void ModeRingtoneSet() {
++  Achievement(0x1d);
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  SetMode(SW(0x6aec) == 1 ? 0xf : 0x10);
++  if (MouseMode()) SW(0x6af0) = 0xff;
++}
++
++// 0x458220 mode 31: listening to a ringtone
++void ModeRingtonePlay() {
++  CountPlayTime();
++  const bool cancel = Cancel();
++  if (MouseMode() && Hit(0, 8)) ClickDecide();
++  if (Decide() || cancel) {
++    SetMode(S.ReturnMode);
++    ResumeSceneBgm();
++  }
++}
++
++// 0x458310 mode 32: vibration pattern set / try
++void ModeFourActions() {
++  if (Cancel()) {
++    SetMode(SW(0x6aec) == 3 ? 0x11 : 0x12);
++    if (MouseMode()) SW(0x6af0) = 0xff;
++    return;
++  }
++  if (Decide()) {
++    if (SW(0x6af8) == 1 || SW(0x6af0) == 0) {
++      SetMode(0x21);
++      const int var = SW(0x6aec) == 3 ? 0x1f70 : 0x1f78;
++      SW(var) = SW(0x6af0) == 0 ? 0xffff : SW(0x6af0) - 1;
++    } else {
++      SetMode(0x26);
++      if (SW(0x6af0) >= 1 && SW(0x6af0) <= 3) SetFlag(0x647 + SW(0x6af0), 1);
++    }
++  }
++  if (SW(0x6af0) != 0) {
++    if (Up()) SW(0x6af8) ^= 1;
++    if (Down()) SW(0x6af8) ^= 1;
++  }
++}
++
++// 0x458470 mode 33: notice
++void ModeFourSet() {
++  if (Cancel() || Decide()) {
++    SetMode(SW(0x6aec) == 3 ? 0x11 : 0x12);
++    if (MouseMode()) SW(0x6af0) = 0xff;
++  }
++}
++
++// 0x4584d0 mode 35: set or look at a wallpaper
++void ModeWallpaperActions() {
++  if (Cancel()) {
++    SetMode(0xe);
++    if (MouseMode()) S.WpSel = 0xff;
++    return;
++  }
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6af8) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6af8) = 0;
++    if (Hit(0xb, 1)) S.Hover = 1, SW(0x6af8) = 1;
++    if (Hit(10, 8)) ClickDecide();
++    if (Hit(0xb, 8)) ClickDecide();
++  }
++  if (Decide() && SW(0x6af8) != 0xff) {
++    const uint32_t w = S.WallpaperList[S.WpSel + S.WpPage * 6];
++    if (SW(0x6af8) == 1) {
++      SetMode(0x24);
++      SW(0x1f68) = w;
++      SW(0x2eec) = w;
++      return;
++    }
++    SetMode(0x25);
++    SW(0x2eec) = w;
++    return;
++  }
++  for (bool pressed : {Up(), Down()}) {
++    if (!pressed) continue;
++    SW(0x6af8) = (uint32_t)SW(0x6af8) == 0xff ? 0 : SW(0x6af8) ^ 1;
++  }
++}
++
++// 0x458690 mode 36: "wallpaper set"
++void ModeWallpaperSet() {
++  Achievement(0x1c);
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  SetMode(0xe);
++  if (MouseMode()) S.WpSel = 0xff;
++}
++
++// 0x458730 mode 37: looking at a wallpaper
++void ModeWallpaperView() {
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  SetMode(0x23);
++  if (MouseMode()) SW(0x6af8) = 0xff;
++}
++
++// 0x4587a0 mode 38: trying a vibration
++void ModeFourTry() {
++  if (Cancel() || Decide()) {
++    SetMode(0x20);
++    SetFlag(0x648, 0);
++    SetFlag(0x649, 0);
++    SetFlag(0x64a, 0);
++  }
++}
++
++// 0x458df0 mode 40: send the answer chosen by a word?
++void ModeTriggerConfirm() {
++  const int mail = SW(0x6a5c), reply = SW(0x6a84);
++  if (Cancel()) SetMode(0x16);
++  S.Hover = 0;
++  if (MouseMode()) {
++    SW(0x6afc) = 0xff;
++    if (Hit(10, 1)) S.Hover = 1, SW(0x6afc) = 0;
++    if (Hit(10, 8)) ClickDecide();
++  }
++  if (!Decide() || SW(0x6afc) == 0xff) {
++    if (Up() || Down()) SW(0x6afc) = 0;
++    return;
++  }
++  SendReply(mail, reply);
++}
++
++// attachments: 0x455c80 .. 0x4564e0
++void ModePictureIn() {  // 200
++  if ((uint32_t)SW(0x6b0c) < 0x100) {
++    SW(0x6b0c) += 0x10;
++    if (SW(0x6b0c) == 0x100) {
++      SetFlag(0x642, 1);
++      SW(0x6b08) = S.Attach[S.AttachIdx][1];
++    }
++    return;
++  }
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  if (!GetFlag(0x64c)) SetMode(0xc9);
++}
++
++void RestoreFlags() {
++  SetFlag(0xa38, S.SavedFlagA38);
++  SetFlag(0x9c6, S.SavedFlag9c6);
++}
++
++void ModePictureOut() {  // 201
++  RestoreFlags();
++  if (SW(0x6b0c) == 0)
++    SetMode(S.ReturnMode);
++  else
++    SW(0x6b0c) -= 0x10;
++}
++
++void ModeStoryIn() {  // 202: pictures with text, page by page
++  if (S.AttachToggle == 0) {
++    SetFlag(0x647, 0);
++    if ((uint32_t)SW(0x6b10) < 0x100) {
++      SW(0x6b10) += 0x10;
++      return;
++    }
++  } else {
++    SetFlag(0x647, 1);
++  }
++  if (Cancel()) {
++    SetMode(0xcb);
++    return;
++  }
++  if (MouseMode() && Hit(0, 8)) ClickDecide();
++  if (!Decide()) return;
++  auto& a = S.Attach[S.AttachIdx];
++  const uint32_t pic = a[S.AttachPos];
++  if (pic == 0xff) {
++    S.AttachPos++;
++    SetMode(0xcb);
++    return;
++  }
++  const uint32_t w = a[S.AttachPos + 1];
++  S.AttachPos += 2;
++  if (w != 999 && w < S.WallpaperCount && S.Wallpapers[w][2] != 0) SetFlag(S.Wallpapers[w][2], 1);
++  Achievement(3);
++  S.AttachToggle ^= 1;
++  if (S.AttachToggle) {
++    SetFlag(0x646, 1);
++    SW(0x6b1c) = pic;
++  } else {
++    SetFlag(0x645, 1);
++    SW(0x6b14) = pic;
++  }
++}
++
++void ModeStoryOut() {  // 203
++  RestoreFlags();
++  if (SW(0x6b10) == 0)
++    SetMode(S.ReturnMode);
++  else
++    SW(0x6b10) -= 0x10;
++}
++
++void ModeTextIn() {  // 204: text pages
++  if ((uint32_t)SW(0x6ac8) < 0x100) {
++    SW(0x6ac8) += 0x10;
++    return;
++  }
++  if (Cancel()) {
++    SetMode(0xcd);
++    return;
++  }
++  S.ScrollHover = 0;
++  S.Hover = 0;
++  if (MouseMode()) {
++    if (Hit(0, 0x200) && SW(0x6ad4) != 0) SW(0x6ad4)--;
++    if (Hit(0, 0x400) && (uint32_t)SW(0x6ad4) < (uint32_t)SW(0x6adc)) SW(0x6ad4)++;
++    if (Hit(0x1a, 1)) S.Hover = 1, S.ScrollHover = 1;
++    if (Hit(0x1b, 1)) S.Hover = 1, S.ScrollHover = 2;
++    if (Hit(0x1a, 8)) {
++      if (SW(0x6ad4) != 0) SW(0x6ad4)--;
++    } else if (Hit(0x1b, 8)) {
++      if ((uint32_t)SW(0x6ad4) < (uint32_t)SW(0x6adc)) SW(0x6ad4)++;
++    } else if (Hit(0, 8)) {
++      ClickDecide();
++    }
++  }
++  if (!Decide()) {
++    if (Up() && SW(0x6ad4) != 0) SW(0x6ad4)--;
++    if (Down() && (uint32_t)SW(0x6ad4) < (uint32_t)SW(0x6adc)) SW(0x6ad4)++;
++    return;
++  }
++  auto& a = S.Attach[S.AttachIdx];
++  const uint32_t base = 2 + S.AttachPos * 3;
++  const uint32_t page = base < a.size() ? a[base] : 0xff;
++  if (page != 0xff) {
++    S.PageLines = a[base + 1];
++    SW(0x6adc) = S.PageLines < 0x21 ? 0 : S.PageLines - 0x20;
++    SetFlag(a[base + 2], 1);
++    Achievement(3);
++    SW(0x6ad4) = 0;
++    SW(0x6ad0) = page;
++    S.AttachPos++;
++    return;
++  }
++  SetMode(0xcd);
++}
++
++void ModeTextOut() {  // 205
++  RestoreFlags();
++  if (SW(0x6ac8) == 0)
++    SetMode(S.ReturnMode);
++  else
++    SW(0x6ac8) -= 0x10;
++}
++
++void ModeMusic() {  // 206: listening to an attached piece of music
++  CountPlayTime();
++  const bool cancel = Cancel();
++  if (MouseMode() && Hit(0, 8)) ClickDecide();
++  if (!Decide()) {
++    if (!cancel) return;
++  } else {
++    auto& a = S.Attach[S.AttachIdx];
++    const uint32_t next = a[2 + S.AttachPos++];
++    if (next != 0xff) {
++      PlayBgm(S.Ringtones[next][0], true);
++      SetFlag(S.Ringtones[next][3], 1);
++      S.PlayingId = S.Ringtones[next][0];
++      S.PlayTime = 0;
++      S.Unk_6f54 = 0;
++      S.Unk_6f58 = 0x78;
++      S.PlayingIdx = next;
++      Achievement(3);
++      return;
++    }
++  }
++  SetMode(S.ReturnMode);
++  ResumeSceneBgm();
++}
++
++void ModeSpecialIn() {  // 207
++  if ((uint32_t)SW(0x6b10) < 0x100) {
++    SW(0x6b10) += 0x10;
++    return;
++  }
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  S.ParticlesInit = true;  // 0x45b6f0
++  SetMode(0xd0);
++}
++
++void ModeSpecial() {  // 208
++  if ((uint32_t)SW(0x2ef0) < 0x3d) {
++    SW(0x2ef0)++;
++    if (SW(0x2ef0) == 0x3d) SetFlag(0xf24, 1);  // also unlocks something in the system data (not kept here)
++    return;
++  }
++  if (!Cancel()) {
++    if (MouseMode() && Hit(0, 8)) ClickDecide();
++    if (!Decide()) return;
++  }
++  SetMode(0xd1);
++}
++
++void ModeSpecialOut() {  // 209
++  if (SW(0x2ef0) != 0) {
++    SW(0x2ef0)--;
++    return;
++  }
++  RestoreFlags();
++  if (SW(0x6b10) == 0)
++    SetMode(S.ReturnMode);
++  else
++    SW(0x6b10) -= 0x10;
++}
++
++// 0x45a000 (10:37:17): dialling digits
++void DialInput() {
++  if (InDown & BtnCancel) {
++    if (SW(0x6ac0) != 0) SW(0x6ac0)--;
++    return;
++  }
++  S.Hover = 0;
++  if (Decide() && SW(0x6abc) != 0xff) {
++    PlaySe(0x9c);
++    S.Dial[SW(0x6ac0)] = S.DialDigits[SW(0x6abc)];
++    SW(0x6ac0)++;
++    if (SW(0x6ac0) == 4) {
++      SetFlag(0xa31, 1);
++      if (S.Dial[0] == 10)
++        SW(0x6ac4) = (S.Dial[1] == 1 && S.Dial[2] == 2 && S.Dial[3] == 0) ? 0 : 2;
++      else
++        SW(0x6ac4) = (S.Dial[0] == 1 && S.Dial[1] == 2 && S.Dial[2] == 0 && S.Dial[3] == 10) ? 1 : 2;
++    }
++    return;
++  }
++  const uint32_t v = SW(0x6abc);
++  if (Up()) SW(0x6abc) = v == 0xff ? 0 : (v < 3 ? v + 9 : v - 3);
++  if (Down()) SW(0x6abc) = (uint32_t)SW(0x6abc) == 0xff ? 0 : ((uint32_t)SW(0x6abc) < 9 ? SW(0x6abc) + 3 : SW(0x6abc) - 9);
++  if (Left()) {
++    const int k = SW(0x6abc);
++    SW(0x6abc) = k == 0xff ? 0 : ((k == 0 || k == 3 || k == 6 || k == 9) ? k + 2 : k - 1);
++  }
++  if (Right()) {
++    const int k = SW(0x6abc);
++    SW(0x6abc) = k == 0xff ? 0 : ((k == 2 || k == 5 || k == 8 || k == 11) ? k - 2 : k + 1);
++  }
++}
++
++// 0x459ce0 (10:37:07): one frame of the open phone
++void ModeLogic() {
++  switch (SW(0x6a48)) {
++    case 0: ModeHome(); break;
++    case 1: ModeMailMenu(); break;
++    case 2: ModeSentList(); break;
++    case 3: ModeInbox(); break;
++    case 4: ModeReadSent(); break;
++    case 5: ModeReadInbox(); break;
++    case 6: ModeAddressBook(); break;
++    case 7: ModeContact(); break;
++    case 9: ModeSentNotice(); break;
++    case 0xd: ModeSettings(); break;
++    case 0xe: ModeWallpapers(); break;
++    case 0xf:
++    case 0x10: ModeRingtones(); break;
++    case 0x11:
++    case 0x12: ModeFour(); break;
++    case 0x13: ModeMailActions(); break;
++    case 0x14: ModeMainMenu(); break;
++    case 0x15: ModeMainMenuScripted(); break;
++    case 0x16: ModeReply(); break;
++    case 0x18: ModeAfterSend(); break;
++    case 0x1b: ModePhoneTrigger(); break;
++    case 0x1c: ModeTriggerActions(); break;
++    case 0x1d: ModeRingtoneActions(); break;
++    case 0x1e: ModeRingtoneSet(); break;
++    case 0x1f: ModeRingtonePlay(); break;
++    case 0x20: ModeFourActions(); break;
++    case 0x21: ModeFourSet(); break;
++    case 0x23: ModeWallpaperActions(); break;
++    case 0x24: ModeWallpaperSet(); break;
++    case 0x25: ModeWallpaperView(); break;
++    case 0x26: ModeFourTry(); break;
++    case 0x28: ModeTriggerConfirm(); break;
++    case 200: ModePictureIn(); break;
++    case 0xc9: ModePictureOut(); break;
++    case 0xca: ModeStoryIn(); break;
++    case 0xcb: ModeStoryOut(); break;
++    case 0xcc: ModeTextIn(); break;
++    case 0xcd: ModeTextOut(); break;
++    case 0xce: ModeMusic(); break;
++    case 0xcf: ModeSpecialIn(); break;
++    case 0xd0: ModeSpecial(); break;
++    case 0xd1: ModeSpecialOut(); break;
++    default: break;
++  }
++}
++
++// the phone owns the buttons it read this frame; the dialogue must not also take them
++void ConsumeInput() {
++  constexpr uint32_t mask = PAD1A | PAD1B | PAD1UP | PAD1DOWN | PAD1LEFT | PAD1RIGHT;
++  PADinputButtonWentDown &= ~mask;
++  PADinputButtonRepeatDown &= ~mask;
++  PADinputMouseWentDown &= ~mask;
++}
++
++}  // namespace
++
++// ------------------------------------------------------------------------------------------------ public
++
++void Reset() {
++  S.Bits.fill(0);
++  S.MailState.fill(0);
++  S.SentCount = 0;
++  S.InboxCount = 0;
++  SW(0x6a7c) = 0;
++}
++
++uint8_t* SaveData() { return S.Bits.data(); }
++
++void AfterLoad() {
++  S.MailState.fill(0);
++  for (uint32_t i = 0; i < MailStateCount && (i >> 3) < S.Bits.size(); i++)
++    if ((S.Bits[i >> 3] >> (i & 7)) & 1) S.MailState[i] = 1;
++}
++
++void Update(float /*dt*/) {
++  CheckUnread();  // 0x44d850
++  uint32_t ct = SW(0x6a44);
++  if (!GetFlag(0xa28)) {
++    if (ct != 0) SW(0x6a44) = ct - 1;
++  } else if (ct < 0x14) {
++    SW(0x6a44) = ct + 1;
++  }
++}
++
++void Instruction(Sc3VmThread* thread) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset += 1;
++  switch (type) {
++    case 0x00:
++    case 0x01: {  // set / clear a mail state bit
++      const uint8_t bit = *thread->GetIp();
++      thread->IpOffset += 1;
++      const int mail = ExpressionEval(thread);
++      SetMailBit(mail, bit, type == 0);
++      break;
++    }
++    case 0x02:
++    case 0x03: {  // jump if a mail state bit is set / clear
++      const uint8_t bit = *thread->GetIp();
++      thread->IpOffset += 1;
++      const int mail = ExpressionEval(thread);
++      const uint16_t label = *(uint16_t*)thread->GetIp();
++      thread->IpOffset += 2;
++      if (MailBit(mail, bit) == (type == 2)) thread->IpOffset = ScriptGetLabelAddress(thread->ScriptBufferId, label);
++      break;
++    }
++    case 0x04: {  // mail table
++      uint16_t labels[6];
++      for (uint16_t& l : labels) {
++        l = *(uint16_t*)thread->GetIp();
++        thread->IpOffset += 2;
++      }
++      const uint32_t buf = thread->ScriptBufferId;
++      auto at = [&](uint16_t label) {
++        return (const uint16_t*)&ScriptBuffers[buf][ScriptGetLabelAddress(buf, label)];
++      };
++      MailInit(buf, at(labels[0]), labels[1], labels[2], at(labels[3]), at(labels[4]), at(labels[5]));
++      break;
++    }
++    case 0x05:
++      BuildLists();
++      break;
++    case 0x06: {  // the selected mail of the current list (0x454420)
++      if (SW(0x6a4c) == 0) {
++        SW(0x6a50) = S.InboxCount / 12;
++        SW(0x6a5c) = S.Inbox[SW(0x6a58) + SW(0x6a54) * 12];
++      } else {
++        SW(0x6a50) = S.SentCount / 12;
++        SW(0x6a5c) = S.Sent[SW(0x6a58) + SW(0x6a54) * 12];
++      }
++      break;
++    }
++    case 0x07: {
++      ReadInput();
++      const int before = SW(0x6a48);
++      ModeLogic();
++      if (SW(0x6a48) != before)
++        ImpLogSlow(LogLevel::Debug, LogChannel::VM, "SGHD phone mode {:d} -> {:d}\n", before, SW(0x6a48));
++      ConsumeInput();
++      break;
++    }
++    case 0x08:
++      break;
++    case 0x09:  // lines of the selected mail (0x45b8e0)
++      SW(0x6a78) = MailLines(SW(0x6a5c));
++      break;
++    case 0x0a: {  // lines of the answer (0x45b840)
++      SW(0x6a88) = 0;
++      const int reply = SW(0x6a84);
++      const int n = LineCount(S.Mails[reply][MailText] + 2, 0x116, 0x18) + 1;
++      const int t = LineCount(S.Mails[reply][MailText], 0xfe, 0x18);
++      SW(0x6a8c) = n + (t == 0 ? 1 : t);
++      break;
++    }
++    case 0x0f:
++    case 0x10:  // register / remove a contact
++      SetContactBit(ExpressionEval(thread), type == 0x0f);
++      break;
++    case 0x11:  // clear the address book
++      for (uint32_t c = 0; c < MaxContacts; c++) SetContactBit(c, false);
++      break;
++    case 0x12: {  // the mail that may be answered by a word (0x45a7f0)
++      const int slot = ExpressionEval(thread);
++      const int mail = ExpressionEval(thread);
++      SW(0x6b30) = 999;
++      SW(0x6b34) = 999;
++      if (mail == 999) break;
++      SW(0x6a9c) = slot;
++      SW(0x6aa0) = mail;
++      SetFlag(0xa35, 1);
++      SetMailBit(mail, 0, true);
++      break;
++    }
++    case 0x13:  // the answer chosen by a word (0x45a880)
++      if (GetFlag(0xa35)) {
++        const int idx = 0x6aa4 + SW(0x6a9c) * 4;
++        SW(idx) = SW(0x6b34) == 999 ? 999 : (int)S.Mails[SW(0x6b34)][MailReply];
++        SW(0x6b30) = 999;
++        SW(0x6b34) = 999;
++        SW(0x6a9c) = 0xff;
++        SW(0x6aa0) = 999;
++        SetFlag(0xa35, 0);
++      }
++      break;
++    case 0x14:
++    case 0x15: {  // who can be called (0x14) / mailed (0x15)
++      int v[4];
++      for (int& x : v) x = ExpressionEval(thread);
++      SetFlag(type == 0x14 ? 0xa2b : 0xa2a, 1);
++      SetFlag(0xa3c, 1);
++      const int packed = ((v[3] * 0x100 + v[2]) * 0x100 + v[1]) * 0x100 + v[0];
++      SW(type == 0x14 ? 0x6ab8 : 0x6b00) = packed;
++      break;
++    }
++    case 0x16:  // the contact at the address book row GlobalVars[6821]
++      SW(0x6a98) = S.Contacts[SW(0x6a94)];
++      break;
++    case 0x17:
++      ReadInput();
++      DialInput();
++      ConsumeInput();
++      break;
++    case 0x18:
++      S.Unk_eb994 = 0;
++      break;
++    case 0x19: {  // today's date (0x4544a0)
++      std::time_t t = std::time(nullptr);
++      std::tm* lt = std::localtime(&t);
++      SW(0x1f7c) = (((lt->tm_mon + 1) * 100 + lt->tm_mday) * 100 + lt->tm_hour) * 100 + lt->tm_min;
++      break;
++    }
++    case 0x1a: {  // a mail gets the date of today (0x45bb90)
++      const int mail = ExpressionEval(thread);
++      const uint32_t d = SW(0x1f7c);
++      S.Mails[mail][MailDateHi] = d / 10000;
++      S.Mails[mail][MailDateLo] = d % 10000;
++      break;
++    }
++    default:  // 0x0b-0x0e, 0x1b-0x1e: nothing
++      break;
++  }
++}
++
++void RenderLayer(int /*layer*/) {}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phone.h b/src/games/sghd/phone.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..fbb3c6ce063c077470af8963f6c9e7e4ffa61c03
+--- /dev/null
++++ b/src/games/sghd/phone.h
+@@ -0,0 +1,38 @@
++#pragma once
++
++#include <cstdint>
++
++namespace Impacto {
++namespace Vm {
++struct Sc3VmThread;
++}
++
++namespace SGHD {
++// The phone of STEINS;GATE (Steam): mails, address book, ringtones, wallpapers and the phone trigger (answering a
++// mail by picking one of the underlined words of its text). Translated from the original Game.exe routines; the
++// addresses in the comments are those of the Steam release. The scripts drive the phone through instruction 10:37
++// and through script variables 6800..6861 (mode GlobalVars[6802], open counter GlobalVars[6801], selections ...),
++// so the logic below keeps working on the same variables.
++namespace Phone {
++
++// Instruction 10:37 (0x467f60).
++void Instruction(Vm::Sc3VmThread* thread);
++
++// Once per frame, outside the scripts (0x459a30 in the main loop 0x428d50): opens / closes the phone.
++void Update(float dt);
++
++// Drawn on the layer GlobalVars[6842] (0x428790).
++void RenderLayer(int layer);
++
++// New game (0x45c240).
++void Reset();
++
++// The phone keeps a 500 byte bit field (mail states, registered contacts) in every save, next to the script flags.
++constexpr int SaveDataSize = 500;
++uint8_t* SaveData();
++// After the bit field was loaded (0x44d8a0).
++void AfterLoad();
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonestate.h b/src/games/sghd/phonestate.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5c3a92fc6fdc478b8e52d1c1a43834914beff399
+--- /dev/null
++++ b/src/games/sghd/phonestate.h
+@@ -0,0 +1,74 @@
++#pragma once
++
++#include <array>
++#include <cstdint>
++
++#include "../../mem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++// Limits of the original's tables.
++constexpr uint32_t MaxMails = 700;        // DAT_018ec768, 0x34 bytes each
++constexpr uint32_t MailStateCount = 0xdb0;  // DAT_018eb998: 5 state bytes per mail
++constexpr uint32_t MaxContacts = 12;
++constexpr uint32_t MaxAttach = 64;        // DAT_018f6f60, 12 words each
++constexpr uint32_t MaxRingtones = 32;     // DAT_018f6860, 4 words each
++constexpr uint32_t MaxWallpapers = 64;    // DAT_018f6ac0, 3 words each
++
++// Fields of a mail record (original order, 4 bytes each from DAT_018ec768).
++enum MailField { MailKind = 0, MailDateHi = 1, MailDateLo = 2, MailAttach = 3, MailText = 4, MailReply = 5 };
++
++struct State {
++  std::array<uint8_t, 500> Bits{};                 // DAT_018eb7a0, saved: mail * 5 + bit, contacts at 0xdac
++  std::array<uint8_t, MailStateCount> MailState{};  // DAT_018eb998, byte per bit (0 exists, 1 read, 2 can answer,
++                                                    // 3 ends the phone, 4 answered)
++  uint32_t ScriptBuffer = 0, StrBaseA = 0, StrBaseB = 0;  // DAT_018ec754 / 758 / 75c (contact names at StrBaseB)
++  uint32_t MailCount = 0;                                 // DAT_018ec760
++  std::array<std::array<uint32_t, 13>, MaxMails> Mails{};
++  std::array<uint32_t, 600> Inbox{}, Sent{};  // DAT_018f5ef8, DAT_018f5598
++  uint32_t InboxCount = 0, SentCount = 0;     // DAT_018f6858, DAT_018ec764
++  std::array<uint32_t, MaxContacts> Contacts{};  // DAT_018f6e98: registered contacts in address book order
++  uint32_t ContactCount = 0;                     // DAT_018f6ec8
++  std::array<uint8_t, MaxContacts> CanCall{}, CanMail{};  // DAT_018f6ed0 / ed4
++  // address book order and dialling keys, constants of the original (0x52e9d8, 0x52ea08)
++  std::array<uint32_t, MaxContacts> ContactOrder{8, 3, 9, 4, 2, 1, 10, 0, 5, 6, 11, 7};
++  std::array<uint32_t, 12> DialDigits{1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 0, 10};
++  std::array<uint32_t, 4> Dial{};  // DAT_018f6f30
++
++  std::array<std::array<uint32_t, 12>, MaxAttach> Attach{};  // DAT_018f6f60: type, label, data
++  uint32_t AttachCount = 0;                                  // DAT_018f76e0
++  std::array<std::array<uint32_t, 4>, MaxRingtones> Ringtones{};  // DAT_018f6860: call id, mail id, ?, flag
++  uint32_t RingtoneCount = 0;                                     // DAT_018f6a40
++  std::array<uint32_t, MaxRingtones> RingtoneList{};              // DAT_018f6a48: unlocked
++  uint32_t RingtoneListCount = 0;                                 // DAT_018f6a44
++  std::array<std::array<uint32_t, 3>, MaxWallpapers> Wallpapers{};  // DAT_018f6ac0: picture, ?, flag
++  uint32_t WallpaperCount = 0;                                      // DAT_018f6d90
++  std::array<uint32_t, MaxWallpapers> WallpaperList{};              // DAT_018f6d98
++  uint32_t WallpaperListCount = 0;                                  // DAT_018f6d94
++
++  uint32_t WpSel = 0, WpPage = 0, WpPages = 0, WpPrev = 0;  // DAT_018f6e88 / 8c / 90 / 94
++  uint32_t LinkSel = 0xff;     // DAT_018f6ecc: chosen word of the phone trigger
++  uint32_t ReturnMode = 0;     // DAT_018f6f40
++  uint32_t HasUnread = 0;      // DAT_018f6f44
++  uint32_t PlayTime = 0, PlayingId = 0, PlayingIdx = 0, Unk_6f54 = 0, Unk_6f58 = 0;  // DAT_018f6f48..58
++  uint32_t AttachIdx = 0;      // DAT_018f6f5c
++  uint32_t SavedFlag9c6 = 0, SavedFlagA38 = 0;  // DAT_018f76e4 / e8
++  uint32_t AttachToggle = 0, AttachPos = 0, PageLines = 0;  // DAT_018f76ec / f0 / f8
++  uint32_t ArrowHover = 0, ScrollHover = 0;     // DAT_018f7700 / 7704
++  uint32_t NoticeTimer = 0;    // DAT_018f685c
++  uint32_t Hover = 0;          // DAT_018eab50
++  uint32_t Unk_eb994 = 0;
++  uint32_t LinkAreaCount = 0;  // hit areas of the underlined words (DAT_0052f064)
++  bool ParticlesInit = false;  // 0x45b6f0
++};
++
++extern State S;
++
++// Script variables by their byte offset in the original (ScrWork + offset), as the routines address them.
++inline int& SW(int byteOffset) { return ScrWork[byteOffset / 4]; }
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/profile/ui/gamespecific.cpp b/src/profile/ui/gamespecific.cpp
+index 8208a3fde13fabb5c4eb23e74c8ec2bd53298698..9c062526a88312ce59594b6c3cbb77c55f069045 100644
+--- a/src/profile/ui/gamespecific.cpp
++++ b/src/profile/ui/gamespecific.cpp
+@@ -55,6 +55,8 @@ void Configure() {
+       break;
+     case GameSpecificType::Dash:
+       break;
++    case GameSpecificType::SGHD:
++      break;
+     case GameSpecificType::None:
+       break;
+   }
+diff --git a/src/ui/gamespecific.cpp b/src/ui/gamespecific.cpp
+index 87f337f3c0d8f5d4792d0309e6221e1fdb6a43db..39fa7c8bcd4e2abad743d5b8d9e550758612a46d 100644
+--- a/src/ui/gamespecific.cpp
++++ b/src/ui/gamespecific.cpp
+@@ -15,6 +15,7 @@
+ #include "../games/cclcc/delusiontrigger.h"
+ #include "../games/cclcc/yesnotrigger.h"
+ #include "../games/cclcc/mapsystem.h"
++#include "../games/sghd/phone.h"
+ 
+ #include "../background2d.h"
+ #include "../inputsystem.h"
+@@ -49,6 +50,7 @@ void Init() {
+       break;
+     case GameSpecificType::Dash:
+       break;
++    case GameSpecificType::SGHD:
+     case GameSpecificType::None:
+       break;
+   }
+@@ -65,6 +67,7 @@ void NonGameplayUpdate(float dt) {
+     case GameSpecificType::RNE:
+     case GameSpecificType::CC:
+     case GameSpecificType::CCLCC:
++    case GameSpecificType::SGHD:
+     case GameSpecificType::None:
+       break;
+   }
+@@ -94,6 +97,9 @@ void Update(float dt) {
+       break;
+     case GameSpecificType::Dash:
+       break;
++    case GameSpecificType::SGHD:
++      SGHD::Phone::Update(dt);
++      break;
+     case GameSpecificType::None:
+       break;
+   }
+@@ -108,6 +114,7 @@ void RenderEarlyMain() {
+     case GameSpecificType::RNE:
+     case GameSpecificType::CC:
+     case GameSpecificType::CCLCC:
++    case GameSpecificType::SGHD:
+     case GameSpecificType::None:
+       break;
+   }
+@@ -141,6 +148,7 @@ void RenderMain() {
+       break;
+     case GameSpecificType::CCLCC:
+       break;
++    case GameSpecificType::SGHD:
+     case GameSpecificType::None:
+       break;
+   }
+@@ -191,6 +199,9 @@ void RenderLayer(uint32_t layer) {
+       break;
+     case GameSpecificType::Dash:
+       break;
++    case GameSpecificType::SGHD:
++      SGHD::Phone::RenderLayer(layer);
++      break;
+     case GameSpecificType::None:
+       break;
+   }
+diff --git a/src/ui/ui.h b/src/ui/ui.h
+index ef429e60c3e37e95350257261979c8c92e1b5c39..6d50dcd23ebdb3166a47587b9bba150bd6b96755 100644
+--- a/src/ui/ui.h
++++ b/src/ui/ui.h
+@@ -116,6 +116,7 @@ enum class GameSpecificType : int {
+   CCLCC,
+   RNE,
+   Dash,
++  SGHD,
+ };
+ int constexpr MaxExtraMenus = 10;
+ 
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index 94fcdb411f5b63a2399cf5579dc9127af1e66602..331b8f32d82fb12b18a28a379c64b77a2b6cf451 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -638,6 +638,21 @@ VmInstruction(InstMesMain) {
+ 
+   assert(pageState == Shown);
+ 
++  // STEINS;GATE (Steam): flag 1611 tells the scripts that the player is being waited for, the only time the phone
++  // may be opened (the original message wait 0x45f5a0 sets it on entry and clears it once the message advances).
++  constexpr uint32_t SghdPhoneAllowedFlag = 1611;
++  const bool sghd = Profile::Vm::GameInstructionSet == InstructionSet::SGHD;
++  if (sghd) {
++    SetFlag(SghdPhoneAllowedFlag, true);
++    // while the player has the phone open (flag 2610) the buttons belong to the phone, the message waits
++    constexpr uint32_t SghdPhoneOpenFlag = 2610;
++    if (GetFlag(SghdPhoneOpenFlag)) {
++      BlockThread;
++      ResetInstruction;
++      return;
++    }
++  }
++
+   const bool autoForward = currentPage.AdvanceMethod == AutoForward ||
+                            currentPage.AdvanceMethod == AutoForwardSyncVoice;
+   if (!autoForward) {
+@@ -674,6 +689,7 @@ VmInstruction(InstMesMain) {
+     SetFlag(currentPage.Id + SF_CHAANIME, false);
+     SetFlag(currentPage.Id + SF_SHOWWAITICON, false);
+     SetFlag(SF_SYSMENUDISABLE, true);
++    if (sghd) SetFlag(SghdPhoneAllowedFlag, false);
+ 
+     const bool nvlDontClear = currentPage.AdvanceMethod != PresentClear &&
+                               type != 1 && currentPage.GetMode() == DPM_NVL;
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index bc164848b11d0b9ec57dc1315c7a318fb5890285..5ae96310142272a97eb70f054aaefceced6e37dd 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -10,6 +10,7 @@
+ #include "../ui/ui.h"
+ #include "../profile/scriptvars.h"
+ #include "../profile/ui/helpmenu.h"
++#include "../games/sghd/phone.h"
+ 
+ namespace Impacto {
+ 
+@@ -63,15 +64,7 @@ inline void RunGroup(Sc3VmThread* thread, const char* name, const SubShape (&sha
+ }  // namespace SghdDetail
+ 
+ // 10:37: phone / mail / @channel group.
+-inline void InstSghdGroup1037(Sc3VmThread* thread, float dt) {
+-  static constexpr SghdDetail::SubShape shapes[] = {
+-      {0x00, "bE"},  {0x01, "bE"},  {0x02, "bEh"}, {0x03, "bEh"}, {0x04, "hhhhhh"}, {0x05, ""},    {0x06, ""},
+-      {0x07, ""},    {0x08, ""},    {0x09, ""},    {0x0A, ""},    {0x0F, "E"},      {0x10, "E"},  {0x11, ""},
+-      {0x12, "EE"},  {0x13, ""},    {0x14, "EEEE"}, {0x15, "EEEE"}, {0x16, ""},      {0x17, ""},   {0x18, ""},
+-      {0x19, ""},    {0x1A, "E"},   {0x1E, ""},
+-  };
+-  SghdDetail::RunGroup(thread, "Group1037", shapes);
+-}
++inline void InstSghdGroup1037(Sc3VmThread* thread, float dt) { SGHD::Phone::Instruction(thread); }
+ 
+ // Instructions that take one byte and have no other effect that is understood yet (10:1B).
+ inline void InstSghdSkipByte(Sc3VmThread* thread, float dt) {
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index 45f11ae9db19eebaebc7bfa1140badd60c015e4a..859fd2cb3e6851ad56e8242dec7a05f17fc717d8 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -25,6 +25,7 @@
+ #include "../data/achievementsystem.h"
+ #include "../ui/ui.h"
+ #include "../ui/gamespecific.h"
++#include "../games/sghd/phone.h"
+ #include "../voicetable.h"
+ #include "../text/dialoguepage.h"
+ 
+@@ -1130,6 +1131,7 @@ VmInstruction(InstMSinit) {
+       std::fill(ScrWork.begin() + 2100, ScrWork.begin() + 3300, 0);
+       std::fill(ScrWork.begin() + 4347, ScrWork.begin() + 7300, 0);
+     }
++    if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD) SGHD::Phone::Reset();
+   }
+ 
+   for (int i = 0; i < std::ssize(Backgrounds); i++) {

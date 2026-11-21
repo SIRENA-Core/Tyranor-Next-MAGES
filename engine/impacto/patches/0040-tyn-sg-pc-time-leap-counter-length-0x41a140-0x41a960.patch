@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 18:34:25 -0800
+Subject: [PATCH] tyn: sg-pc time leap counter length (0x41a140 / 0x41a960):
+ flag 2472 is cleared again
+
+After 10:3A the scripts wait for flag 2472, which the original clears once the time leap counter has run (frame
+counter 0x41a960 against the step count that 0x41a140 derives from the two dates / times, step tables 0x529cb8 /
+0x529cdc). Without it the game stayed on a black screen at the first time leap (8/13). The step count is ported
+as in the original; the counter digits are not drawn yet.
+
+Checked on MuMu (Android 15, not a real device, Steam data with the Chinese patch): 8/7 -> 8/13, the time leaps
+back to 8/11 and 8/12, chapter 6.
+
+TYN only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+index 5a98a2045d5956c3f7159367dfb0ddbd43b55fb7..7bb3f874e86e8ec21e5c4c9c91fbd6d432fb67dc 100644
+--- a/src/games/sghd/phone.cpp
++++ b/src/games/sghd/phone.cpp
+@@ -1713,9 +1713,54 @@ void UpdateSceneMouse() {
+ 
+ void SetSceneMouse(bool on) { SceneMouse = on; }
+ 
++namespace {
++uint32_t LeapSteps = 0, LeapFrame = 0;  // DAT_0145f9c4 / DAT_0146a288
++}
++
++// 0x41a140, the length of the counter: the distance between the two times (day * 1440 + minute, both as MMDD /
++// hhmm), split into the digit steps of the counter (step tables 0x529cb8 / 0x529cdc). The digits themselves are
++// not drawn yet.
++void TimeLeapStart(const int (&v)[6]) {
++  const int t0 = v[1] + ((v[0] % 100) * 0x24 - v[1] / 100) * 0x28;
++  const int t1 = v[3] + ((v[2] % 100) * 0x24 - v[3] / 100) * 0x28;
++  uint32_t u = static_cast<uint32_t>((t0 * 4 - t1 * 4) * 2);
++  constexpr uint32_t c[5] = {1, 4, 16, 64, 256}, d[4] = {64, 16, 16, 16};
++  uint32_t b0 = 0, p3 = 0, ac = 0, p2 = 0, a8 = 0, bc = 0, a4 = 0;
++  const uint32_t i2 = c[0] * d[0];
++  if (c[1] + i2 * 2 <= u) {
++    const uint32_t i5 = d[1] * c[1];
++    if ((i2 + i5) * 2 + c[2] <= u) {
++      const uint32_t i7 = d[2] * c[2] + i5 + i2;
++      if (c[3] + i7 * 2 <= u) {
++        const uint32_t i4 = d[3] * c[3] + d[2] * c[2] + i5 + i2;
++        if (c[4] + i4 * 2 <= u) {
++          b0 = (u - i4 * 2) / c[4];
++          u -= b0 * c[4];
++        }
++        const uint32_t v3 = (u - i7 * 2) / c[3];
++        p3 = v3 >> 1;
++        u -= v3 * c[3];
++        ac = v3 - p3;
++      }
++      const uint32_t v3 = (u - (i2 + i5) * 2) / c[2];
++      p2 = v3 >> 1;
++      u -= v3 * c[2];
++      a8 = v3 - p2;
++    }
++    const uint32_t v3 = (u - i2 * 2) / c[1];
++    u -= v3 * c[1];
++    bc = v3 >> 1;
++    a4 = v3 - bc;
++  }
++  const uint32_t c0 = u >> 1, a0 = u - c0;
++  LeapSteps = b0 + 4 + c0 + a0 + bc + a4 + p2 + a8 + p3 + ac;
++  LeapFrame = 0;
++}
++
+ void RenderMain() { RenderIndicator(); }
+ 
+ void Update(float /*dt*/) {
++  if (GetFlag(0x9a8) && ++LeapFrame >= LeapSteps + 5) SetFlag(0x9a8, 0);  // 0x41a960
+   CheckUnread();  // 0x44d850
+   uint32_t ct = SW(0x6a44);
+   if (!GetFlag(0xa28)) {
+diff --git a/src/games/sghd/phone.h b/src/games/sghd/phone.h
+index 375a886f3509d209cddc2876a7659e58965631ae..cbd2eece4daae2a835daa838f8a18e212fc960a1 100644
+--- a/src/games/sghd/phone.h
++++ b/src/games/sghd/phone.h
+@@ -27,6 +27,9 @@ void Update(float dt);
+ // 10:3F 13 / 14: the scene's mouse areas are on / off (group 0 of the original, 0x435000 / 0x434fd0).
+ void SetSceneMouse(bool on);
+ 
++// 10:3A (0x41a140): the dates of a time leap; flag 2472 stays up while their counter runs (0x41a960)
++void TimeLeapStart(const int (&v)[6]);
++
+ // 0x434d40, the phone part: a click on the small phone at the top left asks to open the phone (flag 2363)
+ void UpdateSceneMouse();
+ 
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index bc3d9ffddc94e1369c373c0e71481d8580bd6cec..d8fbc679783ed767a14e3f56555dbc099be786e1 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -134,7 +134,9 @@ inline void InstSghdUnk004C(Sc3VmThread* thread, float dt) {
+ // The effect is not drawn yet; the operands are read so that the script goes on.
+ inline void InstSghdTimeLeapDates(Sc3VmThread* thread, float dt) {
+   thread->IpOffset += 2;
+-  for (int i = 0; i < 6; i++) (void)ExpressionEval(thread);
++  int v[6];
++  for (int& x : v) x = ExpressionEval(thread);
++  SGHD::Phone::TimeLeapStart(v);
+   ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction 10:3A (time leap dates)\n");
+ }
+ 

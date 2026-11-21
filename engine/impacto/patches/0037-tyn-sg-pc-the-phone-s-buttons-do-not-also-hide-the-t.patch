@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 12:41:52 -0800
+Subject: [PATCH] tyn: sg-pc the phone's buttons do not also hide the text
+
+Backing out of phone screens with the Back button toggled the engine's hide-text (UI hidden) at the same time, so
+after the phone closed the message could not be advanced any more until hidden again (seen after the PhoneWave call
+of SG01_12: three backs -> text hidden -> taps ignored). New UI::GameSpecific::SceneInputTaken(): for STEINS;GATE
+true while flag 2610 says the player drives the phone; UpdateGameState does not toggle the hide state then.
+
+Checked on MuMu (Android 15, not a real device, original English data): SG01_12 from the save at Daru's loop,
+by taps only: small phone -> mail -> back x3 -> address book -> PhoneWave -> call -> text advances -> dial 120#
+-> the story continues into the next scenes.
+
+TYN only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/game.cpp b/src/game.cpp
+index 8d3ba25b50528502f296490545518f5b271e5eaa..2bfa96ce15fd6b36128ccad051488428850e467b 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -281,6 +281,7 @@ void UpdateGameState(float dt) {
+ 
+   if ((ScrWork[SW_GAMESTATE] & 5) == 1 && !GetFlag(SF_SYSTEMMENUDISABLE) &&
+       !GetFlag(SF_GAMEPAUSE) && !GetFlag(SF_SYSMENUDISABLE) &&
++      !UI::GameSpecific::SceneInputTaken() &&
+       Vm::Interface::GetControlState(Vm::Interface::ControlType::Hide)) {
+     // Some more stuff here?
+     if ((GetFlag(SF_MESWINDOW0OPENFL) &&
+diff --git a/src/ui/gamespecific.cpp b/src/ui/gamespecific.cpp
+index c212981e53161622443fa09fc8b207ce6e8962ce..952dcad10619508367b4501148bb36407b0eb3f5 100644
+--- a/src/ui/gamespecific.cpp
++++ b/src/ui/gamespecific.cpp
+@@ -80,6 +80,11 @@ void UpdateInput(float dt) {
+     SGHD::Phone::UpdateSceneMouse();
+ }
+ 
++bool SceneInputTaken() {
++  // STEINS;GATE: flag 2610 is up while the player drives the phone
++  return Profile::GameSpecific::GameSpecificType == GameSpecificType::SGHD && GetFlag(2610);
++}
++
+ void Update(float dt) {
+   switch (Profile::GameSpecific::GameSpecificType) {
+     case GameSpecificType::CHLCC: {
+diff --git a/src/ui/gamespecific.h b/src/ui/gamespecific.h
+index 90ef381cc22f797dc8f5ee9e679541efd2f16ac7..fd2bf42e75f0ce0e899d15e4bba1ac0ece639bce 100644
+--- a/src/ui/gamespecific.h
++++ b/src/ui/gamespecific.h
+@@ -7,6 +7,8 @@ void NonGameplayUpdate(float dt);
+ void Update(float dt);
+ // right after the pad input is read, before anything takes it (dialogue advance, menus)
+ void UpdateInput(float dt);
++// a game screen owns the buttons (e.g. the STEINS;GATE phone): the scene must not also hide its text on them
++bool SceneInputTaken();
+ void RenderEarlyMain();
+ void RenderMain();
+ void RenderLayer(uint32_t layer);
