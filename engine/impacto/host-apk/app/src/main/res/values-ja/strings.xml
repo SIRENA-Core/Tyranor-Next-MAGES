@@ -15,6 +15,7 @@
     <string name="touch_hint_log">ログ</string>
     <string name="touch_hint_menu">メニュー</string>
     <string name="touch_hint_qsave">Qセーブ</string>
+    <string name="touch_hint_phone">L2／ケータイ</string>
     <string name="touch_page_main">基本</string>
     <string name="touch_page_nav">移動</string>
     <string name="touch_page_mouse">マウス</string>

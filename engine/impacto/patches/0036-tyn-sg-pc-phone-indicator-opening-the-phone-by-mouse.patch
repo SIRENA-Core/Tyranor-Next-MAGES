@@ -1,0 +1,560 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 11:25:26 -0800
+Subject: [PATCH] tyn: sg-pc phone indicator, opening the phone by mouse /
+ touch, attachments, 10:38
+
+From the original Game.exe:
+
+- The small phone at the top left of the scene (0x45a9a0, drawn over all layers like the original): date and day
+  of the week (GlobalVars[1430]), antenna, battery, unread mark, "new mail" blinking over the date, the notice of
+  flag 2617, the caller of an incoming call (name, or the number in small digits). Flag 2616 shows it.
+- Opening the phone without a keyboard or pad (0x434d40, phone part): in the mouse mode a click / tap on the small
+  phone (or the middle button) raises flag 2363, which the main loop of _STARTUP_WIN turns into the phone. The
+  request stays up a few frames and the click is taken before the dialogue sees it, otherwise the message would
+  advance and the scripts drop the request (they only open the phone while flag 1611 says the player is waited for).
+  New hook UI::GameSpecific::UpdateInput, right after the pad input is read. 10:3F 13 / 14 turn the scene areas on /
+  off; they are on after a load as well (13 only runs on a new start).
+- Dial pad keys by mouse / touch (hit areas 34..45).
+- Attachments: the phone's big screen behind pictures (0x44f840) and picture stories (0x44f980, PACG), text pages
+  (0x44d120) with their scroll arrows; 10:38 (0x4683e0) sets the page table and drives the mouse scrolling of text
+  pages and script scrolled mails (was a stub). Sheet 15 is PACG.
+
+Checked on MuMu (Android 15, not a real device, original English data): Daru's "where did I put my phone" loop
+(SG01_12) by taps only: small phone -> new mail opens -> back -> address book -> PhoneWave -> call -> "Call
+complete."; dial pad 120# by taps.
+
+Not done: the petals of the special attachment, the camera view of mode 12.
+
+TYN only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 90cc99a39ab4bb14f8b705743e09fd56fc5fe766..add956ba579b6922521ed6a0330a05f0cb73c8eb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -269,6 +269,7 @@ set(Impacto_Src
+     src/games/sghd/tipssystem.cpp
+     src/games/sghd/phone.cpp
+     src/games/sghd/phonerender.cpp
++    src/games/sghd/phoneindicator.cpp
+     src/games/sghd/phonescreens.cpp
+     src/games/sghd/phonescreens2.cpp
+     src/games/sghd/phonescreens3.cpp
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index 2a579ba8640968cc2400b1872ceb7f3755175f28..47ec4d26ad6398c8146783d47a26c7a3e6c022df 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -4,7 +4,7 @@
+ -- the Data sheet so that the copied Chaos;Child HUD definitions still load; their sprites are placeholders.
+ root.SpriteSheets = {
+     -- The phone textures are loaded by the scripts (LoadTexture into surfaces 170..179), so these sheets are script
+-    -- handled: 15 MUSIC, 16..20 PHONE / _B.._E (one per phone design), 21 PHONE2, 22 PHONE3, 23 PWCG, 24 PWCGTHUM.
++    -- handled: 15 PACG, 16..20 PHONE / _B.._E (one per phone design), 21 PHONE2, 22 PHONE3, 23 PWCG, 24 PWCGTHUM.
+     ["Phone"] = {
+         Path = { Mount = "system", Id = 16 },
+         DesignWidth = 3072,
+@@ -59,10 +59,10 @@ root.SpriteSheets = {
+         DesignHeight = 768,
+         ScriptHandled = true
+     },
+-    ["PhoneMusic"] = {
++    ["PhonePictures"] = {
+         Path = { Mount = "system", Id = 15 },
+-        DesignWidth = 3072,
+-        DesignHeight = 1536,
++        DesignWidth = 4096,
++        DesignHeight = 4096,
+         ScriptHandled = true
+     },
+     ["Data"] = {
+diff --git a/src/game.cpp b/src/game.cpp
+index 3a0e06cb6130299dc817814bfb471b896a41c002..8d3ba25b50528502f296490545518f5b271e5eaa 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -361,6 +361,7 @@ void UpdateSystem(float dt) {
+     Vm::Interface::UpdatePADInput();
+     Vm::Interface::UpdatePADHoldInput(updateInterval);
+     Vm::Interface::UpdateKBHoldInput(updateInterval);
++    UI::GameSpecific::UpdateInput(updateInterval);
+     UpdateGameState(updateInterval);
+ 
+     for (DrawComponentType value :
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+index 11332377b2db8922bf0e5177ffdc1c75bf1d1269..5a98a2045d5956c3f7159367dfb0ddbd43b55fb7 100644
+--- a/src/games/sghd/phone.cpp
++++ b/src/games/sghd/phone.cpp
+@@ -1573,6 +1573,13 @@ void DialInput() {
+     return;
+   }
+   S.Hover = 0;
++  if (MouseMode()) {  // the keys of the pad (hit areas 34..45)
++    SW(0x6abc) = 0xff;
++    for (int i = 0; i < 12; i++)
++      if (Hit(i + 0x22, 1)) S.Hover = 1, SW(0x6abc) = i;
++    for (int i = 0; i < 12; i++)
++      if (Hit(i + 0x22, 8)) ClickDecide();
++  }
+   if (Decide() && SW(0x6abc) != 0xff) {
+     PlaySe(0x9c);
+     S.Dial[SW(0x6ac0)] = S.DialDigits[SW(0x6abc)];
+@@ -1676,6 +1683,38 @@ void AfterLoad() {
+     if ((S.Bits[i >> 3] >> (i & 7)) & 1) S.MailState[i] = 1;
+ }
+ 
++namespace {
++bool SceneMouse = true;  // on in the game (10:3F 13 also runs only on a new start, not after a load)
++
++// 0x434d40, the phone part: in the mouse mode a click on the small phone at the top left (or the middle button) asks
++// the scripts to open the phone (flag 2363, polled by the main loop of _STARTUP_WIN); not while flag 2612 is set.
++}  // namespace
++
++static int OpenRequest = 0;  // frames the request stays up: the main loop of the scripts does not look at it every frame
++void UpdateSceneMouse() {
++  if (OpenRequest > 0 && --OpenRequest == 0) SetFlag(0x93b, 0);
++  SetIndicatorHover(false);
++  if (!SceneMouse || !MouseMode()) return;
++  if (GetFlag(0xa28) && GetFlag(0xa32)) return;
++  if (GetFlag(0xa34)) return;
++  if (Inside(99, 58, 360, 90)) {
++    SetIndicatorHover(true);
++    if (Input::MouseButtonWentDown[SDL_BUTTON_LEFT] || Input::TouchTapCount == 1) {
++      SetFlag(0x93b, 1);
++      OpenRequest = 10;
++      PADinputMouseWentDown = 0;  // the click / tap is not also the dialogue's (OK is a custom pad bit)
++    }
++  }
++  if (Input::MouseButtonWentDown[SDL_BUTTON_MIDDLE]) {
++    SetFlag(0x93b, 1);
++    OpenRequest = 10;
++  }
++}
++
++void SetSceneMouse(bool on) { SceneMouse = on; }
++
++void RenderMain() { RenderIndicator(); }
++
+ void Update(float /*dt*/) {
+   CheckUnread();  // 0x44d850
+   uint32_t ct = SW(0x6a44);
+@@ -1829,8 +1868,89 @@ void Instruction(Sc3VmThread* thread) {
+ 
+ // 0x428790: the phone and the attachment screens are drawn on the layer GlobalVars[6842]
+ void RenderLayer(int layer) {
+-  if (layer != SW(0x6ae8)) return;
+-  if ((uint32_t)SW(0x6b0c) < 0xff && (uint32_t)SW(0x6b10) < 0xff) RenderPhone();
++  if (layer == SW(0x6ae8)) {
++    if ((uint32_t)SW(0x6b0c) < 0xff && (uint32_t)SW(0x6b10) < 0xff) RenderPhone();
++    if (SW(0x6b0c) != 0) RenderPicture();
++    if (SW(0x6b10) != 0) RenderPictureStory();
++  }
++  if (layer == SW(0x6acc)) RenderTextPage();
++}
++
++// 10:38 (0x4683e0): text pages of attachments and the mouse for script driven scrolling
++void Instruction1038(Sc3VmThread* thread) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset += 1;
++  ReadInput();
++  switch (type) {
++    case 0: {  // page table
++      const uint16_t label = *(uint16_t*)thread->GetIp();
++      thread->IpOffset += 2;
++      S.TextPageBuffer = thread->ScriptBufferId;
++      S.TextPageTable = ScriptGetLabelAddress(thread->ScriptBufferId, label);
++      break;
++    }
++    case 1:  // 0x44d6a0 / 0x459ac0: start (flags 1620 / 1621, 1622 / 1623 are scroll requests)
++    case 4:
++      SetFlag(type == 1 ? 0x654 : 0x656, 0);
++      SetFlag(type == 1 ? 0x655 : 0x657, 0);
++      SetFlag(0xbba, 1);
++      break;
++    case 2: {  // 0x44d6f0: one frame of a text page
++      S.ScrollHover = 0;
++      SetFlag(0x654, 0);
++      SetFlag(0x655, 0);
++      S.Hover = 0;
++      if (!MouseMode()) break;
++      if (Hit(0, 0x200)) SetFlag(0x654, 1);
++      if (Hit(0, 0x400)) SetFlag(0x655, 1);
++      if (Hit(0x1a, 1)) S.Hover = 1, S.ScrollHover = 1;
++      if (Hit(0x1b, 1)) S.Hover = 1, S.ScrollHover = 2;
++      if (Hit(0x1a, 8)) {
++        SetFlag(0x654, 1);
++        break;
++      }
++      if (Hit(0x1b, 8)) {
++        SetFlag(0x655, 1);
++        break;
++      }
++      if (Hit(0, 8)) PADinputButtonWentDown |= PAD1A;
++      break;
++    }
++    case 5: {  // 0x459b10: one frame of a mail scrolled by the script
++      S.ScrollHover = 0;
++      SetFlag(0x656, 0);
++      SetFlag(0x657, 0);
++      S.Hover = 0;
++      if (!MouseMode()) break;
++      if (Hit(0, 0x200)) SetFlag(0x656, 1);
++      if (Hit(0, 0x400)) SetFlag(0x657, 1);
++      bool free = true;
++      const bool canUp = (uint32_t)SW(0x6a78) > 0xc && SW(0x6a74) != 0;
++      const bool canDown = (uint32_t)SW(0x6a74) + 0xc < (uint32_t)SW(0x6a78);
++      if (Hit(0x2e, 1)) {
++        if (canUp) S.Hover = 1, S.ScrollHover = 1;
++        free = false;
++      }
++      if (Hit(0x2f, 1)) {
++        if (canDown) S.Hover = 1, S.ScrollHover = 2;
++        free = false;
++      }
++      if (canUp && Hit(0x2e, 8)) SetFlag(0x656, 1);
++      if (canDown && Hit(0x2f, 8)) SetFlag(0x657, 1);
++      if (free && Hit(0, 8)) PADinputButtonWentDown |= PAD1A;
++      break;
++    }
++    case 3:  // 0x44d650 / 0x459a70: end
++    case 6:
++      S.Hover = 0;
++      SetFlag(type == 3 ? 0x654 : 0x656, 0);
++      SetFlag(type == 3 ? 0x655 : 0x657, 0);
++      SetFlag(0xbba, 0);
++      break;
++    default:
++      break;
++  }
+ }
+ 
+ }  // namespace Phone
+diff --git a/src/games/sghd/phone.h b/src/games/sghd/phone.h
+index fbb3c6ce063c077470af8963f6c9e7e4ffa61c03..375a886f3509d209cddc2876a7659e58965631ae 100644
+--- a/src/games/sghd/phone.h
++++ b/src/games/sghd/phone.h
+@@ -18,9 +18,21 @@ namespace Phone {
+ // Instruction 10:37 (0x467f60).
+ void Instruction(Vm::Sc3VmThread* thread);
+ 
++// Instruction 10:38 (0x4683e0): text pages of attachments, mouse scrolling of script driven mails.
++void Instruction1038(Vm::Sc3VmThread* thread);
++
+ // Once per frame, outside the scripts (0x459a30 in the main loop 0x428d50): opens / closes the phone.
+ void Update(float dt);
+ 
++// 10:3F 13 / 14: the scene's mouse areas are on / off (group 0 of the original, 0x435000 / 0x434fd0).
++void SetSceneMouse(bool on);
++
++// 0x434d40, the phone part: a click on the small phone at the top left asks to open the phone (flag 2363)
++void UpdateSceneMouse();
++
++// over all layers: the small phone at the top left (0x45a9a0)
++void RenderMain();
++
+ // Drawn on the layer GlobalVars[6842] (0x428790).
+ void RenderLayer(int layer);
+ 
+diff --git a/src/games/sghd/phoneindicator.cpp b/src/games/sghd/phoneindicator.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..4cb8b4d0f7a3d140df9f7df330d2daec69834111
+--- /dev/null
++++ b/src/games/sghd/phoneindicator.cpp
+@@ -0,0 +1,113 @@
++// The small phone at the top left of the scene (0x45a9a0, drawn over all layers): date and day of the week, antenna,
++// unread mark; "new mail" blinks over the date, an incoming call shows the caller. Flag 2616 shows it, flag 2617
++// shows the notice of 3 seconds. In the mouse mode of the original a click on it opens the phone (0x434d40).
++#include "phonerender.h"
++#include "phonestate.h"
++
++#include "../../mem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Phone {
++
++namespace {
++constexpr float Scale = 1.5f;
++int Alpha = 0;           // DAT_018eb094
++int NoticeTimer = 0;     // DAT_018eb994
++uint32_t MailBlink = 0;  // DAT_018ec748
++bool Hover = false;      // DAT_016411fc
++
++// destinations of this routine are screen pixels in the original
++void SprPx(float sx, float sy, float w, float h, float px, float py, int alpha) {
++  Spr(PhoneSurface(), sx, sy, w, h, px / Scale, py / Scale, alpha);
++}
++void Digit(int d, float px, int alpha) { SprPx((float)(d * 0x18 + 0x14f) * Scale, 1366.5f, 33, 45, px, 91.5f, alpha); }
++}  // namespace
++
++void SetIndicatorHover(bool on) { Hover = on; }
++
++void ResetIndicator() {  // 0x45b2a0
++  Alpha = 0;
++  NoticeTimer = 0;
++  SetFlag(0xa38, 0);
++}
++
++void RenderIndicator() {
++  if (GetFlag(0xa39)) {
++    NoticeTimer = 0xb4;
++    SetFlag(0xa39, 0);
++  }
++  if (!GetFlag(0xa38)) {
++    if (Alpha == 0) return;
++    Alpha -= 0x10;
++  } else if (Alpha < 0x100) {
++    Alpha += 0x10;
++  }
++  const int alpha = Alpha;
++  if (alpha == 0) return;
++  if (NoticeTimer != 0) NoticeTimer--;
++  const bool calling = GetFlag(0xa2d);
++  if (calling || NoticeTimer != 0)
++    SprPx(943.5f, 1120.5f, 396, 126, 79.5f, 40.5f, alpha);
++  else
++    SprPx(580.5f, 1120.5f, 360, 90, 99, 58.5f, alpha);
++  if (S.HasUnread) SprPx(418.5f, 1213.5f, 33, 21, 324, 73.5f, alpha);
++  SprPx(454.5f, 1213.5f, 39, 21, 360, 73.5f, alpha);
++  SprPx(GetFlag(0xa29) ? 496.5f : 535.5f, 1213.5f, 36, 21, 402, 73.5f, alpha);
++
++  if (calling) {  // the caller: name right aligned, or the number when the contact has no name
++    const int caller = SW(0x6a6c);
++    Text(0x4c, 0x34, 200, Str(S.StrBaseA + 0x51), 0, 1, 0xffffff, 0x14, alpha);
++    const uint8_t* name = Str(S.StrBaseB + caller * 2 + 1);
++    if (name[0] == 0x80 && name[1] == 0) {
++      const uint8_t* digits = Str(S.StrBaseB);
++      int x = 0x78;
++      for (const uint8_t* n = Str(S.StrBaseB + caller * 2 + 2); *n != 0xff; n += 2, x += 0x10) {
++        int i = 0;
++        const uint8_t* d = digits;
++        for (; *d != 0xff; d += 2, i++)
++          if (((n[0] & 0x7f) << 8 | n[1]) == ((d[0] & 0x7f) << 8 | d[1])) break;
++        if (*d != 0xff) Spr(PhoneSurface(), (float)(i * 0x10 + 0x1e3) * Scale, 1249.5f, 21, 30, x, 111 / Scale, alpha);
++      }
++    } else {
++      Text(0x128 - TextWidth(name, 0x14), 0x4a, 0xdc, name, 0, 1, 0xffffff, 0x14, alpha);
++    }
++    MailBlink = 0;
++  } else if (NoticeTimer != 0) {
++    Text(0x60, 0x4a, 200, Str(S.StrBaseA + 0x14), 0, 1, 0xffffff, 0x14, alpha);
++    MailBlink = 0;
++  } else {
++    const bool newMail = GetFlag(0xa2c);
++    if (!newMail || ++MailBlink > 0x77) MailBlink = 0;
++    if (newMail && MailBlink < 0x3c) {
++      Text(0x60, 0x4a, 200, Str(S.StrBaseA + 0x50), 0, 1, 0xffffff, 0x14, alpha);
++    } else {  // date GlobalVars[1430]: month * 100 + day
++      uint32_t date = SW(0x1658);
++      if (date == 0) date = 0x3a3;
++      uint32_t thousands = date / 1000;
++      const uint32_t month = (date % 1000) / 100, day = date % 100, tens = day / 10, ones = day % 10;
++      if (thousands != 0) Digit(thousands, 114, alpha);
++      Digit(month, 150, alpha);
++      SprPx(970.5f, 1366.5f, 33, 45, 186, 91.5f, alpha);  // '/'
++      if (tens != 0) Digit(tens, 222, alpha);
++      Digit(ones, 258, alpha);
++      uint32_t week = thousands;  // day of the week of 2010
++      if (month == 7)
++        week = day + 3;
++      else if (month == 8)
++        week = day + 0x22;
++      else if (month == 9)
++        week = day + 0x41;
++      week %= 7;
++      const int wx = week < 3 ? week * 0x33 + 0x149 : (week - 3) * 0x33 + 0x116;
++      const int wy = week < 3 ? 0x338 : 0x34a;
++      SprPx(418.5f, 1237.5f, 73.5f, 24, 309, 111, alpha);
++      SprPx((float)(wx + 1) * Scale, (float)(wy + 1) * Scale, 73.5f, 24, 309, 111, alpha);
++    }
++  }
++  if (Hover) Rect(99, 58.5f, 360, 90, 0xffff44, alpha >> 2);
++}
++
++}  // namespace Phone
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/phonerender.h b/src/games/sghd/phonerender.h
+index 0b6629b353c043222b8e636628e4a11c2357ffac..af15001e84ac86928d8bec65fac4f729d7675b82 100644
+--- a/src/games/sghd/phonerender.h
++++ b/src/games/sghd/phonerender.h
+@@ -41,6 +41,12 @@ void DrawRemainingScreens(int mode, int x, int y, int alpha);  // phonescreens2.
+ void DrawLastScreens(int mode, int x, int y, int alpha);       // phonescreens3.cpp
+ 
+ void RenderPhone();
++void RenderIndicator();  // phoneindicator.cpp (0x45a9a0)
++void SetIndicatorHover(bool on);
++void ResetIndicator();
++void RenderPicture();      // 0x44f840
++void RenderPictureStory(); // 0x44f980
++void RenderTextPage();     // 0x44d120
+ 
+ }  // namespace Phone
+ }  // namespace SGHD
+diff --git a/src/games/sghd/phonescreens3.cpp b/src/games/sghd/phonescreens3.cpp
+index 4a5db16d067e9b97bb6090900b5b69506dbac70e..bb3c1077909aaa51e9428616ff752bd4ed8eac8b 100644
+--- a/src/games/sghd/phonescreens3.cpp
++++ b/src/games/sghd/phonescreens3.cpp
+@@ -5,6 +5,7 @@
+ #include <cstdio>
+ 
+ #include "../../mem.h"
++#include "../../vm/vm.h"
+ 
+ namespace Impacto {
+ namespace SGHD {
+@@ -79,8 +80,64 @@ void DrawMusic(int x, int y, int alpha) {
+   }
+ }
+ 
++// the phone's big screen behind a picture or text attachment (PHONE2), with the status bar and unread mark
++void DrawBigScreen(int alpha) {
++  Spr(0xab, 0, 0, 1920, 1080, 0, 0, alpha);
++  Spr(0xab, 1.5f, GetFlag(0xa29) ? 1081.5f : 1155, 828, 70.5f, 546 / Scale, 0, alpha);
++  if (S.HasUnread) Spr(0xab, 832.5f, 1081.5f, 84, 48, 1134 / Scale, 0, alpha);
++}
++
+ }  // namespace
+ 
++// 0x44f840: a picture attachment (the picture itself is shown by the script, flag 1602 / GlobalVars[6850])
++void RenderPicture() { DrawBigScreen(SW(0x6b0c)); }
++
++// 0x44f980: picture story (PACG, 6 per row), GlobalVars[6853] / [6855] by flag 1607. The petals of the special
++// attachment (mode 207..209, 0x45b6f0) are not drawn.
++void RenderPictureStory() {
++  const int alpha = SW(0x6b10);
++  DrawBigScreen(alpha);
++  const uint32_t pic = GetFlag(0x647) ? SW(0x6b1c) : SW(0x6b14);
++  SprStretch(0xac, (float)((pic % 6) * 0x2a9), (float)((pic / 6) * 0x302), 680, 768, 546, 70.5f, 1374, 1006.5f, alpha);
++}
++
++// 0x44d120: text pages of an attachment (page GlobalVars[6836]: below 1000 inside the phone, else full width),
++// scrolled by GlobalVars[6837], lines from the page table of 10:38:00
++void RenderTextPage() {
++  const int alpha = SW(0x6ac8);
++  if (alpha == 0 || S.TextPageTable == 0) return;
++  const uint32_t style = SW(0x6ad0) / 1000, page = SW(0x6ad0) % 1000;
++  int x, y, w, maxLines;
++  if (style == 0) {
++    DrawBigScreen(alpha);
++    Rect(546, 70.5f, 828, 936, 0xffffff, alpha);
++    x = 0x16d, y = 0x30, w = 0x228, maxLines = 0x1f;
++  } else {
++    x = 0xe8, y = 0x9e, w = 800, maxLines = 0x19;
++  }
++  const uint8_t* table = &Vm::ScriptBuffers[S.TextPageBuffer][S.TextPageTable];
++  const uint16_t label = table[page * 2] | (table[page * 2 + 1] << 8);
++  const int16_t* lines = (const int16_t*)&Vm::ScriptBuffers[S.TextPageBuffer][Vm::ScriptGetLabelAddress(
++      S.TextPageBuffer, label)];
++  int skip = SW(0x6ad4), shown = 0;
++  for (; *lines != -1 && shown < maxLines; lines++) {
++    if (skip > 0) {
++      skip--;
++      continue;
++    }
++    const uint8_t* str =
++        &Vm::ScriptBuffers[S.TextPageBuffer][Vm::ScriptGetStrAddress(S.TextPageBuffer, (uint16_t)*lines)];
++    TextLinks(x, y, w, str, 0, 1, 0x14, alpha, 99);
++    y += 0x14;
++    shown++;
++  }
++  if (style == 0) {
++    if (SW(0x6ad4) != 0) Spr(0xab, 2, 1228, 828, 24, 546 / Scale, 69.5f / Scale, alpha, S.ScrollHover == 1 ? 0xffee88 : 0xffffff);
++    if (SW(0x6ad4) < SW(0x6adc))
++      Spr(0xab, 2, 1254, 828, 24, 546 / Scale, 982.5f / Scale, alpha, S.ScrollHover == 2 ? 0xffee88 : 0xffffff);
++  }
++}
++
+ void DrawLastScreens(int mode, int x, int y, int alpha) {
+   switch (mode) {
+     case 0x1b: DrawTriggerMail(x, y, alpha); break;
+diff --git a/src/games/sghd/phonestate.h b/src/games/sghd/phonestate.h
+index 6f1d3bd5e2ee61376d00bda1791dd74fe1357f4e..955f710d3ee2d1948e912cf8048fdf38b8d50e0e 100644
+--- a/src/games/sghd/phonestate.h
++++ b/src/games/sghd/phonestate.h
+@@ -67,6 +67,7 @@ struct State {
+   };
+   std::vector<LinkArea> LinkAreas;  // hit areas of the underlined words (DAT_0052f064), from the last drawn mail
+   bool ParticlesInit = false;  // 0x45b6f0
++  uint32_t TextPageBuffer = 0, TextPageTable = 0;  // DAT_018eb088 / 08c: attachment text pages (10:38:00)
+ };
+ 
+ extern State S;
+diff --git a/src/ui/gamespecific.cpp b/src/ui/gamespecific.cpp
+index 39fa7c8bcd4e2abad743d5b8d9e550758612a46d..c212981e53161622443fa09fc8b207ce6e8962ce 100644
+--- a/src/ui/gamespecific.cpp
++++ b/src/ui/gamespecific.cpp
+@@ -74,6 +74,12 @@ void NonGameplayUpdate(float dt) {
+   return;
+ }
+ 
++void UpdateInput(float dt) {
++  if (Profile::GameSpecific::GameSpecificType == GameSpecificType::SGHD &&
++      (ScrWork[SW_GAMESTATE] & 5) && !GetFlag(SF_GAMEPAUSE))
++    SGHD::Phone::UpdateSceneMouse();
++}
++
+ void Update(float dt) {
+   switch (Profile::GameSpecific::GameSpecificType) {
+     case GameSpecificType::CHLCC: {
+@@ -122,6 +128,9 @@ void RenderEarlyMain() {
+ 
+ void RenderMain() {
+   switch (Profile::GameSpecific::GameSpecificType) {
++    case GameSpecificType::SGHD:
++      SGHD::Phone::RenderMain();
++      break;
+     case GameSpecificType::CHLCC: {
+       CHLCC::DelusionTrigger::GetInstance().Render();
+     } break;
+@@ -148,7 +157,6 @@ void RenderMain() {
+       break;
+     case GameSpecificType::CCLCC:
+       break;
+-    case GameSpecificType::SGHD:
+     case GameSpecificType::None:
+       break;
+   }
+diff --git a/src/ui/gamespecific.h b/src/ui/gamespecific.h
+index 9507c0d1b85f23447b16be2c4b1b8531c82b0c6e..90ef381cc22f797dc8f5ee9e679541efd2f16ac7 100644
+--- a/src/ui/gamespecific.h
++++ b/src/ui/gamespecific.h
+@@ -5,6 +5,8 @@ namespace GameSpecific {
+ void Init();
+ void NonGameplayUpdate(float dt);
+ void Update(float dt);
++// right after the pad input is read, before anything takes it (dialogue advance, menus)
++void UpdateInput(float dt);
+ void RenderEarlyMain();
+ void RenderMain();
+ void RenderLayer(uint32_t layer);
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index 5ae96310142272a97eb70f054aaefceced6e37dd..88529afc21feff38cd78911294c53b9a2c3cbb6c 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -84,6 +84,7 @@ inline void InstSghdMenuSignal(Sc3VmThread* thread, float dt) {
+   thread->IpOffset += 2;
+   const int type = *thread->GetIp();
+   thread->IpOffset += 1;
++  if (type == 13 || type == 14) SGHD::Phone::SetSceneMouse(type == 13);
+   if (type == 4) {
+     using namespace Impacto::Profile::ScriptVars;
+     const int no = ScrWork[SW_SYSSUBMENUNO];
+@@ -129,14 +130,8 @@ inline void InstSghdUnk004C(Sc3VmThread* thread, float dt) {
+   ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction 00:4C(type: {:#x})\n", type);
+ }
+ 
+-// 10:38: type byte, a label when the type is 0.
+-inline void InstSghdGroup1038(Sc3VmThread* thread, float dt) {
+-  thread->IpOffset += 2;
+-  const int type = *thread->GetIp();
+-  thread->IpOffset += 1;
+-  if (type == 0) thread->IpOffset += 2;
+-  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction Group1038(type: {:#x})\n", type);
+-}
++// 10:38: text pages of the phone's attachments (type byte, a label when the type is 0).
++inline void InstSghdGroup1038(Sc3VmThread* thread, float dt) { SGHD::Phone::Instruction1038(thread); }
+ 
+ }  // namespace Vm
+ 

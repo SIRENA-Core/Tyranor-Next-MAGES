@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Fri, 20 Nov 2026 17:17:11 -0800
+Subject: [PATCH] tyn: sg-pc 10:3A reads its six expressions; undecodable
+ movies do not leave the scripts waiting
+
+- The STEINS;GATE handler of 10:3A (0x468480) takes six expressions (the dates / time of a time leap, passed to
+  the counter effect 0x41a140). sg-pc inherited Chaos;Child's YesNoTrigger there, which reads other operands: at
+  the first time leap (MACROSYS2, after the timeleapbg movie) the thread ran into the expression bytes, hit an
+  unknown opcode and the game died. The operands are read now; the counter effect is not drawn yet (logged stub).
+- PlayMovie / PlayMovieOld: when the player could not start the movie (Bink 2), the movie flags were still raised
+  and the scripts waited for a movie that never ends (white screen at the first D-mail). Now it goes on as if the
+  movie were missing.
+
+TYN only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vm/inst_movie.cpp b/src/vm/inst_movie.cpp
+index b518eb958b3a8f0bea6c0ac3be8679f5412ab66b..1a05bca0b100c00a7912a4692f1257a2ee9824e2 100644
+--- a/src/vm/inst_movie.cpp
++++ b/src/vm/inst_movie.cpp
+@@ -86,6 +86,12 @@ VmInstruction(InstPlayMovie) {
+     if (Video::Players[channel]->IsPlaying) Video::Players[channel]->Stop();
+     Video::Players[channel]->Play(stream, flags & 8, flags & 4);
+ 
++    if (!Video::Players[channel]->IsPlaying) {
++      // the movie could not be decoded (e.g. Bink 2): go on as if it were missing, nothing waits for it
++      ScrWork[SW_MOVIE_PLAYNO + 20 * channel] = 0xffff;
++      return;
++    }
++
+     SetFlag(SF_MOVIE_DRAWWAIT + channel, true);
+     SetFlag(SF_MOVIEPLAY + channel, true);
+     SetFlag(SF_MOVIECANCEL + channel, false);
+@@ -136,6 +142,12 @@ static void PlayMovieOldCommon(Sc3VmThread* thread, uint8_t instType) {
+     if (Video::Players[channel]->IsPlaying) Video::Players[channel]->Stop();
+     Video::Players[channel]->Play(stream, playMode == 5, playMode == 5);
+ 
++    if (!Video::Players[channel]->IsPlaying) {
++      // the movie could not be decoded (e.g. Bink 2): go on as if it were missing, nothing waits for it
++      ScrWork[SW_MOVIE_PLAYNO + 20 * channel] = 0xffff;
++      return;
++    }
++
+     SetFlag(SF_MOVIE_DRAWWAIT + channel, true);
+     SetFlag(SF_MOVIEPLAY + channel, true);
+     SetFlag(SF_MOVIECANCEL + channel, false);
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index 88529afc21feff38cd78911294c53b9a2c3cbb6c..bc3d9ffddc94e1369c373c0e71481d8580bd6cec 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -130,6 +130,14 @@ inline void InstSghdUnk004C(Sc3VmThread* thread, float dt) {
+   ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction 00:4C(type: {:#x})\n", type);
+ }
+ 
++// 10:3A (0x468480): six expressions, the two dates and the time of a time leap for its counter effect (0x41a140).
++// The effect is not drawn yet; the operands are read so that the script goes on.
++inline void InstSghdTimeLeapDates(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  for (int i = 0; i < 6; i++) (void)ExpressionEval(thread);
++  ImpLogSlow(LogLevel::Warning, LogChannel::VMStub, "STUB SGHD instruction 10:3A (time leap dates)\n");
++}
++
+ // 10:38: text pages of the phone's attachments (type byte, a label when the type is 0).
+ inline void InstSghdGroup1038(Sc3VmThread* thread, float dt) { SGHD::Phone::Instruction1038(thread); }
+ 
+diff --git a/src/vm/opcodetables_sghd.h b/src/vm/opcodetables_sghd.h
+index e0783b4776f31e9876ab680602b71bceee3077b8..fee4feee55badd7e9e91f97cd14a63467de5d6c5 100644
+--- a/src/vm/opcodetables_sghd.h
++++ b/src/vm/opcodetables_sghd.h
+@@ -24,6 +24,7 @@ inline void Configure_SGHD() {
+   OpcodeTableUser1_SGHD[0x1b] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy)
+   OpcodeTableUser1_SGHD[0x37] = InstSghdGroup1037;  // phone / mail group (CC: MapSystem)
+   OpcodeTableUser1_SGHD[0x38] = InstSghdGroup1038;  // type byte, a label when the type is 0 (CC: Mtrg)
++  OpcodeTableUser1_SGHD[0x3a] = InstSghdTimeLeapDates;  // six expressions (CC: YesNoTrigger, other operands)
+   OpcodeTableUser1_SGHD[0x3f] = InstSghdMenuSignal;  // menu open / close signal (CC: Dummy, which hangs the thread)
+ }
+ 

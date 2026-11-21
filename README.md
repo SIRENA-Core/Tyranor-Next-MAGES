@@ -34,7 +34,7 @@
 | profile | 游戏 | 状态 |
 | --- | --- | --- |
 | `mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht` | Windows／Steam 版 Memories Off 6 T-Wave（日／简／繁） | 能进游戏、对话、存读档（真机与模拟器）；选项、百科、返回标题确认框没有界面 |
-| `sg-pc` | Steam 版 STEINS;GATE（实验性，宿主 0.3.0 起） | 能读序章前半、存读档；标题、系统菜单、存读档、CONFIG、HELP、TIPS、消息框按原版还原；附加内容、手机未做（详见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)） |
+| `sg-pc` | Steam 版 STEINS;GATE（实验性，宿主 0.3.0 起） | 原版英文与汉化数据都能玩：MuMu 上从序章玩到第 10 章（第 6–8 章结尾的手机分歧走通；第 10 章的分歧与真结局还在验证）；标题、系统菜单、存读档、CONFIG、HELP、TIPS、消息框、手机（邮件、电话、通讯录、附件、左上角的小手机）按原版还原；Bink 1 视频能播，Bink 2 视频（世界线变动的辉光管动画、标题、时间跳跃背景）需要先用 `tools/impacto/sghd/convert_bink2.py` 转换，否则跳过；附加内容（CLEAR LIST／CG／SOUND／MOVIE）未做（详见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)） |
 | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`darling`、`dash`、`rne` | 上游 impacto 自带 | 未在本宿主上逐一验证 |
 
 ## 与 Tyranor Next 的约定
@@ -46,9 +46,9 @@
 | 包名 / Action | `com.tyranor.next.impacto` / `com.tyranor.next.impacto.action.RUN` |
 | Extras | `com.tyranor.next.impacto.extra.` + `GAME_DIR`、`PROFILE`、`GAME_KEY`、`TITLE`、`SETTINGS`（扁平 JSON，见下） |
 | profile | `engine/impacto/profiles.json` 的 `profiles[].id`（宿主只接受这些，`ImpactoRequest.PROFILES` 必须与之相同） |
-| 识别规则 | 宿主 0.3.1 起把 `engine/impacto/profiles.json` 打包为 APK 资产 `tyn/profiles.json`，Tyranor Next 从已安装的宿主读取：`detect` 按精确大小写识别 profile；`unsupportedLayouts` 是「像 MAGES. 但没有 profile」的布局（不区分大小写），作为「暂不支持」的游戏列出并用 `tryProfile` 尝试运行。条目是相对游戏目录的路径，最多一层子目录 |
+| 识别规则 | 宿主 0.4.0 起把 `engine/impacto/profiles.json` 打包为 APK 资产 `tyn/profiles.json`，Tyranor Next 从已安装的宿主读取：`detect` 按精确大小写识别 profile；`unsupportedLayouts` 是「像 MAGES. 但没有 profile」的布局（不区分大小写），作为「暂不支持」的游戏列出并用 `tryProfile` 尝试运行。条目是相对游戏目录的路径，最多一层子目录 |
 | `GAME_KEY` | `SHA-256(profile + NUL + 游戏目录)` 前 12 字节的小写十六进制；宿主重算，不符即拒绝。校验向量：`/storage/emulated/0/Games/mo6tw` + `mo6tw` → `853382f8b09761cd5c6e475c` |
-| 版本 | Tyranor Next 要求宿主 `versionCode` ≥ 3；`mo6tw-pc*` 需要 ≥ 4，`sg-pc` 需要 ≥ 5；期望的 `versionCode` 不得高于最新发布 |
+| 版本 | Tyranor Next 要求宿主 `versionCode` ≥ 3；`mo6tw-pc*` 需要 ≥ 4，`sg-pc` 需要 ≥ 5（手机与视频需要 ≥ 7）；期望的 `versionCode` 不得高于最新发布 |
 
 入口 Activity 对外导出，所有字段按不可信输入校验（profile 白名单、目录须是共享存储下的规范化路径且不在其他应用的 `Android/data`、`Android/obb` 里、`GAME_KEY` 重算），见 [`engine/impacto/host-apk/README.md`](engine/impacto/host-apk/README.md)。
 

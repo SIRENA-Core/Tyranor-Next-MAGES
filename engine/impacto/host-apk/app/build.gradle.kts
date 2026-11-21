@@ -142,8 +142,8 @@ android {
         // Android 11+ only: the host needs all-files access to read the game folder through a path.
         minSdk = 30
         targetSdk = 36
-        versionCode = 6
-        versionName = if (hostOnly) "0.1.0-hostonly" else "0.3.1"
+        versionCode = 7
+        versionName = if (hostOnly) "0.1.0-hostonly" else "0.4.0"
         ndk { abiFilters += "arm64-v8a" }
     }
 

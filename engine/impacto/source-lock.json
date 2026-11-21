@@ -134,6 +134,38 @@
       {
         "file": "0032-tyn-sg-pc-TIPS-screen-from-the-original-Game.exe-Tip.patch",
         "sha256": "44a7e71648e347e1cfee08eae7196e4901769b3535cae0c586d8c818efd826e8"
+      },
+      {
+        "file": "0033-tyn-sg-pc-phone-logic-from-the-original-Game.exe-10-.patch",
+        "sha256": "4705186f443532f1857a98d163dd1f651e8378dbf9aedebe6e990d733102d1bc"
+      },
+      {
+        "file": "0034-tyn-sg-pc-phone-screens-from-the-original-Game.exe-0.patch",
+        "sha256": "21e1e5afbc4da7e4134256517cb7ebe31f320439bbb7d439de20a20fa51d9fbe"
+      },
+      {
+        "file": "0035-tyn-sg-pc-phone-mouse-and-touch-areas-from-the-origi.patch",
+        "sha256": "7b4dfc0cd323068f6b7317dc8b9204116d0029006c32b1619bed090873c4ae1b"
+      },
+      {
+        "file": "0036-tyn-sg-pc-phone-indicator-opening-the-phone-by-mouse.patch",
+        "sha256": "d4ef6357f1d3d7820965ea4f452554811a82dc8d3b1d42b7f0c87035642fb042"
+      },
+      {
+        "file": "0037-tyn-sg-pc-the-phone-s-buttons-do-not-also-hide-the-t.patch",
+        "sha256": "b953c33b7b49d2c19639b72b20fccb239e9240c57d651afb6e6b50c2aed0fd54"
+      },
+      {
+        "file": "0038-tyn-sg-pc-movies-USRDIR-movie-1920x1080-folder-mount.patch",
+        "sha256": "8d39444e3e6b4d0c8d3b14817d5a17765bacf5cd79849bea2f3c094a8c4dab37"
+      },
+      {
+        "file": "0039-tyn-sg-pc-10-3A-reads-its-six-expressions-undecodabl.patch",
+        "sha256": "182723b0586383c18b7aeb49260115247982ae7bbc4361f67b66b2d734527fd3"
+      },
+      {
+        "file": "0040-tyn-sg-pc-time-leap-counter-length-0x41a140-0x41a960.patch",
+        "sha256": "08b3fea82b165ea4e8a4f7c77524260c62b685a0cab530ac6270fe88b53677f1"
       }
     ]
   },
