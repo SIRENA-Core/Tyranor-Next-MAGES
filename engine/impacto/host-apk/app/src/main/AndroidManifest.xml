@@ -44,10 +44,12 @@
         <!-- Hosts the unmodified upstream ImpactoActivity; started only by ImpactoLaunchActivity.
              Own process: SDL keeps process-wide state and the host ends the process when the game ends.
              Predictive back is off (application attribute above): SDLActivity relies on onBackPressed()
-             and the back key reaching the engine, which targetSdk 36 would otherwise swallow. -->
+             and the back key reaching the engine, which targetSdk 36 would otherwise swallow.
+             configChanges covers every change a running game can meet (locale, density, keyboard, ui mode, window
+             size): a relaunch would end the game process, SDL cannot recreate its activity. -->
         <activity
             android:name=".TyranorImpactoActivity"
-            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout"
+            android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
             android:exported="false"
             android:launchMode="singleTask"
             android:process=":game"
