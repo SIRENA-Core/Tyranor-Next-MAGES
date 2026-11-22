@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Sat, 21 Nov 2026 11:34:02 -0800
+Subject: [PATCH] tyn: sg-pc phone trigger: the underlined words of an
+ answerable mail can be chosen
+
+Mode 27 (the phone trigger, original Game.exe 0x456c30) drew the underlined words and kept their hit areas, but
+nothing ever chose one: LinkSel stayed 0xFF, so no answer could be sent. The trigger mails are how S;G's mail talks
+go on (10:37 type 0x12 makes a mail answerable, the chosen word picks reply slot MailReply + word, type 0x13 turns
+the answer into the next mail of the talk in GlobalVars[6825 + slot]); without answers every talk ended at 999 and
+MAIN00 could never take the Kurisu route after chapter 10's SG10_04 (it needs mail 334, the end of the talk that
+MAIN00 starts with mail 297 before chapter 5) - the game always went to the Mayuri ending.
+
+As in the original: with the mouse or touch the word under the pointer is the chosen one (hit ids 0x30 / 0x44 / 0x58
+/ 0x6c are the words 0..3; none when the pointer is elsewhere) and a click or tap takes it in the same frame; with
+keys, Up / Down walk over the words of the shown lines (the first press chooses the first word) and scroll past the
+ends. The words of the shown lines are the hit areas of the drawn text (S.LinkAreas), the same set the original
+gets from its layout pass 0x442520.
+
+Only TYN (SGHD phone). MuMu (Android 15, not a real device), Chinese data, from the start of chapter 5: Kurisu's
+talk answered by tapping words 297 -> 301 -> 304 -> 308 -> 316 -> 324 -> 334, mail 334 received and read; the other
+talks (425, 518, 550, 554, 614, 429, 437) answered with their first word.
+
+diff --git a/src/games/sghd/phone.cpp b/src/games/sghd/phone.cpp
+index 7bb3f874e86e8ec21e5c4c9c91fbd6d432fb67dc..974d4be8bb7f2fb13f3bfdd6a78d81309b83918a 100644
+--- a/src/games/sghd/phone.cpp
++++ b/src/games/sghd/phone.cpp
+@@ -1111,8 +1111,11 @@ void ModeAfterSend() {
+   if (mail != 0xffff) SetMode(S.ReturnMode);
+ }
+ 
+-// 0x456c30 mode 27: the phone trigger, choosing an underlined word of the mail. The keyboard walk over the words
+-// needs the phone text layout (0x442520) and is not done yet; the words can be picked once the hit areas are in.
++// 0x456c30 mode 27: the phone trigger, choosing an underlined word of the mail (S.LinkSel); the chosen word picks the
++// answer (reply slot MailReply + word). Mouse / touch: the word under the pointer is chosen (none otherwise, the
++// original hit ids 0x30 / 0x44 / 0x58 / 0x6c are the words 0..3) and a click takes it. Keys: Up / Down walk over the
++// words of the shown lines (0x442520 lists them; here the hit areas of the drawn text, S.LinkAreas, are the same
++// set), the first press chooses the first one, past the ends the text scrolls.
+ void ModePhoneTrigger() {
+   const int mail = SW(0x6a5c);
+   if (Cancel()) {
+@@ -1123,6 +1126,12 @@ void ModePhoneTrigger() {
+   S.ScrollHover = 0;
+   S.Hover = 0;
+   MailScroll(0, 0x6a78, 0x6a74);
++  if (MouseMode()) {
++    S.LinkSel = 0xff;
++    for (uint32_t word = 0; word < 4; word++)
++      if (Hit(48 + 20 * word, 1)) S.Hover = 1, S.LinkSel = word;
++    if (Hit(0, 8)) ClickDecide();
++  }
+   if (Decide()) {
+     if (S.Mails[mail][MailAttach] == 999) {
+       if (!GetFlag(0xa29) || !GetFlag(0xa35) || mail != SW(0x6aa0) || S.Mails[mail][MailReply] == 999 ||
+@@ -1137,7 +1146,27 @@ void ModePhoneTrigger() {
+     SetMode(0x1c);
+     return;
+   }
+-  if (!MouseMode()) MailScrollKeys(0x6a78, 0x6a74);
++  if (MouseMode()) return;
++  const bool up = Up(), down = Down();
++  if (up == down) return;
++  std::vector<uint32_t> shown;  // the words of the shown lines, in order
++  for (const auto& a : S.LinkAreas)
++    if (std::find(shown.begin(), shown.end(), (uint32_t)a.Word) == shown.end()) shown.push_back((uint32_t)a.Word);
++  const auto at = std::find(shown.begin(), shown.end(), S.LinkSel);
++  if (at == shown.end()) {
++    if (!shown.empty()) {
++      S.LinkSel = shown.front();
++      return;
++    }
++  } else if (up && at != shown.begin()) {
++    S.LinkSel = *(at - 1);
++    return;
++  } else if (down && at + 1 != shown.end()) {
++    S.LinkSel = *(at + 1);
++    return;
++  }
++  if (up && SW(0x6a74) != 0) SW(0x6a74)--;
++  if (down && (uint32_t)SW(0x6a78) > 12 && (uint32_t)SW(0x6a74) < (uint32_t)SW(0x6a78) - 12) SW(0x6a74)++;
+ }
+ 
+ // 0x457310 mode 28: answer with the chosen word or open the attachment

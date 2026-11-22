@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 18:13:36 -0800
+Subject: [PATCH] log: free the formatted line after writing it
+
+ImpLogImpl took the line buffer from ImpStackAlloc, which is malloc outside
+MSVC, and never released it, so every log line leaked. With VM tracing on
+this grew the heap by several MB a minute until Android killed the game.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/log.cpp b/src/log.cpp
+index 048daf08feb1f218c814fda14b706914e10b6950..aa07ed1a988fd09196612cd4770d185582391a5e 100644
+--- a/src/log.cpp
++++ b/src/log.cpp
+@@ -71,6 +71,7 @@ void ImpLogImpl(LogLevel level, LogChannel channel, fmt::string_view format,
+   *tailFormat.out = '\0';
+ 
+   ConsoleWrite(level, line);
++  ImpStackFree(line);
+ }
+ 
+ void LogToFile(void* userdata, [[maybe_unused]] int category,

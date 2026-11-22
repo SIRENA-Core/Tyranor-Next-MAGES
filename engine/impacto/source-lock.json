@@ -166,6 +166,30 @@
       {
         "file": "0040-tyn-sg-pc-time-leap-counter-length-0x41a140-0x41a960.patch",
         "sha256": "08b3fea82b165ea4e8a4f7c77524260c62b685a0cab530ac6270fe88b53677f1"
+      },
+      {
+        "file": "0041-tyn-sg-pc-no-stray-movie-after-loading-a-save-priori.patch",
+        "sha256": "6b6d77047bb7d9865a668c11218bad28335b8cebeb50f9214f7613cf729744c4"
+      },
+      {
+        "file": "0042-tyn-sg-pc-phone-trigger-the-underlined-words-of-an-a.patch",
+        "sha256": "b5fc0c134a0d54366c20f7d4b6712eb902c1916e2f973db16c7ce18cb6413d78"
+      },
+      {
+        "file": "0043-tyn-free-the-CPU-copy-of-background-and-character-te.patch",
+        "sha256": "b15b89834d89b7efcd103c926fce2bddd472921e0a6c58e312855f7b31bc38b8"
+      },
+      {
+        "file": "0044-log-free-the-formatted-line-after-writing-it.patch",
+        "sha256": "dc7ea369a4f1afc9934454ff678920dea146173471897e9c2f9224f3a4b72fe3"
+      },
+      {
+        "file": "0045-tyn-sg-pc-time-leap-flip-clock-0x41a140-0x41a960-0x4.patch",
+        "sha256": "7a134b3de1c4ef6405a2ff7f7c4cfe4eafefa073f6c7632d1d0fcdf9ccdb008e"
+      },
+      {
+        "file": "0046-game-hidden-UI-can-always-be-shown-again.patch",
+        "sha256": "6be6f6719415f85869c000f6a33c67f1ce5812888bfe058a5332c144172a66b8"
       }
     ]
   },

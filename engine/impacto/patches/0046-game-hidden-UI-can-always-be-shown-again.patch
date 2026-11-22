@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 20:27:44 -0800
+Subject: [PATCH] game: hidden UI can always be shown again
+
+Text does not type while the UI is hidden, so a line hidden before it
+finished never reached the states the hide toggle required, and the scene
+waited for it forever.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/game.cpp b/src/game.cpp
+index f4a10a5014d347de8fd499bdf9ab1ac02fbfd8be..cc7eac72c9b45ca1ccaeeac0fe3136fcaed3ef5c 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -283,8 +283,11 @@ void UpdateGameState(float dt) {
+       !GetFlag(SF_GAMEPAUSE) && !GetFlag(SF_SYSMENUDISABLE) &&
+       !UI::GameSpecific::SceneInputTaken() &&
+       Vm::Interface::GetControlState(Vm::Interface::ControlType::Hide)) {
+-    // Some more stuff here?
+-    if ((GetFlag(SF_MESWINDOW0OPENFL) &&
++    // Hidden UI can always be shown again: the text does not type while
++    // hidden, so a line hidden before it finished would never reach the
++    // states below and the scene would wait for it forever.
++    if (GetFlag(SF_UIHIDDEN) ||
++        (GetFlag(SF_MESWINDOW0OPENFL) &&
+          DialoguePages[0].TextIsFullyOpaque()) ||
+         (GetFlag(SF_SHOWWAITICON) || GetFlag(SF_SHOWWAITICON + 1) ||
+          GetFlag(SF_SHOWWAITICON + 2))) {

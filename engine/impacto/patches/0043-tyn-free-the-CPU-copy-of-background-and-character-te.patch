@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 17:04:53 -0800
+Subject: [PATCH] tyn: free the CPU copy of background and character textures
+ after upload
+
+Every loaded BG/CHA kept its decoded pixels in RAM next to the GPU texture,
+which pushed 2 GB devices out of memory during long S;G sessions.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/background2d.cpp b/src/background2d.cpp
+index 5fcfdcb9949bbea7e7767ee7cbafe4e424a1fe5f..712e549e4d5e3279d247226bb8b20c42cb353f67 100644
+--- a/src/background2d.cpp
++++ b/src/background2d.cpp
+@@ -174,6 +174,7 @@ void Background2D::UnloadSync() {
+ 
+ void Background2D::MainThreadOnLoad(bool result) {
+   BgSprite.Sheet.Texture = BgTexture.Submit();
++  std::vector<uint8_t>().swap(BgTexture.Buffer);  // the pixels live on the GPU now; only the size is read later
+ 
+   if ((BgTexture.Width == 1) && (BgTexture.Height == 1)) {
+     BgSprite.Sheet.DesignWidth = Profile::Game::DesignWidth;
+diff --git a/src/character2d.cpp b/src/character2d.cpp
+index 979fab5f962d6400e24a4890103679c0690eed11..d88fd0a1949275ea0646ff059a818361133ae6e9 100644
+--- a/src/character2d.cpp
++++ b/src/character2d.cpp
+@@ -175,6 +175,7 @@ void Character2D::UnloadSync() {
+ 
+ void Character2D::MainThreadOnLoad(bool result) {
+   CharaSpriteSheet.Texture = CharaTexture.Submit();
++  std::vector<uint8_t>().swap(CharaTexture.Buffer);  // the pixels live on the GPU now; only the size is read later
+   CharaSpriteSheet.DesignWidth = (float)CharaTexture.Width;
+   CharaSpriteSheet.DesignHeight = (float)CharaTexture.Height;
+   CharaSprite.Sheet = CharaSpriteSheet;
