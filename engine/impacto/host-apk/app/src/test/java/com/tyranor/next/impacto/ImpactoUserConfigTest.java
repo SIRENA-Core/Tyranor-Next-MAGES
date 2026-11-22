@@ -140,6 +140,17 @@ public class ImpactoUserConfigTest {
     }
 
     @Test
+    public void debugModeIsWrittenOnlyWhenSent() {
+        ImpactoSettings on = ImpactoSettings.parse("{\"debugMode\":true}");
+        assertEquals(Boolean.TRUE, on.debugMode);
+        String out = merged("", on, "sg-pc");
+        assertTrue(out, out.contains("[CommonSettings]\nDebugMode = true\n"));
+        assertEquals(Boolean.FALSE, ImpactoSettings.parse("{\"debugMode\":false}").debugMode);
+        assertNull(ImpactoSettings.parse("{\"debugMode\":\"true\"}").debugMode);
+        assertFalse(merged("", all(true, false, false, "all", false, false, "info"), "sg-pc").contains("DebugMode"));
+    }
+
+    @Test
     public void parseRefusesAnOversizedPayload() {
         StringBuilder big = new StringBuilder("{\"vsync\":true,\"pad\":\"");
         for (int i = 0; i < 5000; i++) {

@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  *
  * <p>Managed keys (upstream {@code userconfig.cpp}):
  * <ul>
- *   <li>{@code [CommonSettings]} {@code SwapConfirmCancelButtons}, {@code LogLvl}</li>
+ *   <li>{@code [CommonSettings]} {@code SwapConfirmCancelButtons}, {@code LogLvl}, {@code DebugMode} (patched engine)</li>
  *   <li>{@code [GameSettings.<profile>]} {@code UseVSync}</li>
  *   <li>{@code [AdvancedSettings]} {@code VideoPlayer}</li>
  *   <li>{@code [EnhancementsSettings]} {@code SubtitleConfig}, {@code CloseBacklogWhenReachedEnd}</li>
@@ -161,6 +161,9 @@ final class ImpactoUserConfig {
         }
         if (s.logLevel != null) {
             edits.add(new Edit("CommonSettings", "LogLvl", quoted(capitalize(s.logLevel))));
+        }
+        if (s.debugMode != null) {
+            edits.add(new Edit("CommonSettings", "DebugMode", bool(s.debugMode)));
         }
         if (s.vsync != null) {
             edits.add(new Edit("GameSettings." + profile, "UseVSync", bool(s.vsync)));

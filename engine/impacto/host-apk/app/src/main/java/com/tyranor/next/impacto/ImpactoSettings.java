@@ -44,6 +44,11 @@ final class ImpactoSettings {
     final String logLevel;
     /** Host-only (not an engine option): show the on-screen touch buttons. {@code null} means the default, on. */
     final Boolean touchControls;
+    /**
+     * Engine {@code [CommonSettings] DebugMode}: the porting tools (speed, pause, rewind, saved states, jumps; three
+     * fingers open the menu). {@code null} leaves the engine's value alone.
+     */
+    final Boolean debugMode;
 
     ImpactoSettings(Boolean swapConfirmCancel, Boolean vsync, Boolean videoPlayback, String subtitles,
                     Boolean closeBacklogAtEnd, Boolean delusionMouse, String logLevel) {
@@ -52,6 +57,13 @@ final class ImpactoSettings {
 
     ImpactoSettings(Boolean swapConfirmCancel, Boolean vsync, Boolean videoPlayback, String subtitles,
                     Boolean closeBacklogAtEnd, Boolean delusionMouse, String logLevel, Boolean touchControls) {
+        this(swapConfirmCancel, vsync, videoPlayback, subtitles, closeBacklogAtEnd, delusionMouse, logLevel,
+                touchControls, null);
+    }
+
+    ImpactoSettings(Boolean swapConfirmCancel, Boolean vsync, Boolean videoPlayback, String subtitles,
+                    Boolean closeBacklogAtEnd, Boolean delusionMouse, String logLevel, Boolean touchControls,
+                    Boolean debugMode) {
         this.swapConfirmCancel = swapConfirmCancel;
         this.vsync = vsync;
         this.videoPlayback = videoPlayback;
@@ -60,10 +72,11 @@ final class ImpactoSettings {
         this.delusionMouse = delusionMouse;
         this.logLevel = logLevel;
         this.touchControls = touchControls;
+        this.debugMode = debugMode;
     }
 
     static ImpactoSettings none() {
-        return new ImpactoSettings(null, null, null, null, null, null, null, null);
+        return new ImpactoSettings(null, null, null, null, null, null, null, null, null);
     }
 
     /** @return the accepted settings; never throws, and an unusable payload yields {@link #none()}. */
@@ -86,7 +99,8 @@ final class ImpactoSettings {
                 bool(root, "closeBacklogAtEnd"),
                 bool(root, "delusionMouse"),
                 choice(root, "logLevel", LOG_LEVELS),
-                bool(root, "touchControls"));
+                bool(root, "touchControls"),
+                bool(root, "debugMode"));
     }
 
     /** Only a real JSON boolean counts: strings, numbers and nulls are rejected rather than coerced. */

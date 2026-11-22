@@ -1,0 +1,1090 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Sun, 22 Nov 2026 06:48:00 -0800
+Subject: [PATCH] tyn: debug mode for porting (speed, pause, rewind, saved
+ states, jumps)
+
+[CommonSettings] DebugMode (default false) or the DebugMenu game feature
+turns on the porting tools, a "Porting" tab / window of the debug menu
+(Chinese or English, switchable) and a status line. Three fingers at once
+open the menu on touch screens; touches on a debug window do not reach the
+game, the fingers of the gesture are lifted as canceled.
+
+- Speed x1..x64 (several logic ticks per frame; the input of a frame counts
+  in its first tick only, raw Input "went down" state cleared for the
+  others), pause, single steps of 1 / 60 frames.
+- Forced skip: the engine skip mode with "skip read only" off (put back
+  after), SF_MESSKIP / SF_MESALLSKIP right before the VM runs, non looping
+  movies stopped. "Skip movie" button.
+- Rewind: a snapshot at every checkpoint (SetCheckpointId), taken when the
+  checkpoint instruction is done and pointing the thread back to its start,
+  so a restore runs it again (shows the line, sets the choices up). Kept 300
+  (10..5000); back 1 / 10 lines or any line of the list. A snapshot holds
+  ScrWork, FlagWork, the VM thread pool (Vm::SaveVmState / RestoreVmState:
+  links as indices, groups, which script each buffer holds), the system
+  textures the scripts loaded (SpriteLoader remembers archive and file) and
+  SGHD the phone. A restore stops movies, empties the dialogue pages and the
+  choices, reloads scripts and sprites, resyncs backgrounds, characters, BGM.
+- Saved states: named, written next to the save file (debug-states.bin,
+  ignored when the thread size of the build differs).
+- Jump any thread (default the main one) to any label of any script, clear
+  the call stack; restart the current script.
+- Unlock CG, music, tips; write the save file.
+- The debug menu window is never taller than the screen.
+
+Generic; can go upstream (the SGHD phone part is behind IsSghd()).
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device):
+sg-pc (Steam data, 2018 Chinese patch): x8 / x64, forced skip from a new
+game to chapter 1 in 55 s with all movies skipped, back 1 / 10 lines,
+restart script, saved state loaded after a restart from the title.
+mo6tw-pc-zhs: title menu at x8, forced skip stops at the first choice, back
+to the choice after choosing, choose again, jump to sa01a label 10, unlock.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bc56b9b38bebbffdcbe6e1b131fd8b12ba6b73d1..bf77904dc27344b082d6b2fcfa31a9cf4d3af4aa 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,6 +32,7 @@ set(Impacto_Src
+     src/util.cpp
+     src/workqueue.cpp
+     src/game.cpp
++    src/debugtools.cpp
+     src/mem.cpp
+     src/modelviewer.cpp
+     src/characterviewer.cpp
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 8bfa04580a9522784eb44fa56f7e659173fda868..35f505dfbf72861879e0bd2eb85ecfe40b0b3409 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -1,3 +1,4 @@
++#include "../debugtools.h"
+ #include "savesystem.h"
+ 
+ #include "../profile/data/savesystem.h"
+@@ -395,6 +396,7 @@ void SetBgmFlag(int id, bool flag) {
+ 
+ void SetCheckpointId(int id) {
+   if (Implementation) Implementation->SetCheckpointId(id);
++  DebugTools::OnCheckpoint(id);
+ }
+ 
+ std::optional<uint8_t> GetQuickSaveOpenSlot() {
+diff --git a/src/debugmenu.cpp b/src/debugmenu.cpp
+index 16619311cdb53e3e051aa6f8c46a6536223c30ad..c165d3f6e9491c439e72ad5fc5b76bc02d28fda9 100644
+--- a/src/debugmenu.cpp
++++ b/src/debugmenu.cpp
+@@ -1,3 +1,4 @@
++#include "debugtools.h"
+ #include "debugmenu.h"
+ 
+ #include <imgui.h>
+@@ -30,6 +31,7 @@ static std::map<uint32_t, std::map<int, int>> ScriptDebugLineToByteCodePos;
+ static std::map<uint32_t, std::vector<std::string>> ScriptDebugSource;
+ 
+ static bool ScriptVariablesEditorShown = false;
++static bool PortingToolsShown = true;
+ static bool ObjectViewerShown = false;
+ static bool UiViewerShown = false;
+ static bool ScriptDebuggerShown = false;
+@@ -121,6 +123,9 @@ static void ParseScriptDebugData(uint32_t scriptId) {
+ }
+ 
+ void ShowSingleWindow() {
++  // never taller than the screen (touch screens cannot reach a cut off bottom)
++  const ImVec2 screen = ImGui::GetIO().DisplaySize;
++  ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(screen.x, screen.y * 0.95f));
+   if (ImGui::Begin("Debug Menu", &DebugMenuShown)) {
+     ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate,
+                 ImGui::GetIO().Framerate);
+@@ -133,6 +138,10 @@ void ShowSingleWindow() {
+     ImGui::Text("Cursor Pos: (%.1f,%.1f)", mouseX, mouseY);
+ 
+     if (ImGui::BeginTabBar("DebugTabBar", ImGuiTabBarFlags_None)) {
++      if (ImGui::BeginTabItem(DebugTools::PortingTitle())) {
++        DebugTools::ShowTab();
++        ImGui::EndTabItem();
++      }
+       if (ImGui::BeginTabItem("\"Debug Editer\"")) {
+         ShowScriptVariablesEditor();
+         ImGui::EndTabItem();
+@@ -160,6 +169,7 @@ void ShowDockableArea() {
+                    ImGuiWindowFlags_MenuBar)) {
+     if (ImGui::BeginMenuBar()) {
+       if (ImGui::BeginMenu("Tools")) {
++        ImGui::MenuItem(DebugTools::PortingTitle(), NULL, &PortingToolsShown);
+         ImGui::MenuItem("\"Debug Editer\"", NULL, &ScriptVariablesEditorShown);
+         ImGui::MenuItem("Objects", NULL, &ObjectViewerShown);
+         ImGui::MenuItem("UI", NULL, &UiViewerShown);
+@@ -174,6 +184,13 @@ void ShowDockableArea() {
+   }
+   ImGui::End();
+ 
++  if (PortingToolsShown) {
++    if (ImGui::Begin(DebugTools::PortingWindowTitle(), &PortingToolsShown)) {
++      DebugTools::ShowTab();
++    }
++    ImGui::End();
++  }
++
+   if (ScriptVariablesEditorShown) {
+     if (ImGui::Begin("\"Debug Editer\"##ScriptVarEditorWindow"),
+         ScriptVariablesEditorShown) {
+@@ -216,7 +233,8 @@ void Show() {
+   if (((Input::KeyboardButtonIsDown[SDL_SCANCODE_LALT] &&
+         Input::KeyboardButtonWentDown[SDL_SCANCODE_D]) ||
+        (Input::ControllerButtonWentDown[SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER] &&
+-        Input::ControllerButtonWentDown[SDL_GAMEPAD_BUTTON_NORTH])) &&
++        Input::ControllerButtonWentDown[SDL_GAMEPAD_BUTTON_NORTH]) ||
++       DebugTools::OpenRequested()) &&
+       !DebugMenuShown)
+     DebugMenuShown = true;
+ 
+diff --git a/src/debugtools.cpp b/src/debugtools.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..0fad2029c923e3a0d3df51342034c7febce19ef8
+--- /dev/null
++++ b/src/debugtools.cpp
+@@ -0,0 +1,653 @@
++#include "debugtools.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cstring>
++#include <ctime>
++#include <deque>
++#include <filesystem>
++#include <fstream>
++#include <map>
++#include <optional>
++#include <vector>
++
++#include <SDL3/SDL_events.h>
++
++#include "audio/audiochannel.h"
++#include "audio/audiosystem.h"
++#include "background2d.h"
++#include "character2d.h"
++#include "data/savesystem.h"
++#include "data/tipssystem.h"
++#include "games/sghd/phone.h"
++#include "inputsystem.h"
++#include "log.h"
++#include "mem.h"
++#include "profile/configsystem.h"
++#include "profile/data/savesystem.h"
++#include "profile/game.h"
++#include "profile/scriptvars.h"
++#include "profile/vm.h"
++#include "text/dialoguepage.h"
++#include "ui/ui.h"
++#include "userconfig.h"
++#include "spritesheet.h"
++#include "video/videosystem.h"
++#include "vm/interface/input.h"
++#include "vm/vm.h"
++
++#ifndef IMPACTO_DISABLE_IMGUI
++#include <imgui.h>
++#include <imgui_internal.h>
++#endif
++#include <set>
++
++namespace Impacto {
++namespace DebugTools {
++
++using namespace Impacto::Profile::ScriptVars;
++
++namespace {
++
++struct Snapshot {
++  std::string Label;
++  std::string Script;
++  int ScriptId = -1, Line = -1;
++  int64_t When = 0;
++  std::vector<int> Scr;
++  std::vector<uint8_t> Flags;
++  Vm::VmState Vm;
++  std::vector<uint8_t> Game;  // the game's own state kept in saves (S;G: the phone)
++  std::vector<int> Sprites;   // system textures loaded by the scripts: surface, archive, file
++};
++
++struct JumpRequest {
++  int Thread = -1, Buffer = 3, ScriptId = 0, Label = 0;
++  bool ClearStack = false;
++};
++
++constexpr int Speeds[] = {1, 2, 4, 8, 16, 32, 64};
++
++int Speed = 1;
++bool Paused = false;
++int StepRequests = 0;
++bool ForceSkip = false;
++// the language of the porting tools (the ImGui font, Noto Sans CJK, has the Chinese glyphs)
++bool Chinese = true;
++const char* L(const char* en, const char* zh) { return Chinese ? zh : en; }
++bool SkipReadBefore = true;  // the "skip read text only" setting, put back when the forced skip ends
++bool AutoSnapshots = true;
++size_t MaxHistory = 300;
++bool OpenRequest = false;
++int Fingers = 0;
++
++std::deque<Snapshot> History;
++std::vector<Snapshot> Saved;
++bool SavedLoaded = false;
++std::optional<Snapshot> PendingRestore;
++std::optional<JumpRequest> PendingJump;
++std::string LastMessage;
++
++bool IsSghd() { return Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD; }
++
++int MainThreadIndex() {
++  const int id = ScrWork[SW_MAINTHDP] & 0x7FFFFFFF;
++  return id >= 0 && id < Vm::MaxThreads ? id : -1;
++}
++
++std::string ScriptName(int buffer) {
++  if (buffer < 0 || buffer >= Vm::MaxLoadedScripts || Vm::ScriptBuffers[buffer].empty()) return "-";
++  return Vm::LoadedScriptMetas[buffer].FileName;
++}
++
++// the id of the last checkpoint: the line number in the script (SW_LINEID is not used by every game)
++int LastCheckpoint = -1;
++
++Snapshot Capture(std::string label) {
++  Snapshot s;
++  s.Scr.assign(ScrWork.begin(), ScrWork.end());
++  s.Flags.assign(FlagWork.begin(), FlagWork.end());
++  Vm::SaveVmState(s.Vm);
++  if (IsSghd()) s.Game.assign(SGHD::Phone::SaveData(), SGHD::Phone::SaveData() + SGHD::Phone::SaveDataSize);
++  const int main = MainThreadIndex();
++  if (main >= 0) {
++    const int buffer = (int)Vm::ThreadPool[main].ScriptBufferId;
++    s.Script = ScriptName(buffer);
++    s.ScriptId = Vm::ScriptBuffers[buffer].empty() ? -1 : (int)Vm::LoadedScriptMetas[buffer].Id;
++  }
++  s.Line = LastCheckpoint;
++  for (const auto& [surf, loader] : SpriteLoader::Sprites) {
++    if (!loader || loader->Status != LoadStatus::Loaded || loader->ArchiveId < 0) continue;
++    s.Sprites.insert(s.Sprites.end(), {surf, loader->ArchiveId, loader->FileId});
++  }
++  s.When = (int64_t)std::time(nullptr);
++  const bool hasLine = s.Line >= 0 && s.Line != 0xffff;
++  const std::string where = hasLine ? s.Script + " #" + std::to_string(s.Line) : s.Script;
++  s.Label = label.empty() ? where : label;
++  return s;
++}
++
++// what the scripts would load again after a restore: backgrounds, characters, the music
++void Resync() {
++  for (int i = 0; i < 8; i++) {
++    const int surf = ScrWork[SW_BG1SURF + i];
++    const int id = ScrWork[SW_BG1NO + i * Profile::Vm::ScrWorkBgStructSize];
++    auto it = Backgrounds2D.find(surf);
++    if (it == Backgrounds2D.end() || !it->second || it->second->Status == LoadStatus::Loading) continue;
++    it->second->LoadAsync((uint32_t)id);
++  }
++  for (int i = 0; i < (int)MaxCharacters2D; i++) {
++    const int surf = ScrWork[SW_CHA1SURF + i];
++    if (surf < 0 || surf >= (int)MaxCharacters2D) continue;
++    Character2D& cha = Characters2D[surf];
++    if (cha.Status == LoadStatus::Loading) continue;
++    const size_t off = (size_t)Profile::Vm::ScrWorkChaStructSize * i;
++    const int id = ScrWork[SW_CHA1NO + off];
++    if (id == 0) {
++      if (cha.Status == LoadStatus::Loaded) cha.Unload();
++      continue;
++    }
++    cha.LoadAsync((uint32_t)id | ((uint32_t)ScrWork[SW_CHA1FACE + off] << 16));
++  }
++  const int bgm = ScrWork[SW_BGMREQNO];
++  if (bgm >= 0 && bgm < 0xFFFF) {
++    Audio::Channels[Audio::AC_BGM0]->Play("bgm", (uint32_t)bgm, true, 0.5f);
++  } else {
++    Audio::Channels[Audio::AC_BGM0]->Stop(0.5f);
++  }
++}
++
++void Restore(const Snapshot& s) {
++  for (auto* player : Video::Players)
++    if (player && player->IsPlaying) player->Stop();
++  std::copy_n(s.Scr.begin(), std::min(s.Scr.size(), ScrWork.size()), ScrWork.begin());
++  std::copy_n(s.Flags.begin(), std::min(s.Flags.size(), FlagWork.size()), FlagWork.begin());
++  Vm::RestoreVmState(s.Vm);
++  // the text on screen belongs to the later state: empty and hide the pages; the next message shows the box
++  // again when its window is open (SF_MESWINDOW0OPENFL), as after loading a save
++  for (DialoguePage& page : DialoguePages) {
++    page.Clear();
++    page.Hide();
++    page.FadeAnimation.Finish();
++  }
++  if (UI::SelectionMenuPtr && UI::SelectionMenuPtr->State != UI::MenuState::Hidden) {
++    UI::SelectionMenuPtr->Hide();
++    UI::SelectionMenuPtr->State = UI::MenuState::Hidden;
++  }
++  if (IsSghd() && s.Game.size() == (size_t)SGHD::Phone::SaveDataSize) {
++    std::copy(s.Game.begin(), s.Game.end(), SGHD::Phone::SaveData());
++    SGHD::Phone::AfterLoad();
++  }
++  for (size_t i = 0; i + 2 < s.Sprites.size(); i += 3) {
++    const int surf = s.Sprites[i];
++    if (SpriteLoader::Sprites.contains(surf)) continue;
++    SpriteLoader::Sprites.emplace(surf, new SpriteLoader());
++    SpriteLoader::Sprites[surf]->LoadAsync(surf, s.Sprites[i + 1], s.Sprites[i + 2]);
++  }
++  LastCheckpoint = s.Line;
++  Resync();
++  LastMessage = std::string(L("restored: ", "已恢复：")) + s.Label;
++}
++
++void Jump(const JumpRequest& j) {
++  const int thread = j.Thread >= 0 ? j.Thread : MainThreadIndex();
++  if (thread < 0 || j.Buffer < 0 || j.Buffer >= Vm::MaxLoadedScripts) return;
++  if (Vm::ScriptBuffers[j.Buffer].empty() || (int)Vm::LoadedScriptMetas[j.Buffer].Id != j.ScriptId) {
++    if (!Vm::LoadScript((uint32_t)j.Buffer, (uint32_t)j.ScriptId)) {
++      LastMessage = L("cannot load script ", "无法载入剧本 ") + std::to_string(j.ScriptId);
++      return;
++    }
++  }
++  Vm::Sc3VmThread& t = Vm::ThreadPool[thread];
++  t.ScriptBufferId = (uint32_t)j.Buffer;
++  t.IpOffset = Vm::ScriptGetLabelAddress((uint32_t)j.Buffer, (uint32_t)j.Label);
++  t.WaitCounter = 0;
++  t.Flags &= ~(uint32_t)Vm::TF_Pause;
++  if (j.ClearStack) t.CallStackDepth = 0;
++  LastMessage = L("thread ", "线程 ") + std::to_string(thread) + " -> " + ScriptName(j.Buffer) +
++                L(" label ", " 标签 ") + std::to_string(j.Label);
++}
++
++int LabelCount(int buffer) {
++  if (buffer < 0 || buffer >= Vm::MaxLoadedScripts || Vm::ScriptBuffers[buffer].size() < 16) return 0;
++  const uint32_t first = Vm::ScriptGetLabelAddress((uint32_t)buffer, 0);
++  return first > 12 ? (int)((first - 12) / 4) : 0;
++}
++
++// ---------------------------------------------------------------- saved states (a file next to the save file)
++
++std::string StatesPath() {
++  std::filesystem::path p(Profile::SaveSystem::SaveFilePath);
++  return (p.parent_path() / "debug-states.bin").string();
++}
++
++template <typename T>
++void Put(std::ofstream& f, const T& v) {
++  f.write(reinterpret_cast<const char*>(&v), sizeof(T));
++}
++template <typename T>
++bool Get(std::ifstream& f, T& v) {
++  return (bool)f.read(reinterpret_cast<char*>(&v), sizeof(T));
++}
++void PutBytes(std::ofstream& f, const void* p, size_t n) {
++  Put(f, (uint64_t)n);
++  f.write(static_cast<const char*>(p), (std::streamsize)n);
++}
++template <typename T>
++bool GetVector(std::ifstream& f, std::vector<T>& v) {
++  uint64_t n = 0;
++  if (!Get(f, n) || n > (1u << 28)) return false;
++  v.resize((size_t)(n / sizeof(T)));
++  return (bool)f.read(reinterpret_cast<char*>(v.data()), (std::streamsize)n);
++}
++
++constexpr uint32_t StatesMagic = 0x32534454;  // "TDS2"
++
++void WriteStates() {
++  std::ofstream f(StatesPath(), std::ios::binary | std::ios::trunc);
++  if (!f) {
++    LastMessage = L("cannot write ", "无法写入 ") + StatesPath();
++    return;
++  }
++  Put(f, StatesMagic);
++  Put(f, (uint32_t)Saved.size());
++  Put(f, (uint32_t)sizeof(Vm::Sc3VmThread));
++  for (const Snapshot& s : Saved) {
++    PutBytes(f, s.Label.data(), s.Label.size());
++    PutBytes(f, s.Script.data(), s.Script.size());
++    Put(f, s.ScriptId), Put(f, s.Line), Put(f, s.When);
++    PutBytes(f, s.Scr.data(), s.Scr.size() * sizeof(int));
++    PutBytes(f, s.Flags.data(), s.Flags.size());
++    PutBytes(f, s.Vm.Pool.data(), s.Vm.Pool.size() * sizeof(Vm::VmState::Thread));
++    Put(f, s.Vm.Heads), Put(f, s.Vm.Tails), Put(f, s.Vm.Counts), Put(f, s.Vm.States), Put(f, s.Vm.NextFree);
++    Put(f, s.Vm.ScriptIds);
++    PutBytes(f, s.Game.data(), s.Game.size());
++    PutBytes(f, s.Sprites.data(), s.Sprites.size() * sizeof(int));
++  }
++}
++
++void ReadStates() {
++  SavedLoaded = true;
++  Saved.clear();
++  std::ifstream f(StatesPath(), std::ios::binary);
++  uint32_t magic = 0, count = 0, threadSize = 0;
++  if (!f || !Get(f, magic) || magic != StatesMagic || !Get(f, count) || !Get(f, threadSize) ||
++      threadSize != sizeof(Vm::Sc3VmThread))
++    return;  // none yet, or written by another build
++  for (uint32_t i = 0; i < count; i++) {
++    Snapshot s;
++    std::vector<char> label, script;
++    if (!GetVector(f, label) || !GetVector(f, script)) return;
++    s.Label.assign(label.begin(), label.end());
++    s.Script.assign(script.begin(), script.end());
++    if (!Get(f, s.ScriptId) || !Get(f, s.Line) || !Get(f, s.When)) return;
++    if (!GetVector(f, s.Scr) || !GetVector(f, s.Flags) || !GetVector(f, s.Vm.Pool)) return;
++    if (!Get(f, s.Vm.Heads) || !Get(f, s.Vm.Tails) || !Get(f, s.Vm.Counts) || !Get(f, s.Vm.States) ||
++        !Get(f, s.Vm.NextFree) || !Get(f, s.Vm.ScriptIds) || !GetVector(f, s.Game) || !GetVector(f, s.Sprites))
++      return;
++    Saved.push_back(std::move(s));
++  }
++}
++
++// ---------------------------------------------------------------- unlocks
++
++// as if the movie had ended: the scripts waiting for it go on. The forced skip leaves the looping movies (title,
++// backgrounds: play modes 2, 3 and 5, +8 with alpha) alone, nothing waits for them.
++void SkipMovies(bool keepLooping = false) {
++  for (int i = 0; i < Video::VP_Count; i++) {
++    if (!Video::Players[i] || !Video::Players[i]->IsPlaying) continue;
++    const int mode = ScrWork[SW_MOVIE_PLAYMODE + 20 * i] % 20 % 8;
++    if (keepLooping && (mode == 2 || mode == 3 || mode == 5)) continue;
++    Video::Players[i]->Stop();
++    SetFlag(SF_MOVIEPLAY + i, false);
++    SetFlag(SF_MOVIE_DRAWWAIT + i, false);  // scripts wait for the first frame before they wait for the end
++  }
++}
++
++void UnlockAll() {
++  auto* save = SaveSystem::Implementation;
++  if (!save) return;
++  for (int i = 0; i < 1200; i++) save->SetEVStatus(i);
++  for (int i = 0; i < 200; i++) save->SetBgmFlag(i, true);
++  if (auto* tips = TipsSystem::Implementation.get())
++    for (size_t i = 0; i < tips->TipEntryCount; i++) save->SetTipStatus(i, false, false, false);
++  SaveSystem::SaveSystemData();
++  LastMessage = L("CG, music and tips unlocked", "已解锁 CG、音乐与 TIPS");
++}
++
++}  // namespace
++
++bool Enabled() {
++  return UserConfig::CommonSettings.DebugMode || (+Profile::Game::GameFeatures & +GameFeature::DebugMenu);
++}
++
++bool OpenRequested() {
++  const bool r = OpenRequest;
++  OpenRequest = false;
++  return r;
++}
++
++// is a point (window pixels) on a shown debug window that takes input
++static bool OnDebugWindow(float x, float y) {
++#ifndef IMPACTO_DISABLE_IMGUI
++  ImGuiContext* g = ImGui::GetCurrentContext();
++  if (!g) return false;
++  for (ImGuiWindow* w : g->Windows) {
++    if (!w->WasActive || w->Hidden || (w->Flags & ImGuiWindowFlags_NoInputs)) continue;
++    if (w->Rect().Contains(ImVec2(x, y))) return true;
++  }
++#endif
++  return false;
++}
++
++// fingers that went down on a debug window: the game sees none of their events
++static std::set<SDL_FingerID> CapturedFingers;
++// fingers the game saw go down, and those of them that are part of the three finger gesture
++static std::set<SDL_FingerID> GameFingers, GestureFingers;
++
++bool HandleEvent(SDL_Event& e) {
++  if (!Enabled()) return false;
++  switch (e.type) {
++    case SDL_EVENT_FINGER_DOWN: {
++      if (++Fingers == 3) {
++        OpenRequest = true;
++        GestureFingers.insert(GameFingers.begin(), GameFingers.end());
++        CapturedFingers.insert(e.tfinger.fingerID);
++        return true;
++      }
++#ifndef IMPACTO_DISABLE_IMGUI
++      const ImVec2 size = ImGui::GetIO().DisplaySize;
++      if (OnDebugWindow(e.tfinger.x * size.x, e.tfinger.y * size.y)) {
++        CapturedFingers.insert(e.tfinger.fingerID);
++        return true;
++      }
++#endif
++      GameFingers.insert(e.tfinger.fingerID);
++      return false;
++    }
++    case SDL_EVENT_FINGER_MOTION:
++      return CapturedFingers.count(e.tfinger.fingerID) != 0;
++    case SDL_EVENT_FINGER_UP:
++    case SDL_EVENT_FINGER_CANCELED:
++      Fingers = std::max(0, Fingers - 1);
++      GameFingers.erase(e.tfinger.fingerID);
++      if (GestureFingers.erase(e.tfinger.fingerID) != 0) e.type = SDL_EVENT_FINGER_CANCELED;
++      return CapturedFingers.erase(e.tfinger.fingerID) != 0;
++    default:
++      return false;
++  }
++}
++
++int TicksThisFrame() {
++  if (!Enabled()) return 1;
++  if (Paused) {
++    if (StepRequests > 0) {
++      StepRequests--;
++      return 1;
++    }
++    return 0;
++  }
++  return Speed;
++}
++
++void BeforeExtraTick() {
++  using namespace Vm::Interface;
++  PADinputButtonWentDown = 0;
++  PADinputMouseWentDown = 0;
++  PADinputButtonRepeatDown = 0;
++  // the menus read the raw input: a press of the frame must not count again in its later ticks
++  std::fill(std::begin(Input::MouseButtonWentDown), std::end(Input::MouseButtonWentDown), false);
++  std::fill(std::begin(Input::ControllerButtonWentDown), std::end(Input::ControllerButtonWentDown), false);
++  std::fill(std::begin(Input::ControllerAxisWentDownLight), std::end(Input::ControllerAxisWentDownLight), false);
++  std::fill(std::begin(Input::ControllerAxisWentDownHeavy), std::end(Input::ControllerAxisWentDownHeavy), false);
++  std::fill(std::begin(Input::KeyboardButtonWentDown), std::end(Input::KeyboardButtonWentDown), false);
++  Input::MouseWheelDeltaX = Input::MouseWheelDeltaY = 0;
++  Input::TouchTapCount = 0;
++  Input::TouchFlickLeft = Input::TouchFlickRight = Input::TouchFlickDown = Input::TouchFlickUp = false;
++  Input::TouchPinchIn = false;
++}
++
++void BeforeVmUpdate() {
++  if (!Enabled() || !ForceSkip) return;
++  // also where ChkMesSkip has no message window to skip (movies, effects): the scripts skip what they see flagged
++  SetFlag(SF_MESSKIP, true);
++  SetFlag(SF_MESALLSKIP, true);
++  SkipMovies(true);
++}
++
++void AfterTick() {
++  if (!Enabled()) return;
++  if (ForceSkip) {
++    // the engine skip mode (ChkMesSkip turns it into SF_MESSKIP / SF_MESALLSKIP every tick)
++    SkipModeEnabled = true;
++    Profile::ConfigSystem::SkipRead = false;  // unread text too
++  }
++  if (PendingRestore) {
++    Restore(*PendingRestore);
++    PendingRestore.reset();
++  }
++  if (PendingJump) {
++    Jump(*PendingJump);
++    PendingJump.reset();
++  }
++}
++
++float ScaleFrameTime(float dt) {
++  if (!Enabled()) return dt;
++  if (Paused) return StepRequests > 0 ? dt : 0.0f;
++  return dt * (float)Speed;
++}
++
++void OnCheckpoint(int id) {
++  if (!Enabled()) return;
++  LastCheckpoint = id;
++  if (AutoSnapshots) SnapshotPending = true;
++}
++
++void TakePendingSnapshot(int thread, uint32_t instructionStart) {
++  SnapshotPending = false;
++  Snapshot s = Capture("");
++  if (thread >= 0 && thread < (int)s.Vm.Pool.size()) s.Vm.Pool[thread].Data.IpOffset = instructionStart;
++  // the checkpoint instruction runs again after a restore: that is the line already kept
++  if (!History.empty() && History.back().ScriptId == s.ScriptId && History.back().Line == s.Line) History.pop_back();
++  History.push_back(std::move(s));
++  while (History.size() > MaxHistory) History.pop_front();
++}
++
++// ---------------------------------------------------------------- UI
++
++void ShowStatus() {
++#ifndef IMPACTO_DISABLE_IMGUI
++  if (!Enabled()) return;
++  ImGui::SetNextWindowPos(ImVec2(4, 4), ImGuiCond_Always);
++  ImGui::SetNextWindowBgAlpha(0.45f);
++  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
++                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
++                                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
++  if (ImGui::Begin("##DebugStatus", nullptr, flags)) {
++    const int main = MainThreadIndex();
++    const std::string script = main >= 0 ? ScriptName((int)Vm::ThreadPool[main].ScriptBufferId) : "-";
++    const std::string line =
++        LastCheckpoint >= 0 && LastCheckpoint != 0xffff ? " #" + std::to_string(LastCheckpoint) : std::string();
++    ImGui::Text("%s x%d%s%s  %s%s  %s %zu", Paused ? L("PAUSED", "暂停") : L("RUN", "运行"), Speed,
++                ForceSkip ? L(" SKIP", " 快进") : "", AutoSnapshots ? "" : L(" (no snapshots)", "（不快照）"),
++                script.c_str(), line.c_str(), L("rewind", "可回退"), History.size());
++  }
++  ImGui::End();
++#endif
++}
++
++const char* PortingTitle() { return Chinese ? "适配工具###Porting" : "Porting###Porting"; }
++const char* PortingWindowTitle() {
++  return Chinese ? "适配工具###PortingToolsWindow" : "Porting###PortingToolsWindow";
++}
++
++void ShowTab() {
++#ifndef IMPACTO_DISABLE_IMGUI
++  if (!SavedLoaded) ReadStates();
++
++  if (ImGui::RadioButton("中文", Chinese)) Chinese = true;
++  ImGui::SameLine();
++  if (ImGui::RadioButton("English", !Chinese)) Chinese = false;
++  // the result of the last action, where it is always in view
++  if (!LastMessage.empty()) ImGui::TextWrapped("%s", LastMessage.c_str());
++
++  // ---- time
++  ImGui::SeparatorText(L("Speed", "速度"));
++  for (int s : Speeds) {
++    ImGui::SameLine();
++    char label[16];
++    std::snprintf(label, sizeof(label), "x%d", s);
++    if (ImGui::RadioButton(label, Speed == s)) Speed = s;
++  }
++  if (ImGui::Button(Paused ? L("Resume", "继续") : L("Pause", "暂停"))) Paused = !Paused;
++  ImGui::SameLine();
++  ImGui::BeginDisabled(!Paused);
++  if (ImGui::Button(L("Step 1 frame", "单步 1 帧"))) StepRequests += 1;
++  ImGui::SameLine();
++  if (ImGui::Button(L("Step 60 frames", "单步 60 帧"))) StepRequests += 60;
++  ImGui::EndDisabled();
++  if (ImGui::Button(L("Skip movie", "跳过当前视频"))) SkipMovies();
++  if (ImGui::Checkbox(L("Skip everything (unread text too)", "强制快进（未读文字也跳过）"), &ForceSkip)) {
++    if (ForceSkip) {
++      SkipReadBefore = Profile::ConfigSystem::SkipRead;
++    } else {
++      SkipModeEnabled = false;
++      Profile::ConfigSystem::SkipRead = SkipReadBefore;
++    }
++  }
++
++  // ---- rewind
++  ImGui::SeparatorText(L("Rewind", "回退"));
++  ImGui::Checkbox(L("Snapshot every line", "每句自动快照"), &AutoSnapshots);
++  ImGui::SameLine();
++  int max = (int)MaxHistory;
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
++  if (ImGui::InputInt(L("kept", "保留句数"), &max, 50)) MaxHistory = (size_t)std::clamp(max, 10, 5000);
++  if (ImGui::Button(L("Back 1 line", "退 1 句")) && History.size() >= 2) {
++    History.pop_back();
++    PendingRestore = History.back();
++  }
++  ImGui::SameLine();
++  if (ImGui::Button(L("Back 10 lines", "退 10 句")) && History.size() >= 2) {
++    for (int i = 0; i < 10 && History.size() > 1; i++) History.pop_back();
++    PendingRestore = History.back();
++  }
++  if (ImGui::BeginListBox("##history", ImVec2(-FLT_MIN, 8 * ImGui::GetTextLineHeightWithSpacing()))) {
++    for (int i = (int)History.size() - 1; i >= 0; i--) {
++      ImGui::PushID(i);
++      if (ImGui::Selectable(History[i].Label.c_str(), false)) {
++        PendingRestore = History[i];
++        History.erase(History.begin() + i + 1, History.end());
++      }
++      ImGui::PopID();
++    }
++    ImGui::EndListBox();
++  }
++
++  // ---- states
++  ImGui::SeparatorText(L("Saved states", "保存的状态"));
++  static char name[64] = "";
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10);
++  ImGui::InputTextWithHint("##statename", L("name", "名称"), name, sizeof(name));
++  ImGui::SameLine();
++  if (ImGui::Button(L("Save state", "保存当前状态"))) {
++    // the snapshot of the line on screen, taken before it showed: a restore shows the line again. One taken in the
++    // middle of a line would wait for a line the restore cannot show.
++    Snapshot s = History.empty() ? Capture("") : History.back();
++    if (name[0]) s.Label = name;
++    Saved.push_back(std::move(s));
++    name[0] = 0;
++    WriteStates();
++  }
++  for (size_t i = 0; i < Saved.size(); i++) {
++    ImGui::PushID((int)i);
++    if (ImGui::Button(L("Load", "读取"))) PendingRestore = Saved[i];
++    ImGui::SameLine();
++    if (ImGui::Button(L("Delete", "删除"))) {
++      Saved.erase(Saved.begin() + (ptrdiff_t)i);
++      WriteStates();
++      ImGui::PopID();
++      break;
++    }
++    ImGui::SameLine();
++    const std::string where = Saved[i].Script + " #" + std::to_string(Saved[i].Line);
++    if (Saved[i].Label == where || Saved[i].Label == Saved[i].Script)
++      ImGui::TextUnformatted(Saved[i].Label.c_str());
++    else
++      ImGui::Text("%s  (%s)", Saved[i].Label.c_str(), where.c_str());
++    ImGui::PopID();
++  }
++
++  // ---- jump
++  ImGui::SeparatorText(L("Jump", "跳转"));
++  static int thread = -1, buffer = 3, scriptId = 0, label = 0;
++  static bool clearStack = false;
++  const int main = MainThreadIndex();
++  ImGui::Text(L("main thread %d: %s, buffer %u, ip 0x%X, call depth %u",
++                "主线程 %d：%s，缓冲区 %u，ip 0x%X，调用深度 %u"),
++              main,
++              main >= 0 ? ScriptName((int)Vm::ThreadPool[main].ScriptBufferId).c_str() : "-",
++              main >= 0 ? Vm::ThreadPool[main].ScriptBufferId : 0, main >= 0 ? Vm::ThreadPool[main].IpOffset : 0,
++              main >= 0 ? Vm::ThreadPool[main].CallStackDepth : 0);
++  // until a script is picked, the jump targets the script the main thread is in
++  static bool scriptPicked = false;
++  if (!scriptPicked && main >= 0) {
++    buffer = (int)Vm::ThreadPool[main].ScriptBufferId;
++    scriptId = Vm::ScriptBuffers[buffer].empty() ? 0 : (int)Vm::LoadedScriptMetas[buffer].Id;
++  }
++  static std::map<uint32_t, std::string> files;
++  if (files.empty()) Io::VfsListFiles("script", files);
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
++  const auto it = files.find((uint32_t)scriptId);
++  if (ImGui::BeginCombo(L("script", "剧本"), it != files.end() ? it->second.c_str() : "?")) {
++    for (const auto& [id, file] : files) {
++      char item[160];
++      std::snprintf(item, sizeof(item), "%u  %s", id, file.c_str());
++      if (ImGui::Selectable(item, (int)id == scriptId)) {
++        scriptId = (int)id;
++        scriptPicked = true;
++      }
++    }
++    ImGui::EndCombo();
++  }
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
++  ImGui::InputInt(L("label", "标签"), &label);
++  label = std::max(0, label);
++  ImGui::SameLine();
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
++  if (ImGui::InputInt(L("buffer", "缓冲区"), &buffer)) scriptPicked = true;
++  buffer = std::clamp(buffer, 0, Vm::MaxLoadedScripts - 1);
++  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
++  ImGui::InputInt(L("thread (-1 main)", "线程（-1 = 主线程）"), &thread);
++  thread = std::clamp(thread, -1, Vm::MaxThreads - 1);
++  ImGui::SameLine();
++  ImGui::Checkbox(L("clear call stack", "清空调用栈"), &clearStack);
++  if ((int)Vm::LoadedScriptMetas[buffer].Id == scriptId && !Vm::ScriptBuffers[buffer].empty())
++    ImGui::Text(L("%d labels in this script", "本剧本共 %d 个标签"), LabelCount(buffer));
++  if (ImGui::Button(L("Jump", "跳转"))) {
++    PendingJump = JumpRequest{thread, buffer, scriptId, label, clearStack};
++  }
++  ImGui::SameLine();
++  if (ImGui::Button(L("Restart current script", "从头重开当前剧本"))) {
++    if (main >= 0) {
++      const int b = (int)Vm::ThreadPool[main].ScriptBufferId;
++      PendingJump = JumpRequest{main, b, (int)Vm::LoadedScriptMetas[b].Id, 0, false};
++    }
++  }
++
++  // ---- progress
++  ImGui::SeparatorText(L("Progress", "进度"));
++  if (ImGui::Button(L("Unlock CG, music, tips", "解锁 CG、音乐、TIPS"))) UnlockAll();
++  ImGui::SameLine();
++  if (ImGui::Button(L("Write save data", "立即写入存档"))) {
++    SaveSystem::SaveSystemData();
++    SaveSystem::WriteSaveFile();
++    LastMessage = L("save file written", "存档已写入");
++  }
++
++#endif
++}
++
++}  // namespace DebugTools
++}  // namespace Impacto
+diff --git a/src/debugtools.h b/src/debugtools.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..07bd389c0c1e516dbfa28802adcf5425f1c7c9e7
+--- /dev/null
++++ b/src/debugtools.h
+@@ -0,0 +1,53 @@
++#pragma once
++
++// Porting tools of the debug mode (UserConfig CommonSettings.DebugMode, or the DebugMenu game feature): game speed,
++// pause and single steps, automatic snapshots for rewinding, saved states, jumps of a script thread to any label of
++// any script, skip of everything, unlocks. Shown as the "Porting" tab of the debug menu; on touch screens three
++// fingers at once open the menu.
++
++#include <cstdint>
++#include <string>
++
++union SDL_Event;
++
++namespace Impacto {
++namespace DebugTools {
++
++bool Enabled();
++// the debug menu asks to be opened (gesture)
++bool OpenRequested();
++
++// SDL events, before the game sees them (the three finger gesture). True: a touch on a debug window, which the
++// game must not see (ImGui's own capture test lags one frame behind on touch screens). The fingers of the three
++// finger gesture that the game already saw go down are lifted as canceled, so the gesture is no tap for it.
++bool HandleEvent(SDL_Event& e);
++
++// game logic ticks to run this frame: 0 while paused (unless a step was asked for), the speed otherwise
++int TicksThisFrame();
++// before every extra tick of a frame: the input of the frame only counts once
++void BeforeExtraTick();
++// right before the VM runs in a logic tick (after the game's own skip check): the forced skip
++void BeforeVmUpdate();
++// after every logic tick: pending restores and jumps
++void AfterTick();
++// the text and animations that run on frame time follow the speed
++float ScaleFrameTime(float dt);
++
++// a checkpoint of the main script thread (a new line about to show, id = its line number in the script): the
++// automatic rewind snapshots
++void OnCheckpoint(int id);
++// a checkpoint comes in the middle of an instruction (a message, a choice, an autosave point); the VM calls this
++// once that instruction is done, with the offset it started at. The snapshot points the thread back there: a
++// restore runs the checkpoint instruction again (shows the line again, sets the choices up again).
++inline bool SnapshotPending = false;
++void TakePendingSnapshot(int thread, uint32_t instructionStart);
++
++// the "Porting" tab of the debug menu, and a small status line over the game
++void ShowTab();
++void ShowStatus();
++// the names of the tab and of its window, in the language chosen in the tab (ids stay the same)
++const char* PortingTitle();
++const char* PortingWindowTitle();
++
++}  // namespace DebugTools
++}  // namespace Impacto
+diff --git a/src/game.cpp b/src/game.cpp
+index d7e0bd529d067c8dd1615c9ac7a7df3d66ae30c8..3933c3a4285ced6d81f57294a10c59662e1e4585 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -1,3 +1,4 @@
++#include "debugtools.h"
+ #include "games/sghd/movielibrary.h"
+ #include "games/sghd/clearlist.h"
+ #include "games/sghd/soundlibrary.h"
+@@ -326,6 +327,7 @@ void UpdateSystem(float dt) {
+   }
+ 
+   while (SDL_PollEvent(&e)) {
++    if (DebugTools::HandleEvent(e)) continue;
+     if (e.type == SDL_EVENT_QUIT) {
+       if (Profile::Patch::HasScriptedExitLogic) {
+         Input::KeyboardButtonWentDown[SDL_SCANCODE_ESCAPE] = true;
+@@ -365,11 +367,19 @@ void UpdateSystem(float dt) {
+ 
+     WorkQueue::HandleEvent(&e);
+   }
+-  if (+Profile::Game::GameFeatures & +GameFeature::Sc3VirtualMachine) {
+-    Vm::Interface::UpdatePADInput();
+-    Vm::Interface::UpdatePADHoldInput(updateInterval);
+-    Vm::Interface::UpdateKBHoldInput(updateInterval);
+-    UI::GameSpecific::UpdateInput(updateInterval);
++  // debug mode: paused (no tick), single steps, or several logic ticks per frame
++  const int ticks = +Profile::Game::GameFeatures & +GameFeature::Sc3VirtualMachine
++                        ? DebugTools::TicksThisFrame()
++                        : 0;
++  for (int tick = 0; tick < ticks; tick++) {
++    if (tick == 0) {
++      Vm::Interface::UpdatePADInput();
++      Vm::Interface::UpdatePADHoldInput(updateInterval);
++      Vm::Interface::UpdateKBHoldInput(updateInterval);
++      UI::GameSpecific::UpdateInput(updateInterval);
++    } else {
++      DebugTools::BeforeExtraTick();
++    }
+     UpdateGameState(updateInterval);
+ 
+     for (DrawComponentType value :
+@@ -405,7 +415,9 @@ void UpdateSystem(float dt) {
+       }
+     }
+ 
++    DebugTools::BeforeVmUpdate();
+     Vm::Update(updateInterval);
++    DebugTools::AfterTick();
+   }
+   UpdateSecondCounter -= updateInterval;
+ }
+@@ -451,7 +463,7 @@ void Update(float dt) {
+   }
+ 
+   if (+Profile::Game::GameFeatures & +GameFeature::Renderer2D) {
+-    for (DialoguePage& page : DialoguePages) page.Update(dt);
++    for (DialoguePage& page : DialoguePages) page.Update(DebugTools::ScaleFrameTime(dt));
+     KeyWaitIcon->Update(dt);
+     AutoIconDisplay::Update(dt);
+     SkipIconDisplay::Update(dt);
+@@ -669,8 +681,9 @@ void Render() {
+   Renderer->BeginFrame2D();
+ 
+ #ifndef IMPACTO_DISABLE_IMGUI
+-  if (+Profile::Game::GameFeatures & +GameFeature::DebugMenu) {
++  if (+Profile::Game::GameFeatures & +GameFeature::DebugMenu || DebugTools::Enabled()) {
+     DebugMenu::Show();
++    DebugTools::ShowStatus();
+   }
+ #endif
+ 
+diff --git a/src/spritesheet.cpp b/src/spritesheet.cpp
+index 84a98dbb76c176f7a507f92f80838203dd19db3c..65efb737aaf38479c3536a81468408de1b1e20aa 100644
+--- a/src/spritesheet.cpp
++++ b/src/spritesheet.cpp
+@@ -8,6 +8,8 @@ namespace Impacto {
+ static std::shared_mutex MapMutex;
+ 
+ bool SpriteLoader::LoadSync(int surfId, int archiveId, int fileId) {
++  ArchiveId = archiveId;
++  FileId = fileId;
+   auto path = Io::AssetPathKey{.MountId = static_cast<uint32_t>(archiveId),
+                                .Id = static_cast<uint32_t>(fileId)};
+ 
+diff --git a/src/spritesheet.h b/src/spritesheet.h
+index 42591b3123cf3b6f38f83df59e90dfb8d8fc9fae..31a212b46535a9b2cf9fc9eb8f76257e250c12a2 100644
+--- a/src/spritesheet.h
++++ b/src/spritesheet.h
+@@ -15,6 +15,8 @@ struct SpriteLoader : Loadable<SpriteLoader, bool, int, int, int> {
+ 
+   Texture LoadedTexture{};
+   uint32_t InnerTextureId;
++  // what was asked for (the debug tools load it again after a restore)
++  int ArchiveId = -1, FileId = -1;
+ 
+   bool LoadSync(int surfId, int archiveId, int fileId);
+   void UnloadSync() {}
+diff --git a/src/userconfig.cpp b/src/userconfig.cpp
+index ca879233910af088371f020d17af6d2b543ed3bf..0875a899185f994891550f3e962f1f0b71086e6c 100644
+--- a/src/userconfig.cpp
++++ b/src/userconfig.cpp
+@@ -119,7 +119,8 @@ TOML11_DEFINE_CONVERSION_NON_INTRUSIVE(
+   LogChannels,
+   LoggingToConsole,
+   LoggingToFile,
+-  SwapConfirmCancelButtons
++  SwapConfirmCancelButtons,
++  DebugMode
+ )
+ 
+ TOML11_DEFINE_CONVERSION_NON_INTRUSIVE(
+diff --git a/src/userconfig.h b/src/userconfig.h
+index 8721b54052d776726c773cbde615892e4d612818..216445de6ea49c15822843928198b71ca63a7734 100644
+--- a/src/userconfig.h
++++ b/src/userconfig.h
+@@ -65,6 +65,8 @@ struct Config {
+   bool LoggingToConsole = GetDefaultLogToConsole();
+   bool LoggingToFile = GetDefaultLogToFile();
+   bool SwapConfirmCancelButtons = false;
++  // porting tools: speed, pause, rewind, saved states, jumps (see debugtools.h)
++  bool DebugMode = false;
+ };
+ struct AdvancedConfig {
+   RendererType ActiveRenderer = RendererType::OpenGL;
+diff --git a/src/vm/vm.cpp b/src/vm/vm.cpp
+index c96f3c97b0321bb49ef2f219f83a905bee88d46a..3fbcaecc6ee8586029ed3cae6e22178023a1d5b4 100644
+--- a/src/vm/vm.cpp
++++ b/src/vm/vm.cpp
+@@ -1,3 +1,4 @@
++#include "../debugtools.h"
+ #include "vm.h"
+ 
+ #include "expression.h"
+@@ -307,6 +308,48 @@ static void SortThreadExecTable() {
+   }
+ }
+ 
++static int ThreadIndex(const Sc3VmThread* t) { return t ? (int)(t - ThreadPool) : -1; }
++static Sc3VmThread* ThreadAt(int i) { return i < 0 ? nullptr : &ThreadPool[i]; }
++
++void SaveVmState(VmState& out) {
++  out.Pool.resize(MaxThreads);
++  for (int i = 0; i < MaxThreads; i++) {
++    out.Pool[i].Data = ThreadPool[i];
++    out.Pool[i].Previous = ThreadIndex(ThreadPool[i].PreviousContext);
++    out.Pool[i].Next = ThreadIndex(ThreadPool[i].NextContext);
++    out.Pool[i].NextFree = ThreadIndex(ThreadPool[i].NextFreeContext);
++  }
++  for (int g = 0; g < MaxThreadGroups; g++) {
++    out.Heads[g] = ThreadIndex(ThreadGroupHeads[g]);
++    out.Tails[g] = ThreadIndex(ThreadGroupTails[g]);
++    out.Counts[g] = ThreadGroupCount[g];
++    out.States[g] = ThreadGroupState[g];
++  }
++  out.NextFree = ThreadIndex(NextFreeThreadCtx);
++  for (int b = 0; b < MaxLoadedScripts; b++)
++    out.ScriptIds[b] = ScriptBuffers[b].empty() ? -1 : (int)LoadedScriptMetas[b].Id;
++}
++
++void RestoreVmState(const VmState& in) {
++  for (int b = 0; b < MaxLoadedScripts; b++) {
++    const int current = ScriptBuffers[b].empty() ? -1 : (int)LoadedScriptMetas[b].Id;
++    if (in.ScriptIds[b] >= 0 && in.ScriptIds[b] != current) LoadScript(b, (uint32_t)in.ScriptIds[b]);
++  }
++  for (int i = 0; i < MaxThreads && i < (int)in.Pool.size(); i++) {
++    ThreadPool[i] = in.Pool[i].Data;
++    ThreadPool[i].PreviousContext = ThreadAt(in.Pool[i].Previous);
++    ThreadPool[i].NextContext = ThreadAt(in.Pool[i].Next);
++    ThreadPool[i].NextFreeContext = ThreadAt(in.Pool[i].NextFree);
++  }
++  for (int g = 0; g < MaxThreadGroups; g++) {
++    ThreadGroupHeads[g] = ThreadAt(in.Heads[g]);
++    ThreadGroupTails[g] = ThreadAt(in.Tails[g]);
++    ThreadGroupCount[g] = in.Counts[g];
++    ThreadGroupState[g] = in.States[g];
++  }
++  NextFreeThreadCtx = ThreadAt(in.NextFree);
++}
++
+ void Update(float dt) {
+   CreateThreadExecTable();
+   SortThreadExecTable();
+@@ -555,6 +598,8 @@ void RunThread(Sc3VmThread* thread, float dt) {
+     if (DebugThreadId == thread->Id && (DebuggerBreak || DebuggerAlwaysBlock))
+       BlockCurrentScriptThread = 1;
+ #endif
++    if (DebugTools::SnapshotPending)
++      DebugTools::TakePendingSnapshot((int)(thread - ThreadPool), scriptIp);
+   } while (!BlockCurrentScriptThread);
+ }
+ 
+diff --git a/src/vm/vm.h b/src/vm/vm.h
+index 46fe643d4f7df870e1a50189f41328a01bd649c2..c475a7d72b1a811fbf5199b48b3e2cd848e86a36 100644
+--- a/src/vm/vm.h
++++ b/src/vm/vm.h
+@@ -1,5 +1,9 @@
+ #pragma once
+ 
++#include <array>
++
++#include <vector>
++
+ #include <span>
+ #include "thread.h"
+ #include "../io/vfs.h"
+@@ -51,6 +55,23 @@ void ControlThreadGroup(ThreadGroupControlType controlType, uint32_t groupId);
+ void DestroyThread(Sc3VmThread* thread);
+ void RunThread(Sc3VmThread* thread, float dt);
+ 
++// The whole thread state of the VM, for the debug tools (snapshots, rewind): the pool with its links as indices
++// (-1 for none), the thread groups and which script each buffer holds.
++struct VmState {
++  struct Thread {
++    Sc3VmThread Data;  // its link pointers are not used
++    int Previous, Next, NextFree;
++  };
++  std::vector<Thread> Pool;
++  std::array<int, MaxThreadGroups> Heads{}, Tails{};
++  std::array<uint32_t, MaxThreadGroups> Counts{}, States{};
++  int NextFree = -1;
++  std::array<int, MaxLoadedScripts> ScriptIds{};  // -1: the buffer is empty
++};
++void SaveVmState(VmState& out);
++// reloads the scripts whose buffer held another one
++void RestoreVmState(const VmState& in);
++
+ inline std::span<uint8_t> ScriptBuffers[MaxLoadedScripts];
+ inline std::span<uint8_t> MsbBuffers[MaxLoadedScripts];
+ 

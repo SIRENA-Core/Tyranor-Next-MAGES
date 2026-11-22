@@ -50,3 +50,6 @@
 0048-profile-screen-fill-count-spacing-and-second-layer-s.patch
 0049-tyn-sg-pc-MOVIE-LIBRARY-10-20-0x436480-0x436540-0x43.patch
 0050-tyn-sg-pc-CG-LIBRARY-SOUND-LIBRARY-and-CLEAR-LIST-po.patch
+0051-tyn-built-in-Bink-2-decoding-libbink2-behind-FFmpegP.patch
+0052-tyn-sg-pc-movie-flags-1851-2492-Game.exe-PlayMovie-0.patch
+0053-tyn-debug-mode-for-porting-speed-pause-rewind-saved-.patch
