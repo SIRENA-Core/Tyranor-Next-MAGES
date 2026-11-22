@@ -182,6 +182,14 @@
       {
         "file": "0044-log-free-the-formatted-line-after-writing-it.patch",
         "sha256": "dc7ea369a4f1afc9934454ff678920dea146173471897e9c2f9224f3a4b72fe3"
+      },
+      {
+        "file": "0045-tyn-sg-pc-time-leap-flip-clock-0x41a140-0x41a960-0x4.patch",
+        "sha256": "7a134b3de1c4ef6405a2ff7f7c4cfe4eafefa073f6c7632d1d0fcdf9ccdb008e"
+      },
+      {
+        "file": "0046-game-hidden-UI-can-always-be-shown-again.patch",
+        "sha256": "6be6f6719415f85869c000f6a33c67f1ce5812888bfe058a5332c144172a66b8"
       }
     ]
   },

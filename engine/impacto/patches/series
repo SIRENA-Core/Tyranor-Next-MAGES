@@ -44,3 +44,5 @@
 0042-tyn-sg-pc-phone-trigger-the-underlined-words-of-an-a.patch
 0043-tyn-free-the-CPU-copy-of-background-and-character-te.patch
 0044-log-free-the-formatted-line-after-writing-it.patch
+0045-tyn-sg-pc-time-leap-flip-clock-0x41a140-0x41a960-0x4.patch
+0046-game-hidden-UI-can-always-be-shown-again.patch
