@@ -34,7 +34,7 @@
 | profile | 游戏 | 状态 |
 | --- | --- | --- |
 | `mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht` | Windows／Steam 版 Memories Off 6 T-Wave（日／简／繁） | 能进游戏、对话、存读档（真机与模拟器）；选项、百科、返回标题确认框没有界面 |
-| `sg-pc` | Steam 版 STEINS;GATE（宿主 0.3.0 起，**已适配完成**，需要宿主 0.4.2） | 原版英文与汉化数据都能从头玩到真结局：标题、系统菜单、存读档、CONFIG、HELP、TIPS、消息框、手机（邮件、电话、用词回复、通讯录、附件）、时间跳跃的翻牌钟、世界线变动的色调，以及 EXTRA 的 CLEAR LIST／CG／SOUND／MOVIE 都按原版 Game.exe 还原；Bink 1 视频直接能播，Bink 2 视频（世界线变动的辉光管动画、标题、时间跳跃背景）需要先用 `tools/impacto/sghd/convert_bink2.py` 转换，否则跳过。验证在 MuMu 模拟器上完成，真机未测（详见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)） |
+| `sg-pc` | Steam 版 STEINS;GATE（宿主 0.3.0 起，**已适配完成**，需要宿主 0.4.3） | 原版英文与汉化数据都能从头玩到真结局：标题、系统菜单、存读档、CONFIG、HELP、TIPS、消息框、手机（邮件、电话、用词回复、通讯录、附件）、时间跳跃的翻牌钟、世界线变动的色调，以及 EXTRA 的 CLEAR LIST／CG／SOUND／MOVIE 都按原版 Game.exe 还原；全部视频直接用游戏原文件播放：Bink 1 由 FFmpeg 解码，Bink 2（世界线变动的辉光管动画、标题、时间跳跃背景、闪电等带透明通道的叠加）由内置的 libbink2 解码，不需要任何转换。验证在 MuMu 模拟器上完成，真机未测（详见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)） |
 | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`darling`、`dash`、`rne` | 上游 impacto 自带 | 未在本宿主上逐一验证 |
 
 ## 与 Tyranor Next 的约定
@@ -66,6 +66,7 @@
 | `delusionMouse` | bool | `[EnhancementsSettings.CHLCC]` / `.CCLCC` `DelusionMousePatch`（只对 `chlcc`、`cclcc`） |
 | `logLevel` | `off`/`fatal`/`error`/`warning`/`info`/`debug`/`trace` | `[CommonSettings]` `LogLvl` |
 | `touchControls` | bool | 宿主自用：是否显示屏幕按键，缺省显示 |
+| `debugMode` | bool | `[CommonSettings]` `DebugMode`：适配用的调试模式，三指同按打开，见 [docs/debug-mode.md](docs/debug-mode.md) |
 
 ## 屏幕按键与虚拟鼠标
 
