@@ -1,0 +1,311 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 00:13:02 -0800
+Subject: [PATCH] tyn: sg-pc MOVIE LIBRARY (10:20, 0x436480 / 0x436540 /
+ 0x436170); CG / SOUND LIBRARY leave at once
+
+The EXTRA libraries had no screens in sg-pc, so the script waited on an
+invisible menu and the title could not be used any more. The movie library
+is ported from Game.exe (entries, unlock flags, mouse areas of table
+0x52b478, preview cells, the chosen movie over the library at layer 3000).
+The CG and sound libraries are not ported yet: they answer like the player
+leaving, so the script goes back to the title.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b0507d1b58a05edb7f0d7b195df20cb426732dda..72fbdd117ae6eeedd893f6e274ad47dac6b7eeb1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -274,6 +274,7 @@ set(Impacto_Src
+     src/games/sghd/phonescreens2.cpp
+     src/games/sghd/phonescreens3.cpp
+     src/games/sghd/timeleap.cpp
++    src/games/sghd/movielibrary.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index ebd853c2c265393a694d829551c62a67a1b5318a..df7ffc777196bc38366ebf92857d79bb94ddf03d 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -5,6 +5,12 @@
+ root.SpriteSheets = {
+     -- The phone textures are loaded by the scripts (LoadTexture into surfaces 170..179), so these sheets are script
+     -- handled: 15 PACG, 16..20 PHONE / _B.._E (one per phone design), 21 PHONE2, 22 PHONE3, 23 PWCG, 24 PWCGTHUM.
++    ["MovieMenu"] = {
++        Path = { Mount = "system", Id = 13 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
+     ["Phone"] = {
+         Path = { Mount = "system", Id = 16 },
+         DesignWidth = 3072,
+diff --git a/src/game.cpp b/src/game.cpp
+index 193319d1b7bfbeb5bd5b5cc1adf9cc824e157194..a6c84b7a4a4ad765ae72112d0e2cb1875168240f 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -1,3 +1,4 @@
++#include "games/sghd/movielibrary.h"
+ #include "game.h"
+ 
+ #include "text/dialoguepage.h"
+@@ -768,6 +769,11 @@ void Render() {
+       }
+     }
+   }
++  // STEINS;GATE: the libraries of EXTRA are drawn by the menu pass of the
++  // original (0x43cca0), over the title menu
++  if (Profile::GameSpecific::GameSpecificType == UI::GameSpecificType::SGHD) {
++    SGHD::MovieLibrary::Render();
++  }
+ 
+   if (+Profile::Game::GameFeatures & +GameFeature::CharacterViewer) {
+     if (Backgrounds2D[0]->Status == LoadStatus::Loaded) {
+diff --git a/src/games/sghd/movielibrary.cpp b/src/games/sghd/movielibrary.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..081b5e7e08995d1248eedfb4bb63b03894840bc5
+--- /dev/null
++++ b/src/games/sghd/movielibrary.cpp
+@@ -0,0 +1,167 @@
++// MOVIE LIBRARY of STEINS;GATE (Steam): 10:20 type 0 (0x436480) / type 1 (0x436540), drawn by 0x436170 while
++// GlobalVars[2148] is 9. The script plays the chosen movie (GlobalVars[2301]) and handles the cancel key.
++
++#include "movielibrary.h"
++
++#include <algorithm>
++#include <array>
++
++#include "phone.h"
++#include "phonerender.h"
++#include "../../inputsystem.h"
++#include "../../mem.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/sprites.h"
++#include "../../renderer/renderer.h"
++#include "../../text/text.h"
++#include "../../vm/interface/input.h"
++#include "../../vm/vm.h"
++#include "../../video/videosystem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace MovieLibrary {
++
++using namespace Impacto::Vm::Interface;
++
++namespace {
++
++constexpr int Surface = 0xa2;  // MOVMENU, loaded by the script
++constexpr int Count = 12;      // DAT_01640870
++constexpr int Rows = 8;
++// 0x52b2a8: play number of every entry
++constexpr std::array<int, Count> MovieIds = {32, 34, 35, 1, 3, 4, 5, 2, 25, 26, 0, 33};
++// hit areas of the screen (table 0x52b478, group 0xb): rows 1..8, the scroll bar 9 and its thumb 10
++constexpr float RowX = 333, RowY = 591, RowW = 1443, RowH = 42;
++constexpr float BarX = 1791, BarY = 594, BarW = 37, BarH = 337, ThumbH = 100;
++
++std::array<bool, Count> Unlocked{};
++int Cursor = 0xff;  // DAT_0164084c
++int Scroll = 0;     // DAT_01640854, first shown entry (0..4)
++float ThumbOffset = 0;  // DAT_0052b5c8
++bool Dragging = false;
++
++bool MouseMode() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++bool Inside(glm::vec2 p, float x, float y, float w, float h) {
++  return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
++}
++
++void UpdateThumb() { ThumbOffset = (float)(((Scroll * 0x9e) >> 2) * 3 >> 1); }
++
++std::vector<ProcessedTextGlyph> Text(int table, int index, glm::vec2 pos) {
++  auto ctx = Vm::ScriptGetTextTableStrAddress(table, index);
++  Vm::Sc3Stream stream(&ctx.Buffers[ctx.BufferId][ctx.IpOffset]);
++  return TextLayoutPlainLine(stream, std::nullopt, *Profile::Dialogue::DialogueFont, 20 * 1.5f,
++                             DialogueColorPair{0xffffff, 0}, 1.0f, pos, TextAlignment::Left);
++}
++
++}  // namespace
++
++void Init() {
++  Unlocked = {true, true, true, GetFlag(0x38e), GetFlag(0x391), GetFlag(0x392), GetFlag(0x393), GetFlag(0x394),
++              GetFlag(0x38f), GetFlag(0x390), true, true};
++  ScrWork[2301] = 0xff;
++  if (MouseMode()) Cursor = 0xff;
++  Dragging = false;
++  UpdateThumb();
++}
++
++void Update() {
++  const bool mouse = MouseMode();
++  const glm::vec2 p = Input::CurMousePos;
++  const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++  if (mouse) {
++    Cursor = 0xff;
++    if (Input::MouseWheelDeltaY > 0) Scroll = Scroll < 4 ? 0 : Scroll - 4;
++    if (Input::MouseWheelDeltaY < 0 && Scroll < 4) Scroll = 4;
++    // dragging the thumb (or a touch flick on the list) scrolls in steps of a quarter of the free bar length
++    const float free = BarH - ThumbH;
++    if (Dragging && !(PADinputMouseIsDown & PAD1A)) Dragging = false;
++    if (click && Inside(p, BarX, BarY + ThumbOffset, BarW, ThumbH)) Dragging = true;
++    if (Dragging) {
++      const float y = std::clamp(p.y - BarY - ThumbH / 2, 0.0f, free);
++      Scroll = (int)((free / 4 / 2 + y) / (free / 4));
++      UpdateThumb();
++      return;
++    }
++    if (click && Inside(p, BarX, BarY, BarW, BarH)) {
++      if (p.y < BarY + ThumbOffset) Scroll = 0;
++      if (p.y > BarY + ThumbH + ThumbOffset) Scroll = 4;
++    }
++    for (int r = 0; r < Rows; r++) {
++      if (!Inside(p, RowX, RowY + RowH * r, RowW, RowH)) continue;
++      Cursor = r;
++      if (click) decide = true;
++      break;
++    }
++  }
++  if (Cursor < 0xff && decide && Unlocked[Scroll + Cursor]) {
++    ScrWork[2301] = MovieIds[Scroll + Cursor];
++    PADinputButtonWentDown &= ~PAD1A;
++    PADinputMouseWentDown &= ~PAD1A;
++    return;
++  }
++  if (((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) != 0) return;  // the script leaves
++  if (PADinputButtonRepeatDown & PAD1UP) {
++    if (Cursor == 0xff) {
++      Cursor = 0;
++    } else if (Cursor < 2 && Scroll != 0) {
++      Scroll--;
++    } else if (Cursor != 0) {
++      Cursor--;
++    }
++  }
++  if (PADinputButtonRepeatDown & PAD1DOWN) {
++    if (Cursor == 0xff) {
++      Cursor = 0;
++    } else if (Cursor > 5 && Scroll < 4) {
++      Scroll++;
++    } else if (!(Cursor > 5 && Count - 1 <= Scroll + Cursor)) {
++      Cursor++;
++    }
++  }
++  UpdateThumb();
++}
++
++void Render() {
++  if (ScrWork[2148] != 9 || ScrWork[2147] == 0) return;
++  using namespace Phone;
++  const int a = ScrWork[2147] << 3;
++  constexpr float k = 1.5f;  // the routines below give destinations in screen pixels, Spr wants 1280 units
++  Spr(Surface, 0, 0, 1920, 1080, 0, 0, a);
++  // 0x436030(6): the key guide strip of DATA01
++  if (auto it = Profile::SpriteSheets.find("Data"); it != Profile::SpriteSheets.end()) {
++    Sprite guide(it->second, 1.0f, 3 * 0x2a + 0x600 + 1.0f, 1534, 40);
++    Renderer->DrawSprite(guide, RectF(1, 995, 1534, 40), glm::vec4(1, 1, 1, std::min(a, 256) / 256.0f));
++  }
++  if (Cursor < 0xff) Spr(Surface, 1.5f, 1081.5f, 1917, 42, 1.5f / k, (Cursor * 0x1c + 0x18a), a);
++  Spr(Surface, 1921.5f, 270, 33, 114, 1795.5f / k, ((Scroll * 0x9e) >> 2) + 0x18c, a);
++  if (Cursor < 0xff && Unlocked[Scroll + Cursor]) {
++    const int u = Scroll + Cursor;
++    int sy, sx;
++    if (u == 10) {
++      sy = 800, sx = -0x53a;
++    } else if (u == 11) {
++      sy = 800, sx = -0x3d7;
++    } else {
++      sy = (u >> 1) * 200, sx = (u % 2) * 0x163;
++    }
++    Spr(Surface, (sx + 0x53b) * 1.5f, (sy + 0x19) * 1.5f, 529.5f, 297, 826.5f / k, 256.5f / k, a);
++  }
++  for (int i = 0; i < Rows; i++) {
++    const int e = Scroll + i;
++    const glm::vec2 pos(0x117 * k, (0x18e + 0x1c * i) * k);
++    auto glyphs = Unlocked[e] ? Text(5, e, pos) : Text(4, 3, pos);
++    Profile::Dialogue::DialogueFont->DrawProcessedText(glyphs, std::min(a, 256) / 256.0f,
++                                                        RendererOutlineMode::None);
++  }
++  // the chosen movie plays over the library (layer 3000, 0x436170 -> 0x417d40)
++  if (ScrWork[6330] == 3000) Video::VideoRender(1.0f);
++}
++
++}  // namespace MovieLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/movielibrary.h b/src/games/sghd/movielibrary.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..69276482c4b5acef7ecdc6ea1f1e9f679815cdd6
+--- /dev/null
++++ b/src/games/sghd/movielibrary.h
+@@ -0,0 +1,15 @@
++#pragma once
++
++// MOVIE LIBRARY of STEINS;GATE (Steam), see movielibrary.cpp.
++
++namespace Impacto {
++namespace SGHD {
++namespace MovieLibrary {
++
++void Init();    // 10:20 type 0 (0x436480)
++void Update();  // 10:20 type 1 (0x436540)
++void Render();  // 0x436170, while GlobalVars[2148] is 9
++
++}  // namespace MovieLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index f04043836986da45f2e7109bc4a0a1819f7105e5..89c4d458025db5ef5baa39fa812155e85d2b8a9e 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -12,6 +12,7 @@
+ #include "../profile/ui/helpmenu.h"
+ #include "../games/sghd/phone.h"
+ #include "../games/sghd/timeleap.h"
++#include "../games/sghd/movielibrary.h"
+ 
+ namespace Impacto {
+ 
+@@ -139,6 +140,25 @@ inline void InstSghdTimeLeapDates(Sc3VmThread* thread, float dt) {
+   SGHD::TimeLeap::Start(v);
+ }
+ 
++// 10:1D (SOUND LIBRARY, 0x4673b0) / 10:1F (CG LIBRARY, 0x467410): not ported yet. Their screens would stay
++// invisible while the script waits for them, so the first frame answers like the player leaving (flag 1805):
++// the script goes back to the title.
++inline void InstSghdLibraryNotPorted(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 1) SetFlag(1805, true);
++}
++
++// 10:20 (0x467450): MOVIE LIBRARY, type 0 opens it, type 1 runs it for a frame (CC: MovieMenu).
++inline void InstSghdMovieLibrary(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 0) SGHD::MovieLibrary::Init();
++  if (type == 1) SGHD::MovieLibrary::Update();
++}
++
+ // 10:38: text pages of the phone's attachments (type byte, a label when the type is 0).
+ inline void InstSghdGroup1038(Sc3VmThread* thread, float dt) { SGHD::Phone::Instruction1038(thread); }
+ 
+diff --git a/src/vm/opcodetables_sghd.h b/src/vm/opcodetables_sghd.h
+index fee4feee55badd7e9e91f97cd14a63467de5d6c5..e18eade676a9a31afcb117fb37101bdd087ca9cd 100644
+--- a/src/vm/opcodetables_sghd.h
++++ b/src/vm/opcodetables_sghd.h
+@@ -24,6 +24,9 @@ inline void Configure_SGHD() {
+   OpcodeTableUser1_SGHD[0x1b] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy)
+   OpcodeTableUser1_SGHD[0x37] = InstSghdGroup1037;  // phone / mail group (CC: MapSystem)
+   OpcodeTableUser1_SGHD[0x38] = InstSghdGroup1038;  // type byte, a label when the type is 0 (CC: Mtrg)
++  OpcodeTableUser1_SGHD[0x1d] = InstSghdLibraryNotPorted;  // SOUND LIBRARY (CC: MusicMenu)
++  OpcodeTableUser1_SGHD[0x1f] = InstSghdLibraryNotPorted;  // CG LIBRARY (CC: AlbumMenu)
++  OpcodeTableUser1_SGHD[0x20] = InstSghdMovieLibrary;  // MOVIE LIBRARY (CC: MovieMenu, not built for sg-pc)
+   OpcodeTableUser1_SGHD[0x3a] = InstSghdTimeLeapDates;  // six expressions (CC: YesNoTrigger, other operands)
+   OpcodeTableUser1_SGHD[0x3f] = InstSghdMenuSignal;  // menu open / close signal (CC: Dummy, which hangs the thread)
+ }

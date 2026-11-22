@@ -1,0 +1,156 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 20:42:36 -0800
+Subject: [PATCH] profile: a sheet can probe cells for centred ink; fonts give
+ those the full em width
+
+The 2018 Chinese patch of STEINS;GATE draws id 226 (middle dot) as a
+centred full-width glyph where the original font has a proportional one,
+so the fixed advance table cut its spacing on the right. sg-pc probes that
+cell when the font sheet loads.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index 47ec4d26ad6398c8146783d47a26c7a3e6c022df..ebd853c2c265393a694d829551c62a67a1b5318a 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -73,7 +73,10 @@ root.SpriteSheets = {
+     ["Font"] = {
+         Path = { Mount = "system", Id = 9 },
+         DesignWidth = 3072,
+-        DesignHeight = 6000
++        DesignHeight = 6000,
++        -- the 2018 Chinese patch draws id 226 (middle dot) as a centred full-width glyph; the original's is
++        -- proportional (advance 32 in font-widths.lua)
++        CentredInkProbe = { CellSize = 48, Columns = 64, Cells = { 226 } },
+     },
+     ["TitleChip"] = {
+         Path = { Mount = "system", Id = 30 },
+diff --git a/src/profile/fonts.cpp b/src/profile/fonts.cpp
+index c47bb642be0f1d462947162b18d069d4568ebad2..be84bafd7766b14a49ba181ae6cd1e4e9ab9ceff 100644
+--- a/src/profile/fonts.cpp
++++ b/src/profile/fonts.cpp
+@@ -2,6 +2,7 @@
+ #include "profile_internal.h"
+ #include "../log.h"
+ #include "../renderer/renderer.h"
++#include "sprites.h"
+ 
+ namespace Impacto {
+ namespace Profile {
+@@ -86,10 +87,17 @@ void LoadFonts() {
+         }
+ 
+         if (fontType == SingleSheet) {
++          std::vector<float> widths =
++              EnsureGetAdvanceWidths(name, *bitmapEmWidth);
++          if (auto it = CentredInkCells.find(sheet.Texture);
++              it != CentredInkCells.end()) {
++            for (int cell : it->second)
++              if (cell >= 0 && cell < (int)widths.size())
++                widths[cell] = *bitmapEmWidth;
++          }
+           Fonts[name] = new SingleSheetFont(
+               *bitmapEmWidth, *bitmapEmHeight, foregroundOpacityCurve,
+-              outlineOpacityCurve, sheet, gridSize,
+-              EnsureGetAdvanceWidths(name, *bitmapEmWidth));
++              outlineOpacityCurve, sheet, gridSize, std::move(widths));
+         } else {
+           assert(fontType == EdgeDetectedSingleSheet);
+ 
+diff --git a/src/profile/sprites.cpp b/src/profile/sprites.cpp
+index 97315d2f3059a90e60d5153a303dacd1d0e4a8b2..7d729df2db6a4e8d36cdb85e99346549a9e89d67 100644
+--- a/src/profile/sprites.cpp
++++ b/src/profile/sprites.cpp
+@@ -4,6 +4,8 @@
+ #include "../log.h"
+ #include "../renderer/renderer.h"
+ #include "../texture/texture.h"
++#include <algorithm>
++#include <cstdlib>
+ #include <future>
+ 
+ namespace Impacto {
+@@ -27,6 +29,11 @@ void LoadSpritesheets() {
+   EnsurePushMemberOfType("SpriteSheets", LUA_TTABLE);
+ 
+   std::vector<std::tuple<std::string, std::future<Texture>>> futures;
++  struct InkProbe {
++    int CellSize = 0, Columns = 0;
++    std::vector<float> Cells;
++  };
++  ankerl::unordered_dense::map<std::string, InkProbe> inkProbes;
+ 
+   PushInitialIndex();
+   while (PushNextTableElement() != 0) {
+@@ -37,6 +44,17 @@ void LoadSpritesheets() {
+     sheet.DesignHeight = EnsureGetMember<float>("DesignHeight");
+     sheet.ScriptHandled = TryGetMember<bool>("ScriptHandled") == true;
+     sheet.Path = EnsureGetMember<Io::AssetPath>("Path");
++    // Some data sets replace a font's glyphs with ones drawn differently (a
++    // translation's full-width punctuation in place of a proportional one);
++    // the probe finds out which of the listed cells hold centred ink.
++    if (TryPushMember("CentredInkProbe")) {
++      InkProbe probe;
++      probe.CellSize = EnsureGetMember<int>("CellSize");
++      probe.Columns = EnsureGetMember<int>("Columns");
++      TryGetMember("Cells", probe.Cells);
++      inkProbes[name] = probe;
++      Pop();
++    }
+ 
+     if (sheet.ScriptHandled) {
+       sheet.Texture = Renderer->MapSpriteSheet(sheet);
+@@ -57,7 +75,34 @@ void LoadSpritesheets() {
+ 
+   for (auto& [name, future] : futures) {
+     SpriteSheet& sheet = SpriteSheets[name];
+-    sheet.Texture = future.get().Submit();
++    Texture texture = future.get();
++    if (auto probe = inkProbes.find(name);
++        probe != inkProbes.end() && texture.Format == TexFmt_RGBA) {
++      const int cs = probe->second.CellSize;
++      std::vector<int> centred;
++      for (float cellF : probe->second.Cells) {
++        const int cell = static_cast<int>(cellF);
++        const int x0 = (cell % probe->second.Columns) * cs;
++        const int y0 = (cell / probe->second.Columns) * cs;
++        if (x0 + cs > texture.Width || y0 + cs > texture.Height) continue;
++        int left = cs, right = -1;
++        for (int y = y0; y < y0 + cs; y++) {
++          for (int x = x0; x < x0 + cs; x++) {
++            if (texture.Buffer[(size_t(y) * texture.Width + x) * 4 + 3] <= 24)
++              continue;
++            left = std::min(left, x - x0);
++            right = std::max(right, x - x0);
++          }
++        }
++        // ink that leaves about as much room on the right as on the left
++        if (right >= 0 && left >= cs / 4 && std::abs(left - (cs - 1 - right)) <= cs / 8)
++          centred.push_back(cell);
++      }
++      sheet.Texture = texture.Submit();
++      if (!centred.empty()) CentredInkCells[sheet.Texture] = centred;
++      continue;
++    }
++    sheet.Texture = texture.Submit();
+   }
+ 
+   Pop();
+diff --git a/src/profile/sprites.h b/src/profile/sprites.h
+index 9c529be112d8be7d7036cf660714dfdab8703c0f..5a1928a0dc97841223b1a6e53e380b1d8022bf12 100644
+--- a/src/profile/sprites.h
++++ b/src/profile/sprites.h
+@@ -14,6 +14,11 @@ inline ankerl::unordered_dense::map<std::string, Sprite, string_hash,
+                                     std::equal_to<>>
+     Sprites;
+ 
++// Cells of a font sheet whose ink sits in the middle of the cell (keyed by the
++// sheet's texture): a font drawn from that sheet gives them the full em width.
++// Filled for sheets with a CentredInkProbe, see LoadSpritesheets.
++inline ankerl::unordered_dense::map<uint32_t, std::vector<int>> CentredInkCells;
++
+ void LoadSpritesheets();
+ 
+ }  // namespace Profile

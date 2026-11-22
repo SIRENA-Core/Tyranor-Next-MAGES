@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 22:25:38 -0800
+Subject: [PATCH] profile: screen fill count, spacing and second layer; sg-pc
+ has three fills 10 apart
+
+STEINS;GATE draws three screen fills (GlobalVars[4400 / 4410 / 4420]:
+color, alpha, layer, x, y, w, h, second layer; Game.exe 0x428d50); the
+engine only had the two fills seven apart of Chaos;Child, so the second and
+third never showed, among them the colour wash of a world line change.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/profiles/sg-pc/game.lua b/profiles/sg-pc/game.lua
+index c933376f9a924255ba9c31fd3b130f4ca1c69003..961fe4c0a29bcb3675f0e57d91426de377dda476 100644
+--- a/profiles/sg-pc/game.lua
++++ b/profiles/sg-pc/game.lua
+@@ -33,6 +33,11 @@ root.Vm = {
+     ScrWorkCaptureOffsetStructSize = 10,
+     ScrWorkCaptureEffectInfoStructSize = 3,
+     ScrWorkBgEffStructSize = 30,
++    -- three screen fills at GlobalVars[4400 / 4410 / 4420] (color, alpha, layer, x, y, w, h, second layer),
++    -- drawn by 0x428d50; the world line change puts its colour wash on the third one
++    ScrWorkMaskCount = 3,
++    ScrWorkMaskStructSize = 10,
++    ScrWorkMaskPri2Offset = 5,
+     ScrWorkBgEffOffsetStructSize = 20,
+ 
+     MaxLinkedBgBuffers = 2
+diff --git a/src/game.cpp b/src/game.cpp
+index cc7eac72c9b45ca1ccaeeac0fe3136fcaed3ef5c..193319d1b7bfbeb5bd5b5cc1adf9cc824e157194 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -514,9 +514,12 @@ static void RenderMain() {
+       }
+     }
+ 
+-    for (int i = 0; i < 2; ++i) {
+-      constexpr static int maskOffset = 7;
+-      if (ScrWork[SW_MASK1PRI + maskOffset * i] == static_cast<int>(layer)) {
++    for (int i = 0; i < Profile::Vm::ScrWorkMaskCount; ++i) {
++      const int maskOffset = Profile::Vm::ScrWorkMaskStructSize;
++      const int pri2 = Profile::Vm::ScrWorkMaskPri2Offset;
++      if (ScrWork[SW_MASK1PRI + maskOffset * i] == static_cast<int>(layer) ||
++          (pri2 != 0 && ScrWork[SW_MASK1PRI + maskOffset * i + pri2] ==
++                            static_cast<int>(layer))) {
+         const int maskAlpha = ScrWork[SW_MASK1ALPHA_OFS + i] +
+                               ScrWork[SW_MASK1ALPHA + maskOffset * i];
+ 
+diff --git a/src/profile/vm.cpp b/src/profile/vm.cpp
+index 6162e5ecbfc7bb0f820ad575d1bcf88d25e1f14d..4ce3a1948175eca3202644cd02de858fe0bff840 100644
+--- a/src/profile/vm.cpp
++++ b/src/profile/vm.cpp
+@@ -38,6 +38,9 @@ void Configure() {
+   }
+ 
+   TryGetMember<int>("ScrWorkBgEffStructSize", ScrWorkBgEffStructSize);
++  TryGetMember<int>("ScrWorkMaskCount", ScrWorkMaskCount);
++  TryGetMember<int>("ScrWorkMaskStructSize", ScrWorkMaskStructSize);
++  TryGetMember<int>("ScrWorkMaskPri2Offset", ScrWorkMaskPri2Offset);
+   TryGetMember<int>("ScrWorkBgEffOffsetStructSize",
+                     ScrWorkBgEffOffsetStructSize);
+ 
+diff --git a/src/profile/vm.h b/src/profile/vm.h
+index 93585f001591c3e332cac036533630b88e6f1556..f2836d3690fb418ab588a292e5bc1bd9f8b7d544 100644
+--- a/src/profile/vm.h
++++ b/src/profile/vm.h
+@@ -31,6 +31,11 @@ inline int ScrWorkCaptureStructSize = 0;
+ inline int ScrWorkCaptureOffsetStructSize = 0;
+ inline int ScrWorkCaptureEffectInfoStructSize = 0;
+ inline int ScrWorkBgEffStructSize = 0;
++// Screen fills (SW_MASK1...): how many, how far apart in ScrWork, and the
++// distance from SW_MASK1PRI to a second layer field (0: none).
++inline int ScrWorkMaskCount = 2;
++inline int ScrWorkMaskStructSize = 7;
++inline int ScrWorkMaskPri2Offset = 0;
+ inline int ScrWorkBgEffOffsetStructSize = 0;
+ inline int ScrWorkMesStructSize = 0;
+ 

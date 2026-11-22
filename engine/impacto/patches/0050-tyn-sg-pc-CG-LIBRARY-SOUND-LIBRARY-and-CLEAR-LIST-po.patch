@@ -1,0 +1,1255 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 00:43:53 -0800
+Subject: [PATCH] tyn: sg-pc CG LIBRARY, SOUND LIBRARY and CLEAR LIST ported
+ from Game.exe
+
+CG LIBRARY (10:1F, 0x415e90 / 0x4168f0 / 0x417060, drawn by 0x415dc0 /
+0x4161b0 / 0x416e90): the album table 0x5280f8, pages of twelve groups with
+the seen / total counts, the viewer with zoom, drag and the cross fade
+between pictures that the script loads (flags 1341 / 1342).
+SOUND LIBRARY (10:1D, 0x436b30 / 0x436c70, drawn by 0x4374f0): the 35
+tracks of 0x52befc with the unlocks of 0x436890, stop and the four play
+modes.
+CLEAR LIST (drawn by 0x433db0, values of 0x434680): play time, endings,
+tips and the share of seen CGs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 72fbdd117ae6eeedd893f6e274ad47dac6b7eeb1..fbff4b34ac1a52d996a98c33a9693803d92f066c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -275,6 +275,10 @@ set(Impacto_Src
+     src/games/sghd/phonescreens3.cpp
+     src/games/sghd/timeleap.cpp
+     src/games/sghd/movielibrary.cpp
++    src/games/sghd/clearlist.cpp
++    src/games/sghd/soundlibrary.cpp
++    src/games/sghd/cglibrary.cpp
++    src/games/sghd/album.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+diff --git a/profiles/sg-pc/sprites.lua b/profiles/sg-pc/sprites.lua
+index df7ffc777196bc38366ebf92857d79bb94ddf03d..13f07e604eb5e8aba85b3f92a3f90a572c49d993 100644
+--- a/profiles/sg-pc/sprites.lua
++++ b/profiles/sg-pc/sprites.lua
+@@ -5,6 +5,30 @@
+ root.SpriteSheets = {
+     -- The phone textures are loaded by the scripts (LoadTexture into surfaces 170..179), so these sheets are script
+     -- handled: 15 PACG, 16..20 PHONE / _B.._E (one per phone design), 21 PHONE2, 22 PHONE3, 23 PWCG, 24 PWCGTHUM.
++    ["ClearListMenu"] = {
++        Path = { Mount = "system", Id = 4 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["AlbumMenu"] = {
++        Path = { Mount = "system", Id = 0 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
++    ["AlbumThumbs"] = {
++        Path = { Mount = "system", Id = 1 },
++        DesignWidth = 3072,
++        DesignHeight = 4224,
++        ScriptHandled = true
++    },
++    ["SoundMenu"] = {
++        Path = { Mount = "system", Id = 14 },
++        DesignWidth = 3072,
++        DesignHeight = 1536,
++        ScriptHandled = true
++    },
+     ["MovieMenu"] = {
+         Path = { Mount = "system", Id = 13 },
+         DesignWidth = 3072,
+diff --git a/src/game.cpp b/src/game.cpp
+index a6c84b7a4a4ad765ae72112d0e2cb1875168240f..d7e0bd529d067c8dd1615c9ac7a7df3d66ae30c8 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -1,4 +1,7 @@
+ #include "games/sghd/movielibrary.h"
++#include "games/sghd/clearlist.h"
++#include "games/sghd/soundlibrary.h"
++#include "games/sghd/cglibrary.h"
+ #include "game.h"
+ 
+ #include "text/dialoguepage.h"
+@@ -773,6 +776,9 @@ void Render() {
+   // original (0x43cca0), over the title menu
+   if (Profile::GameSpecific::GameSpecificType == UI::GameSpecificType::SGHD) {
+     SGHD::MovieLibrary::Render();
++    SGHD::ClearList::Render();
++    SGHD::SoundLibrary::Render();
++    SGHD::CgLibrary::Render();
+   }
+ 
+   if (+Profile::Game::GameFeatures & +GameFeature::CharacterViewer) {
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index ce924263dd8a830d1d2203944cd8cb1a5d1ab95f..0d22ce8b32fd75c49a67d230f7af6e048108ab76 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -94,6 +94,9 @@ class SaveSystem final : public SaveSystemBase {
+   void SetEVStatus(int evId) override;
+   bool GetEVVariationIsUnlocked(size_t evId,
+                                 size_t variationIdx) const override;
++  bool GetEVFlag(int id) const {
++    return id >= 0 && id < static_cast<int>(EVFlags.size()) && EVFlags[id];
++  }
+   bool GetBgmFlag(int id) const override;
+   void SetBgmFlag(int id, bool flag) override;
+   void SetCheckpointId(int id) override;
+diff --git a/src/games/sghd/album.cpp b/src/games/sghd/album.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..1ae282553d3f374aa20958b050fb9fa1b67ab947
+--- /dev/null
++++ b/src/games/sghd/album.cpp
+@@ -0,0 +1,116 @@
++// CG LIBRARY data of STEINS;GATE (Steam): the album table of Game.exe (0x5280f8), 7 pages of 12 groups.
++
++#include "album.h"
++
++#include "../../games/mo6twpc/savesystem.h"
++#include "../../data/savesystem.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace Album {
++
++// per group: two values of the table row and up to ten pictures (CG flag, background, and four layout values)
++const Group Groups[Pages * GroupsPerPage] = {
++    {0, 0, {{1, 207, 0, 0, 0, 0}}},
++    {1, 1, {{2, 208, 1, 0, 0, 0}}},
++    {2, 2, {{3, 213, 2, 0, 0, 0}}},
++    {3, 3, {{4, 214, 3, 0, 0, 0}, {5, 215, 3, 0, 0, 0}, {6, 216, 3, 0, 0, 0}, {7, 217, 3, 0, 0, 0}}},
++    {4, 4, {{8, 218, 0, 1, 0, 0}}},
++    {5, 5, {{9, 219, 1, 1, 0, 0}}},
++    {6, 6, {{10, 220, 2, 1, 0, 0}}},
++    {7, 7, {{11, 221, 3, 1, 0, 0}}},
++    {8, 8, {{13, 223, 0, 2, 0, 0}, {12, 222, 0, 2, 0, 0}}},
++    {9, 9, {{14, 224, 1, 2, 0, 0}}},
++    {10, 10, {{109, 331, 2, 2, 0, 0}}},
++    {11, 11, {{15, 225, 3, 2, 0, 0}}},
++    {0, 0, {{16, 226, 0, 3, 0, 0}}},
++    {1, 1, {{17, 227, 1, 3, 0, 0}, {18, 230, 1, 3, 0, 0}}},
++    {2, 2, {{42, 266, 2, 3, 0, 0}}},
++    {3, 3, {{44, 267, 3, 3, 0, 0}, {45, 268, 3, 3, 0, 0}, {46, 269, 3, 3, 0, 0}, {47, 270, 3, 3, 0, 0}}},
++    {4, 4, {{48, 271, 0, 4, 0, 0}}},
++    {5, 5, {{50, 272, 1, 4, 0, 0}}},
++    {6, 6, {{59, 282, 2, 4, 0, 0}}},
++    {7, 7, {{51, 273, 3, 4, 0, 0}}},
++    {8, 8, {{54, 274, 0, 5, 0, 0}}},
++    {9, 9, {{99, 321, 1, 5, 0, 0}}},
++    {10, 10, {{95, 317, 2, 5, 0, 0}, {96, 318, 2, 5, 0, 0}}},
++    {11, 11, {{60, 283, 3, 5, 0, 0}}},
++    {0, 0, {{61, 289, 0, 6, 0, 0}}},
++    {1, 1, {{55, 275, 1, 6, 0, 0}}},
++    {2, 2, {{56, 276, 2, 6, 0, 0}}},
++    {3, 3, {{57, 277, 3, 6, 0, 0}}},
++    {4, 4, {{58, 278, 0, 7, 0, 0}}},
++    {5, 5, {{62, 290, 1, 7, 0, 0}}},
++    {6, 6, {{63, 291, 2, 7, 0, 0}}},
++    {7, 7, {{64, 292, 3, 7, 0, 0}, {65, 293, 3, 7, 0, 0}}},
++    {8, 8, {{66, 294, 0, 8, 0, 0}, {67, 295, 0, 8, 0, 0}}},
++    {9, 9, {{68, 296, 1, 8, 0, 0}, {69, 297, 1, 8, 0, 0}, {70, 298, 1, 8, 0, 0}}},
++    {10, 10, {{71, 299, 2, 8, 0, 0}}},
++    {11, 11, {{102, 324, 3, 8, 0, 0}}},
++    {0, 0, {{72, 300, 0, 9, 0, 0}}},
++    {1, 1, {{73, 301, 1, 9, 0, 0}}},
++    {2, 2, {{74, 302, 2, 9, 0, 0}}},
++    {3, 3, {{75, 303, 3, 9, 0, 0}}},
++    {4, 4, {{76, 304, 0, 10, 0, 0}}},
++    {5, 5, {{77, 305, 1, 10, 0, 0}, {78, 306, 1, 10, 0, 0}}},
++    {6, 6, {{97, 319, 2, 10, 0, 0}}},
++    {7, 7, {{79, 307, 3, 10, 0, 0}}},
++    {8, 8, {{88, 316, 0, 11, 0, 0}}},
++    {9, 9, {{80, 308, 1, 11, 0, 0}}},
++    {10, 10, {{81, 309, 2, 11, 0, 0}}},
++    {11, 11, {{82, 310, 3, 11, 0, 0}}},
++    {0, 0, {{86, 314, 0, 12, 0, 0}}},
++    {1, 1, {{88, 315, 1, 12, 0, 0}}},
++    {2, 2, {{83, 311, 2, 12, 0, 0}}},
++    {3, 3, {{84, 312, 3, 12, 0, 0}, {85, 313, 3, 12, 0, 0}}},
++    {4, 4, {{19, 243, 0, 13, 0, 0}}},
++    {5, 5, {{20, 244, 1, 13, 0, 0}}},
++    {6, 6, {{21, 245, 2, 13, 0, 0}, {22, 246, 2, 13, 0, 0}}},
++    {7, 7, {{100, 322, 3, 13, 0, 0}, {101, 323, 3, 13, 0, 0}}},
++    {8, 8, {{23, 247, 0, 14, 0, 0}}},
++    {9, 9, {{24, 248, 1, 14, 0, 0}}},
++    {10, 10, {{25, 249, 2, 14, 0, 0}, {26, 250, 2, 14, 0, 0}}},
++    {11, 11, {{27, 251, 3, 14, 0, 0}}},
++    {0, 0, {{28, 252, 0, 15, 0, 0}}},
++    {1, 1, {{29, 253, 1, 15, 0, 0}}},
++    {2, 2, {{30, 254, 2, 15, 0, 0}}},
++    {3, 3, {{103, 325, 3, 15, 0, 0}, {104, 326, 3, 15, 0, 0}, {105, 327, 3, 15, 0, 0}}},
++    {4, 4, {{32, 256, 0, 16, 0, 0}, {33, 257, 0, 16, 0, 0}}},
++    {5, 5, {{41, 265, 1, 16, 0, 0}}},
++    {6, 6, {{34, 258, 2, 16, 0, 0}, {35, 259, 2, 16, 0, 0}}},
++    {7, 7, {{36, 260, 3, 16, 0, 0}, {37, 261, 3, 16, 0, 0}, {38, 262, 3, 16, 0, 0}}},
++    {8, 8, {{39, 263, 0, 17, 0, 0}, {40, 264, 0, 17, 0, 0}}},
++    {9, 9, {{89, 334, 1, 17, 0, 0}}},
++    {10, 10, {{90, 335, 2, 17, 0, 0}}},
++    {11, 11, {{91, 336, 3, 17, 0, 0}}},
++    {0, 0, {{92, 337, 0, 18, 0, 0}}},
++    {1, 1, {{107, 329, 1, 18, 0, 0}, {106, 328, 1, 18, 0, 0}}},
++    {2, 2, {{108, 330, 2, 18, 0, 0}}},
++    {3, 3, {{93, 338, 3, 18, 0, 0}, {94, 339, 3, 18, 0, 0}}},
++    {4, 4, {{110, 333, 0, 18, 0, 0}}},
++    {5, 5, {}},
++    {6, 6, {}},
++    {7, 7, {}},
++    {8, 8, {}},
++    {9, 9, {}},
++    {10, 10, {}},
++    {11, 11, {}},
++};
++
++bool Seen(int cgFlag) {
++  auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
++  return save && save->GetEVFlag(cgFlag);
++}
++
++void Count(int& seen, int& all) {
++  seen = all = 0;
++  for (const Group& g : Groups)
++    for (int i = 0; i < g.Count(); i++) {
++      all++;
++      seen += Seen(g.Pictures[i][0]);
++    }
++}
++
++}  // namespace Album
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/album.h b/src/games/sghd/album.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..19c77e34e11396b31e2baeb5ae5916730eb1810f
+--- /dev/null
++++ b/src/games/sghd/album.h
+@@ -0,0 +1,30 @@
++#pragma once
++
++// CG LIBRARY data of STEINS;GATE (Steam), see album.cpp.
++
++#include <array>
++
++namespace Impacto {
++namespace SGHD {
++namespace Album {
++
++constexpr int Pages = 7, GroupsPerPage = 12, MaxPictures = 10;
++
++struct Group {
++  int A, B;
++  int Pictures[MaxPictures][6];
++  int Count() const {
++    int n = 0;
++    while (n < MaxPictures && Pictures[n][0] != 0) n++;
++    return n;
++  }
++};
++
++extern const Group Groups[Pages * GroupsPerPage];
++
++bool Seen(int cgFlag);                // the CG flag of the save (EVFlags)
++void Count(int& seen, int& all);      // 0x415c90
++
++}  // namespace Album
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/cglibrary.cpp b/src/games/sghd/cglibrary.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7de60e738d92fc3563c491e6dcea75878f955295
+--- /dev/null
++++ b/src/games/sghd/cglibrary.cpp
+@@ -0,0 +1,407 @@
++// CG LIBRARY of STEINS;GATE (Steam): 10:1F type 0 (0x415e90) / type 1 (0x4168f0, viewer 0x417060), drawn by
++// 0x415dc0 / 0x4161b0 / 0x416e90 while GlobalVars[2148] is 8. The picture itself is loaded by the script
++// (flag 1341: LoadBackground(GlobalVars[2307], GlobalVars[2306]), then flag 1342).
++
++#include "cglibrary.h"
++
++#include <algorithm>
++#include <array>
++
++#include "album.h"
++#include "phonerender.h"
++#include "../../background2d.h"
++#include "../../inputsystem.h"
++#include "../../mem.h"
++#include "../../profile/scriptvars.h"
++#include "../../profile/sprites.h"
++#include "../../renderer/renderer.h"
++#include "../../util.h"
++#include "../../vm/interface/input.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace CgLibrary {
++
++using namespace Impacto::Vm::Interface;
++using namespace Impacto::Profile::ScriptVars;
++
++namespace {
++
++constexpr int Surface = 0x97, Thumbs = 0x98;  // ALBUM / ALBUM_THUM, loaded by the script
++constexpr float K = 1.5f;
++constexpr float W = 1920, H = 1080;
++
++int Page = 0;          // DAT_00d4b904
++int Cursor = 0xff;     // DAT_00d4b4d4
++int HoverTab = 0xff;   // DAT_00d4e50c
++int Blink = 0;         // DAT_00d4e51c
++std::array<int, Album::Pages * Album::GroupsPerPage> Total{}, Seen{};
++std::array<std::array<int, Album::MaxPictures>, Album::Pages * Album::GroupsPerPage> SeenList{};
++
++int State = 0;      // DAT_00d4cfc4: 0 grid, 1 opening, 2 viewing, 3 closing
++int Fade = 0;       // DAT_00d4e46c (0..32)
++int Picture = 0;    // DAT_00d4e478, index into the seen pictures of the group
++int Pictures = 0;   // DAT_00d4e47c
++bool Guide = true;  // DAT_00d4e504
++bool Dragging = false, Moved = false;
++glm::vec2 DragStart{}, PanStart{};
++
++// the two picture layers of the viewer (current, next): script buffer, zoom, smallest zoom, size, centre, alpha
++struct Layer {
++  int Buffer = 1;
++  float Zoom = 1, MinZoom = 1, Width = W, Height = H, Cx = W / 2, Cy = H / 2;
++  int Alpha = 0;  // 0..16
++  bool Ready = false;
++};
++std::array<Layer, 2> Layers{};
++int Shown = 0;     // DAT_00d4e480 (0..16): the current picture faded in
++bool Loading = false;
++
++const Background2D* Bg(int buffer) {
++  auto it = Backgrounds2D.find(ScrWork[SW_BG1SURF + GetBufferId(buffer)]);
++  if (it == Backgrounds2D.end() || !it->second || it->second->Status != LoadStatus::Loaded) return nullptr;
++  return it->second;
++}
++
++bool MouseMode() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++bool Inside(glm::vec2 p, float x, float y, float w, float h) {
++  return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
++}
++
++// 0x417620: keep the centre inside the picture
++void Clamp(Layer& l) {
++  const float vw = W / l.Zoom, vh = H / l.Zoom;
++  if (vw < l.Width) {
++    l.Cx = std::clamp(l.Cx, vw / 2, l.Width - vw / 2);
++  } else {
++    l.Cx = l.Width / 2;
++  }
++  if (vh < l.Height) {
++    l.Cy = std::clamp(l.Cy, vh / 2, l.Height - vh / 2);
++  } else {
++    l.Cy = l.Height / 2;
++  }
++}
++
++// 0x416df0: size of a freshly loaded picture and the zoom that shows all of it
++void Measure(Layer& l) {
++  if (const Background2D* bg = Bg(l.Buffer)) {
++    l.Width = bg->BgSprite.Bounds.Width;
++    l.Height = bg->BgSprite.Bounds.Height;
++  }
++  l.MinZoom = 1.0f;
++  if (W < l.Width) {
++    l.MinZoom = W / l.Width;
++  } else if (H < l.Height) {
++    l.MinZoom = H / l.Height;
++  }
++  l.Zoom = l.MinZoom;
++  l.Cx = l.Width / 2;
++  l.Cy = l.Height / 2;
++}
++
++// 0x417720: ask the script for the next picture of the group, into the other layer's buffer
++void LoadPicture() {
++  const int g = Cursor + Page * Album::GroupsPerPage;
++  const int entry = SeenList[g][Picture];
++  Layers[1].Buffer = Layers[0].Buffer == 1 ? 2 : 1;
++  ScrWork[2306] = Album::Groups[g].Pictures[entry][1];
++  ScrWork[2307] = Layers[1].Buffer;
++  SetFlag(1341, true);
++  SetFlag(1342, false);
++  Loading = true;
++}
++
++void Zoom(Layer& l, float delta) {  // the zoom steps of 0x417060, snapping to 1:1 on the way
++  const float z = l.Zoom;
++  if (delta > 0) {
++    if (z < 1.0f && z + std::abs(delta) >= 1.0f) {
++      l.Zoom = 1.0f;
++    } else {
++      l.Zoom = std::min(z + delta, 2.0f);
++    }
++  } else {
++    if (z > 1.0f && z + delta <= 1.0f) {
++      l.Zoom = 1.0f;
++    } else {
++      l.Zoom = std::max(z + delta, l.MinZoom);
++    }
++  }
++  Clamp(l);
++}
++
++void UpdateViewer() {
++  // the script has loaded the next picture: measure it and fade it in over the current one
++  if (Loading) {
++    if (!(GetFlag(1341) && GetFlag(1342))) return;
++    SetFlag(1341, false);
++    SetFlag(1342, false);
++    Loading = false;
++    Measure(Layers[1]);
++    Layers[1].Alpha = 1;
++    Layers[1].Ready = true;
++  }
++  if (State == 3) {  // closing
++    if (Shown > 0) {
++      Shown--;
++      Layers[0].Alpha = Shown;
++    }
++    return;
++  }
++  if (Layers[1].Ready) {
++    if (++Layers[1].Alpha >= 16) {
++      Layers[0] = Layers[1];
++      Layers[0].Alpha = 16;
++      Layers[1] = Layer{};
++      Layers[1].Buffer = Layers[0].Buffer == 1 ? 2 : 1;
++      Shown = 16;
++    }
++    return;
++  }
++  Layer& l = Layers[0];
++  const glm::vec2 p = Input::CurMousePos;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++  if (MouseMode()) {
++    if (Input::MouseWheelDeltaY > 0) Zoom(l, 0.05f);
++    if (Input::MouseWheelDeltaY < 0) Zoom(l, -0.05f);
++    if (Input::TouchPinchIn) Zoom(l, -0.05f);
++    // drag pans the picture; a click without a drag goes on to the next picture
++    if (PADinputMouseWentDown & PAD1A) {
++      Dragging = true;
++      Moved = false;
++      DragStart = p;
++      PanStart = {l.Cx, l.Cy};
++    }
++    if (Dragging) {
++      const glm::vec2 d = p - DragStart;
++      if (d.x * d.x + d.y * d.y > 999) Moved = true;
++      if (Moved) {
++        l.Cx = PanStart.x - d.x / l.Zoom;
++        l.Cy = PanStart.y - d.y / l.Zoom;
++        Clamp(l);
++      }
++      if (!(PADinputMouseIsDown & PAD1A)) {
++        Dragging = false;
++        if (!Moved) decide = true;
++      }
++    }
++  }
++  if (PADinputButtonWentDown & PAD1Y) Guide = !Guide;
++  if (decide) {
++    if (Picture + 1 == Pictures) {
++      State = 3;
++    } else {
++      Picture++;
++      LoadPicture();
++    }
++    return;
++  }
++  if (((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) != 0) {
++    PADinputButtonWentDown &= ~PAD1B;
++    PADinputMouseWentDown &= ~PAD1B;
++    State = 3;
++    return;
++  }
++  if (PADinputButtonRepeatDown & PAD1R1) Zoom(l, 0.02f);
++  if (PADinputButtonRepeatDown & PAD1L1) Zoom(l, -0.02f);
++  if (PADinputButtonIsDown & PAD1UP) l.Cy -= 40, Clamp(l);
++  if (PADinputButtonIsDown & PAD1DOWN) l.Cy += 40, Clamp(l);
++  if (PADinputButtonIsDown & PAD1LEFT) l.Cx -= 40, Clamp(l);
++  if (PADinputButtonIsDown & PAD1RIGHT) l.Cx += 40, Clamp(l);
++}
++
++// 0x4177b0 + 0x416e90: the visible part of a picture stretched over the screen, black where it does not reach
++void DrawLayer(const Layer& l, int alpha) {
++  const Background2D* bg = Bg(l.Buffer);
++  if (!bg || alpha <= 0) return;
++  float sx, sw, dx0, dx1, sy, sh, dy0, dy1;
++  if (W / l.Zoom < l.Width) {
++    sw = W / l.Zoom, sx = l.Cx - sw / 2, dx0 = 0, dx1 = W;
++  } else {
++    sx = 0, sw = l.Width, dx0 = (W - l.Width * l.Zoom) / 2, dx1 = W - dx0;
++  }
++  if (H / l.Zoom < l.Height) {
++    sh = H / l.Zoom, sy = l.Cy - sh / 2, dy0 = 0, dy1 = H;
++  } else {
++    sy = 0, sh = l.Height, dy0 = (H - l.Height * l.Zoom) / 2, dy1 = H - dy0;
++  }
++  const glm::vec4 tint(1, 1, 1, std::min(alpha, 256) / 256.0f);
++  Sprite part(bg->BgSprite.Sheet, sx, sy, sw, sh);
++  Renderer->DrawSprite(part, RectF(dx0, dy0, dx1 - dx0, dy1 - dy0), tint);
++  const glm::vec4 black(0, 0, 0, tint.a);
++  if (dx0 > 0) Renderer->DrawQuad(RectF(0, 0, dx0, H), black);
++  if (dx1 < W) Renderer->DrawQuad(RectF(dx1, 0, W - dx1, H), black);
++  if (dy0 > 0) Renderer->DrawQuad(RectF(0, 0, W, dy0), black);
++  if (dy1 < H) Renderer->DrawQuad(RectF(0, dy1, W, H - dy1), black);
++}
++
++void DrawGuide(int which, int a) {  // 0x436030
++  auto it = Profile::SpriteSheets.find("Data");
++  if (it == Profile::SpriteSheets.end()) return;
++  Sprite guide(it->second, (which % 2) * 0x600 + 1.0f, (which / 2) * 0x2a + 0x600 + 1.0f, 1534, 40);
++  Renderer->DrawSprite(guide, RectF(1, 995, 1534, 40), glm::vec4(1, 1, 1, std::min(a, 256) / 256.0f));
++}
++
++// 0x4161b0: the twelve groups of the page, the page number and the page tabs
++void DrawGrid(int a) {
++  using namespace Phone;
++  Blink = (Blink + 1) & 0x1f;
++  const int tabAlpha = (int)((((Blink > 0xf ? 0x20 - Blink : Blink) * a) & 0xfffffff) >> 4);
++  int thumbRow = Page * 3 * 0x89, thumbCol = 0;
++  for (int r = 0; r < 3; r++) {
++    const int y = 100 + 0xa1 * r;
++    for (int c = 0; c < 4; c++) {
++      const int slot = r * 4 + c, g = Page * Album::GroupsPerPage + slot;
++      const int x = 0x147 + 0x10e * c;
++      const float cellX = (x - 0xd5) * K, cellY = y * K, picX = (x - 0xd4) * K, picY = (y + 1) * K;
++      const float digitsY = (y + 0x6f) * K;
++      auto digit = [&](float srcX, float dx) { Spr(Surface, srcX, 517.5f, 21, 33, dx / K, digitsY / K, a); };
++      if (Total[g] == 0) {
++        Spr(Surface, 1921.5f, 553.5f, 363, 205.5f, cellX / K, cellY / K, a);
++      } else {
++        Spr(Surface, 2287.5f, 553.5f, 363, 205.5f, cellX / K, cellY / K, a);
++        if (Seen[g] == 0) {
++          Spr(Surface, slot == Cursor ? 1921.5f : 2284.5f, 1.5f, 360, 202.5f, picX / K, picY / K, a);
++          digit(2185.5f, (x - 0x20) * K);
++        } else {
++          Spr(Thumbs, (slot == Cursor ? thumbCol + 1 : thumbCol + 0x3c9) * K, (thumbRow + 1) * K, 360, 202.5f,
++              picX / K, picY / K, a);
++          digit((Seen[g] * 0x10 + 0x501) * K, (x - 0x20) * K);
++        }
++        digit(2161.5f, (x - 0x10) * K);
++        digit((Total[g] * 0x10 + 0x501) * K, x * K);
++      }
++      Spr(Surface, 1921.5f, 312, 360, 202.5f, picX / K, picY / K, a);
++      if (slot == Cursor) Spr(Surface, 2284.5f, 312, 360, 202.5f, picX / K, picY / K, a);
++      thumbCol += 0xf2;
++      if (thumbCol == 0x3c8) thumbRow += 0x89, thumbCol = 0;
++    }
++  }
++  Spr(Surface, (Page * 0x20 + 0x521) * K, 216, 45, 57, 1704 / K, 868.5f / K, a);
++  if (auto it = Profile::SpriteSheets.find("Data"); it != Profile::SpriteSheets.end()) {
++    Sprite slash(it->second, 259.5f, 280.5f, 48, 36);
++    Renderer->DrawSprite(slash, RectF(1749, 888, 48, 36), glm::vec4(1, 1, 1, std::min(a, 256) / 256.0f));
++  }
++  for (int i = 0; i < Album::Pages; i++) {
++    const float x = (0x39f + 0x28 * i) * K / K;
++    Spr(Surface, HoverTab == i ? 2095.5f : 2008.5f, 276, 84, 33, x, 942 / K, a);
++    if (i == Page) Spr(Surface, 1921.5f, 276, 84, 33, x, 942 / K, tabAlpha);
++  }
++}
++
++}  // namespace
++
++void Init() {
++  for (int f : {0x51e, 0x51f, 0x53d, 0x53e, 0x53f}) SetFlag(f, false);
++  State = 0;
++  Fade = 0;
++  Shown = 0;
++  Loading = false;
++  Layers = {};
++  Layers[0].Buffer = 1;
++  Layers[1].Buffer = 2;
++  Cursor = 0xff;
++  for (int g = 0; g < Album::Pages * Album::GroupsPerPage; g++) {
++    Total[g] = Album::Groups[g].Count();
++    Seen[g] = 0;
++    for (int i = 0; i < Total[g]; i++)
++      if (Album::Seen(Album::Groups[g].Pictures[i][0])) SeenList[g][Seen[g]++] = i;
++    if (Seen[g] != 0 && g / Album::GroupsPerPage == Page && Cursor == 0xff) Cursor = g % Album::GroupsPerPage;
++  }
++  if (MouseMode()) Cursor = 0xff;
++}
++
++void Update() {
++  if (State == 2 || Shown != 0 || State == 3) {
++    if (State == 3 && Shown == 0 && !Layers[1].Ready) {
++      if (--Fade <= 0) {
++        Fade = 0;
++        State = 0;
++      }
++      return;
++    }
++    UpdateViewer();
++    return;
++  }
++  if (State == 1) {
++    if (++Fade >= 0x20) State = 2;
++    UpdateViewer();
++    return;
++  }
++  const bool mouse = MouseMode();
++  const glm::vec2 p = Input::CurMousePos;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++  HoverTab = 0xff;
++  if (mouse) {
++    Cursor = 0xff;
++    if (Input::MouseWheelDeltaY > 0) Page = Page == 0 ? 6 : Page - 1;
++    if (Input::MouseWheelDeltaY < 0) Page = Page < 6 ? Page + 1 : 0;
++    const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++    for (int i = 0; i < Album::Pages; i++)
++      if (Inside(p, 1389 + 60.0f * i, 940, 87, 36)) {
++        HoverTab = i;
++        if (click) Page = i;
++      }
++    for (int s = 0; s < Album::GroupsPerPage; s++)
++      if (Inside(p, 171 + 405.0f * (s % 4), 150 + 241.5f * (s / 4), 366, 208)) {
++        Cursor = s;
++        if (click) decide = true;
++      }
++  }
++  if (!mouse && Cursor == 0xff &&
++      (PADinputButtonRepeatDown & (PAD1UP | PAD1DOWN | PAD1LEFT | PAD1RIGHT)) != 0) {
++    for (int s = 0; s < Album::GroupsPerPage; s++)
++      if (Seen[Page * Album::GroupsPerPage + s] != 0) Cursor = s;
++    return;
++  }
++  if (PADinputButtonWentDown & PAD1L1) Page = Page == 0 ? 6 : Page - 1;
++  if (PADinputButtonWentDown & PAD1R1) Page = Page < 6 ? Page + 1 : 0;
++  if (((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) != 0) {
++    SetFlag(0x51f, true);  // the script leaves
++    return;
++  }
++  if (decide) {
++    const int g = Cursor + Page * Album::GroupsPerPage;
++    if (Cursor != 0xff && Seen[g] != 0) {
++      PADinputButtonWentDown &= ~PAD1A;
++      PADinputMouseWentDown &= ~PAD1A;
++      Pictures = Seen[g];
++      Picture = 0;
++      Guide = true;
++      Shown = 0;
++      State = 1;
++      Fade = 0;
++      Layers[0] = Layer{};
++      Layers[0].Buffer = 2;  // the first load goes to buffer 1
++      LoadPicture();
++    }
++    return;
++  }
++  if (Cursor == 0xff) return;
++  if (PADinputButtonRepeatDown & PAD1UP) Cursor = Cursor < 4 ? Cursor + 8 : Cursor - 4;
++  if (PADinputButtonRepeatDown & PAD1DOWN) Cursor = Cursor < 8 ? Cursor + 4 : Cursor - 8;
++  if (PADinputButtonRepeatDown & PAD1LEFT) Cursor = (Cursor & 3) == 0 ? Cursor + 3 : Cursor - 1;
++  if (PADinputButtonRepeatDown & PAD1RIGHT) Cursor = (Cursor & 3) == 3 ? Cursor - 3 : Cursor + 1;
++}
++
++void Render() {
++  if (ScrWork[2148] != 8 || ScrWork[2147] == 0) return;
++  using namespace Phone;
++  const int a = ScrWork[2147] << 3;
++  Spr(Surface, 0, 0, 1920, 1080, 0, 0, a);
++  DrawGuide(3, a);
++  DrawGrid(a);
++  if (State != 0) {
++    // the viewer covers the grid while it opens and closes (32 frames)
++    Renderer->DrawQuad(RectF(0, 0, W, H), glm::vec4(0, 0, 0, std::min(Fade, 32) / 32.0f));
++    DrawLayer(Layers[0], Layers[0].Alpha << 4);
++    if (Layers[1].Ready) DrawLayer(Layers[1], Layers[1].Alpha << 4);
++    if (Shown != 0 && Guide) DrawGuide(4, a);
++  }
++}
++
++}  // namespace CgLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/cglibrary.h b/src/games/sghd/cglibrary.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..44bed040cadcfa4db26093b5fbbb0b9f360142e5
+--- /dev/null
++++ b/src/games/sghd/cglibrary.h
+@@ -0,0 +1,15 @@
++#pragma once
++
++// CG LIBRARY of STEINS;GATE (Steam), see cglibrary.cpp.
++
++namespace Impacto {
++namespace SGHD {
++namespace CgLibrary {
++
++void Init();    // 10:1F type 0 (0x415e90)
++void Update();  // 10:1F type 1 (0x4168f0)
++void Render();  // 0x415dc0, while GlobalVars[2148] is 8
++
++}  // namespace CgLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/clearlist.cpp b/src/games/sghd/clearlist.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..ff316cd440dacc621c35ba8688bb034433d80f05
+--- /dev/null
++++ b/src/games/sghd/clearlist.cpp
+@@ -0,0 +1,155 @@
++// CLEAR LIST of STEINS;GATE (Steam): drawn by 0x433db0 while GlobalVars[2148] is 7, values of 0x434680. The script
++// only waits for the cancel key.
++
++#include "clearlist.h"
++
++#include <algorithm>
++#include <string>
++#include <vector>
++
++#include "album.h"
++#include "phonerender.h"
++#include "../../data/tipssystem.h"
++#include "../../games/mo6twpc/savesystem.h"
++#include "../../mem.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/sprites.h"
++#include "../../renderer/renderer.h"
++#include "../../text/text.h"
++#include "../../vm/vm.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace ClearList {
++
++namespace {
++
++constexpr int Surface = 0xa4;  // CLEARLIST, loaded by the script
++constexpr float K = 1.5f;      // text positions are in the original's 1280 units
++constexpr float Size = 24 * K;
++
++std::vector<ProcessedTextGlyph> Layout(const uint8_t* str, float x) {
++  Vm::Sc3Stream stream(const_cast<uint8_t*>(str));
++  return TextLayoutPlainLine(stream, std::nullopt, *Profile::Dialogue::DialogueFont, Size,
++                             DialogueColorPair{0xffffff, 0}, 1.0f, glm::vec2(x, 0), TextAlignment::Left);
++}
++
++std::vector<ProcessedTextGlyph> TableString(int index, float x) {
++  auto ctx = Vm::ScriptGetTextTableStrAddress(0, index);
++  return Layout(&ctx.Buffers[ctx.BufferId][ctx.IpOffset], x);
++}
++
++// 0x446740: a number in the font's digit glyphs (0x80 + digit), right aligned in `width` cells (0: as long as needed),
++// the free cells blank or, with zeroPad, '0'
++std::vector<ProcessedTextGlyph> Number(uint32_t value, int width, bool zeroPad, float x) {
++  std::string digits = std::to_string(value);
++  if (width != 0) {
++    if ((int)digits.size() > width) digits = digits.substr(digits.size() - width);
++    digits = std::string(width - digits.size(), ' ') + digits;
++  }
++  std::vector<uint8_t> s;
++  for (char c : digits) {
++    const uint16_t g = c == ' ' ? (zeroPad ? 0x80 : 0) : (uint16_t)(c - '0' + 0x80);
++    s.push_back((uint8_t)((g >> 8) | 0x80));
++    s.push_back((uint8_t)g);
++  }
++  s.push_back(0xff);
++  return Layout(s.data(), x);
++}
++
++float Width(const std::vector<ProcessedTextGlyph>& g) { return GetTextWidth(g); }
++
++void Draw(std::vector<ProcessedTextGlyph> g, float x, float y, float alpha) {
++  if (g.empty()) return;
++  const float dx = x - g.front().DestRect.X;
++  for (auto& glyph : g) glyph.Move(glm::vec2(dx, y));
++  Profile::Dialogue::DialogueFont->DrawProcessedText(g, alpha, RendererOutlineMode::None);
++}
++
++// right aligned text ending at `right` (all in screen pixels)
++float DrawRight(std::vector<ProcessedTextGlyph> g, float right, float y, float alpha) {
++  const float x = right - Width(g);
++  Draw(std::move(g), x, y, alpha);
++  return x;
++}
++
++}  // namespace
++
++void Render() {
++  if (ScrWork[2148] != 7 || ScrWork[2147] == 0) return;
++  using namespace Phone;
++  uint32_t ct = (uint32_t)ScrWork[2147];
++  if (ct > 0x20) ct = 0x20 - ct;
++  const int a = (int)(ct * 8);
++  const float alpha = std::min(a, 256) / 256.0f;
++
++  Spr(Surface, 0, 0, 1920, 1080, 0, 0, a);
++  if (auto it = Profile::SpriteSheets.find("Data"); it != Profile::SpriteSheets.end()) {
++    Sprite guide(it->second, 1.0f, 1 * 0x2a + 0x600 + 1.0f, 1534, 40);
++    Renderer->DrawSprite(guide, RectF(1, 995, 1534, 40), glm::vec4(1, 1, 1, alpha));
++  }
++  // the six endings (0x326 first), locked ones show the cell at 0x2a6
++  struct Badge {
++    int Flag, Cell;
++    float X, Y;
++  };
++  constexpr Badge Badges[] = {{0x326, 0, 154.5f, 319.5f},     {0x321, 0x71, 154.5f, 522},
++                              {0x322, 0xe2, 154.5f, 724.5f},  {0x323, 0x153, 981, 319.5f},
++                              {0x324, 0x1c4, 981, 522},       {0x325, 0x235, 981, 724.5f}};
++  int endings = 0;
++  for (const Badge& b : Badges) {
++    const bool got = GetFlag(b.Flag);
++    endings += got;
++    Spr(Surface, 1921.5f, ((got ? b.Cell : 0x2a6) + 1) * K, 789, 166.5f, b.X / K, b.Y / K, a);
++  }
++
++  const float y1 = 0x73 * K, y2 = 0x93 * K;
++  // play time
++  Draw(TableString(7, 0), 0x69 * K, y1, alpha);
++  const uint32_t t = (uint32_t)ScrWork[2001];
++  const uint32_t h = t / 3600, m = t % 3600 / 60, s = t % 60;
++  auto secLabel = TableString(9, 0);
++  const float w9 = Width(secLabel);
++  float x = DrawRight(std::move(secLabel), 0x252 * K, y1, alpha);
++  DrawRight(Number(s, 2, false, 0), x - 2 * K, y1, alpha);
++  if (m != 0 || h != 0) {
++    auto minLabel = TableString(8, 0);
++    x = DrawRight(std::move(minLabel), 0x222 * K - w9, y1, alpha);
++    DrawRight(Number(m, 2, false, 0), x - 2 * K, y1, alpha);
++    if (h != 0) {
++      const float xh = DrawRight(TableString(10, 0), x - 0x30 * K, y1, alpha);
++      DrawRight(Number(h, 0, false, 0), xh - 2 * K, y1, alpha);
++    }
++  }
++  // endings: n / 6
++  Draw(TableString(0x10, 0), 0x69 * K, y2, alpha);
++  x = DrawRight(Number(6, 2, false, 0), 0x252 * K - 2 * K, y2, alpha);
++  x = DrawRight(TableString(0xd, 0), x, y2, alpha);
++  DrawRight(Number(endings, 2, false, 0), x - 2 * K, y2, alpha);
++  // tips: read / all
++  int tipsRead = 0, tipsAll = 0;
++  if (auto* tips = Impacto::TipsSystem::Implementation.get()) {
++    tipsAll = (int)tips->TipEntryCount;
++    for (int i = 0; i < tipsAll; i++) tipsRead += (SaveSystem::GetTipStatus(i) >> 1) & 1;
++  }
++  Draw(TableString(0x11, 0), 0x2b4 * K, y1, alpha);
++  x = DrawRight(Number(tipsAll, 3, false, 0), 0x498 * K - 2 * K, y1, alpha);
++  x = DrawRight(TableString(0xd, 0), x, y1, alpha);
++  DrawRight(Number(tipsRead, 3, false, 0), x - 2 * K, y1, alpha);
++  // CG: viewed share with two decimals
++  int seen = 0, all = 0;
++  Album::Count(seen, all);
++  const uint32_t pct = all ? (uint32_t)(seen * 10000 / all) : 99999;
++  Draw(TableString(0x12, 0), 0x2b4 * K, y2, alpha);
++  auto pctLabel = TableString(0xc, 0);
++  const float w12 = Width(pctLabel);
++  x = DrawRight(std::move(pctLabel), 0x498 * K, y2, alpha);
++  DrawRight(Number(pct % 100, 2, true, 0), x - 2 * K, y2, alpha);
++  const float xd = 0x474 * K - w12;
++  Draw(TableString(0xb, 0), xd, y2, alpha);
++  DrawRight(Number(pct / 100, 0, false, 0), xd - 3 * K, y2, alpha);
++}
++
++}  // namespace ClearList
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/clearlist.h b/src/games/sghd/clearlist.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..67d9132e8ab97c0fe1ac0351575cf2e92ee70e96
+--- /dev/null
++++ b/src/games/sghd/clearlist.h
+@@ -0,0 +1,13 @@
++#pragma once
++
++// CLEAR LIST of STEINS;GATE (Steam), see clearlist.cpp.
++
++namespace Impacto {
++namespace SGHD {
++namespace ClearList {
++
++void Render();  // 0x433db0, while GlobalVars[2148] is 7
++
++}  // namespace ClearList
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/soundlibrary.cpp b/src/games/sghd/soundlibrary.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2fce926476072f8a1e6d62cc8a84bf091370ef7
+--- /dev/null
++++ b/src/games/sghd/soundlibrary.cpp
+@@ -0,0 +1,296 @@
++// SOUND LIBRARY of STEINS;GATE (Steam): 10:1D type 0 (0x436b30) / type 1 (0x436c70), drawn by 0x4374f0 while
++// GlobalVars[2148] is 10. The script handles the cancel key.
++
++#include "soundlibrary.h"
++
++#include <algorithm>
++#include <array>
++#include <random>
++#include <string>
++
++#include "phonerender.h"
++#include "../../audio/audiochannel.h"
++#include "../../audio/audiosystem.h"
++#include "../../data/savesystem.h"
++#include "../../inputsystem.h"
++#include "../../mem.h"
++#include "../../profile/dialogue.h"
++#include "../../profile/sprites.h"
++#include "../../renderer/renderer.h"
++#include "../../text/text.h"
++#include "../../vm/interface/input.h"
++#include "../../vm/vm.h"
++
++namespace Impacto {
++namespace SGHD {
++namespace SoundLibrary {
++
++using namespace Impacto::Vm::Interface;
++
++namespace {
++
++constexpr int Surface = 0x9e;  // MUSIC, loaded by the script
++constexpr int Count = 35, Rows = 16, MaxScroll = Count - Rows;
++// 0x52befc: BGM number of every entry
++constexpr std::array<int, Count> Tracks = {0,  1,  3,  5,  43, 47, 7,  41, 45, 9,  11, 25, 24, 27, 33, 37, 17, 15,
++                                           13, 35, 57, 59, 19, 39, 31, 21, 29, 66, 68, 70, 72, 74, 76, 81, 82};
++// hit areas (table 0x52c100, group 0xb): rows 1..16, the scroll bar 17 and its thumb 18, mode 19, stop 20
++constexpr float RowX = 333, RowY = 255, RowW = 1443, RowH = 42;
++constexpr float BarX = 1791, BarY = 270, BarW = 37, BarH = 703, ThumbH = 100;
++constexpr float ModeX = 1545, ModeY = 148, ModeW = 255, ModeH = 37;
++constexpr float StopX = 153, StopY = 139, StopW = 57, StopH = 57;
++
++std::array<bool, Count> Unlocked{};
++int Cursor = 0xff;      // DAT_0164cacc
++int Scroll = 0;         // DAT_0164cae0
++int Mode = 2;           // DAT_0052bee8: 0 one track again, 1 to the end, 2 all again, 3 shuffled
++int Playing = 0xff;     // DAT_0052bef8
++bool HoverMode = false, HoverStop = false, Dragging = false;
++std::array<int, Count> Shuffle{};
++int ShufflePos = 0;
++bool Started = false;   // a track was started and has not been seen playing yet
++
++bool MouseMode() {
++  return Input::CurrentInputDevice == Input::Device::Mouse || Input::CurrentInputDevice == Input::Device::Touch;
++}
++bool Inside(glm::vec2 p, float x, float y, float w, float h) {
++  return p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
++}
++
++void NewShuffle() {  // 0x437970
++  for (int i = 0; i < Count; i++) Shuffle[i] = i;
++  static std::mt19937 rng{std::random_device{}()};
++  std::shuffle(Shuffle.begin(), Shuffle.end(), rng);
++  ShufflePos = 0;
++}
++
++void PlayTrack(int entry, bool loop) {
++  Playing = entry;
++  Audio::Channels[Audio::AC_BGM0]->Play("bgm", Tracks[entry], loop, 0.0f);
++  Started = true;
++}
++
++void Stop() {
++  Audio::Channels[Audio::AC_BGM0]->Stop(0.0f);
++  Playing = 0xff;
++  Started = false;
++}
++
++bool TrackEnded() {
++  const bool playing = Audio::Channels[Audio::AC_BGM0]->GetState() == Audio::ACS_Playing;
++  if (playing) Started = false;
++  return Playing != 0xff && !playing && !Started;
++}
++
++std::vector<ProcessedTextGlyph> Text(int index, glm::vec2 pos) {
++  auto ctx = Vm::ScriptGetTextTableStrAddress(4, index);
++  Vm::Sc3Stream stream(&ctx.Buffers[ctx.BufferId][ctx.IpOffset]);
++  return TextLayoutPlainLine(stream, std::nullopt, *Profile::Dialogue::DialogueFont, 20 * 1.5f,
++                             DialogueColorPair{0xffffff, 0}, 1.0f, pos, TextAlignment::Left);
++}
++
++// 0x445950 keeps a text inside its width: a longer one is squeezed horizontally
++void Fit(std::vector<ProcessedTextGlyph>& g, float maxWidth) {
++  if (g.empty()) return;
++  const float w = GetTextWidth(g);
++  if (w <= maxWidth) return;
++  const float x0 = g.front().DestRect.X, f = maxWidth / w;
++  for (auto& glyph : g) {
++    glyph.DestRect.X = x0 + (glyph.DestRect.X - x0) * f;
++    glyph.DestRect.Width *= f;
++  }
++}
++
++}  // namespace
++
++void Init() {
++  // 0x436890: the tracks that are always there, and those the endings and the second of every pair open
++  auto* save = SaveSystem::Implementation;
++  if (save) {
++    auto set = [&](int id) { save->SetBgmFlag(id, true); };
++    set(0), set(1), set(81), set(82), set(67);
++    if (GetFlag(0x38e) || GetFlag(0x391) || GetFlag(0x393) || GetFlag(0x392) || GetFlag(0x394)) set(71);
++    if (GetFlag(0x390)) set(69);
++    if (GetFlag(0x38f)) set(66);
++    constexpr int Pairs[][2] = {{3, 2},   {5, 4},   {7, 6},   {9, 8},   {11, 10}, {13, 12}, {15, 14}, {17, 16},
++                                {19, 18}, {21, 20}, {25, 22}, {24, 23}, {27, 26}, {29, 28}, {31, 30}, {33, 32},
++                                {35, 34}, {37, 36}, {39, 38}, {41, 40}, {43, 42}, {45, 44}, {47, 46}, {49, 48},
++                                {51, 50}, {53, 52}, {55, 54}, {57, 56}, {59, 58}, {61, 60}, {63, 62}, {65, 64},
++                                {68, 67}, {70, 69}, {72, 71}, {74, 73}, {76, 75}};
++    for (auto [to, from] : Pairs)
++      if (save->GetBgmFlag(from)) set(to);
++  }
++  for (int i = 0; i < Count; i++) Unlocked[i] = save && save->GetBgmFlag(Tracks[i]);
++  Scroll = 0;
++  Mode = 2;
++  Playing = 0xff;
++  Started = false;
++  Dragging = false;
++  Cursor = MouseMode() ? 0xff : 0;
++  NewShuffle();
++}
++
++void Update() {
++  const bool mouse = MouseMode();
++  const glm::vec2 p = Input::CurMousePos;
++  const bool click = (PADinputMouseWentDown & PAD1A) != 0;
++  bool decide = (PADinputButtonWentDown & PAD1A) != 0;
++  bool stop = (PADinputButtonWentDown & PAD1Y) != 0;
++  bool mode = (PADinputButtonWentDown & PAD1X) != 0;
++  HoverMode = HoverStop = false;
++  if (mouse) {
++    Cursor = 0xff;
++    if (Input::MouseWheelDeltaY > 0) Scroll = Scroll < 4 ? 0 : Scroll - 4;
++    if (Input::MouseWheelDeltaY < 0) Scroll = Scroll < 15 ? Scroll + 4 : MaxScroll;
++    const float free = BarH - ThumbH;
++    const float thumb = (float)(((Scroll * 0x192) / 0x13) * 3 >> 1);
++    if (Dragging && !(PADinputMouseIsDown & PAD1A)) Dragging = false;
++    if (click && Inside(p, BarX, BarY + thumb, BarW, ThumbH)) Dragging = true;
++    if (Dragging) {
++      const float y = std::clamp(p.y - BarY - ThumbH / 2, 0.0f, free);
++      const float step = free / MaxScroll;
++      Scroll = std::clamp((int)((step / 2 + y) / step), 0, MaxScroll);
++      return;
++    }
++    if (click && Inside(p, BarX, BarY, BarW, BarH)) {
++      if (p.y < BarY + thumb) Scroll = 0;
++      if (p.y > BarY + ThumbH + thumb) Scroll = 4;
++    }
++    for (int r = 0; r < Rows; r++) {
++      if (!Inside(p, RowX, RowY + RowH * r, RowW, RowH)) continue;
++      Cursor = r;
++      if (click) decide = true;
++      break;
++    }
++    HoverStop = Inside(p, StopX, StopY, StopW, StopH);
++    HoverMode = Inside(p, ModeX, ModeY, ModeW, ModeH);
++    if (click && HoverStop) stop = true;
++    if (click && HoverMode) mode = true;
++  }
++  if (PADinputButtonRepeatDown & PAD1UP) {
++    if (Cursor == 0xff) {
++      Cursor = 0;
++    } else if (Cursor < 2) {
++      if (Scroll == 0) {
++        if (Cursor != 0) Cursor--;
++      } else {
++        Scroll--;
++      }
++    } else {
++      Cursor--;
++    }
++  }
++  if (PADinputButtonRepeatDown & PAD1DOWN) {
++    if (Cursor == 0xff) {
++      Cursor = 0;
++    } else if (Cursor < 0xe) {
++      Cursor++;
++    } else if (Scroll < MaxScroll) {
++      Scroll++;
++    } else if (Scroll + Cursor < Count - 1) {
++      Cursor++;
++    }
++  }
++  if (((PADinputButtonWentDown | PADinputMouseWentDown) & PAD1B) != 0) {
++    // leaving: the title music again (the script fades the screen out)
++    Playing = 0xff;
++    Audio::Channels[Audio::AC_BGM0]->Play("bgm", 0, true, 0.0f);
++    return;
++  }
++  if (decide && Cursor < 0xff && Unlocked[Scroll + Cursor] && Playing != Scroll + Cursor) {
++    PlayTrack(Scroll + Cursor, Mode == 0);
++    PADinputButtonWentDown &= ~PAD1A;
++    PADinputMouseWentDown &= ~PAD1A;
++  }
++  if (stop) Stop();
++  if (mode) {
++    Mode = (Mode + 1) & 3;
++    if (Mode == 3) NewShuffle();
++  }
++  // what follows the end of a track
++  if (TrackEnded()) {
++    switch (Mode) {
++      case 0:
++        PlayTrack(Playing, true);
++        break;
++      case 1: {
++        int next = Playing + 1;
++        while (next < Count && !Unlocked[next]) next++;
++        if (next >= Count) {
++          Stop();
++        } else {
++          PlayTrack(next, false);
++        }
++        break;
++      }
++      case 2: {
++        int next = Playing;
++        do next = (next + 1) % Count;
++        while (!Unlocked[next]);
++        PlayTrack(next, false);
++        break;
++      }
++      case 3: {
++        int next = Playing;
++        for (int guard = 0; guard < Count * 2; guard++) {
++          if (ShufflePos == Count) NewShuffle();
++          const int e = Shuffle[ShufflePos++];
++          if (e != Playing && Unlocked[e]) {
++            next = e;
++            break;
++          }
++        }
++        PlayTrack(next, false);
++        break;
++      }
++    }
++  }
++}
++
++void Render() {
++  if (ScrWork[2148] != 10 || ScrWork[2147] == 0) return;
++  using namespace Phone;
++  const int a = ScrWork[2147] << 3;
++  const float alpha = std::min(a, 256) / 256.0f;
++  constexpr float k = 1.5f;
++  Spr(Surface, 0, 0, 1920, 1080, 0, 0, a);
++  if (auto it = Profile::SpriteSheets.find("Data"); it != Profile::SpriteSheets.end()) {
++    Sprite guide(it->second, 0x600 + 1.0f, 2 * 0x2a + 0x600 + 1.0f, 1534, 40);
++    Renderer->DrawSprite(guide, RectF(1, 995, 1534, 40), glm::vec4(1, 1, 1, alpha));
++  }
++  if (Cursor < 0xff) Spr(Surface, 1.5f, 1081.5f, 1917, 42, 1.5f / k, Cursor * 0x1c + 0xaa, a);
++  Spr(Surface, 1921.5f, 270, 33, 114, 1795.5f / k, (Scroll * 0x192) / 0x13 + 0x97, a);
++  if (Playing != 0xff && Scroll <= Playing && Playing < Scroll + Rows)
++    Spr(Surface, 1993.5f, 37.5f, 33, 33, 355.5f / k, (Playing - Scroll) * 0x1c + 0xad, a);
++  Spr(Surface, 1994, Mode * 24 + 0x124 + 1.0f, 163, 22, 1639 / k, 157 / k, a, HoverMode ? 0xffee77 : 0xffffff);
++  if (HoverStop) Spr(Surface, 1950, 400, 66, 66, 149 / k, 136 / k, a);
++
++  auto draw = [&](std::vector<ProcessedTextGlyph> g) {
++    Profile::Dialogue::DialogueFont->DrawProcessedText(g, alpha, RendererOutlineMode::None);
++  };
++  draw(Text(0, {0x103 * k, 0x92 * k}));
++  draw(Text(2, {0x150 * k, 0x92 * k}));
++  draw(Text(4, {0x235 * k, 0x92 * k}));
++  for (int i = 0; i < Rows; i++) {
++    const int e = Scroll + i;
++    const float y = (0xae + 0x1c * i) * k;
++    char num[8];
++    std::snprintf(num, sizeof(num), "%02d", e + 1);
++    draw(TextLayoutPlainString(num, *Profile::Dialogue::DialogueFont, 20 * k, DialogueColorPair{0xffffff, 0}, 1.0f,
++                               {0x10d * k, y}, TextAlignment::Left));
++    if (!Unlocked[e]) {
++      draw(Text(3, {0x19f * k, y}));
++    } else {
++      auto title = Text((e + 2) * 3 + 1, {0x150 * k, y});
++      Fit(title, 0xcd * k);
++      draw(std::move(title));
++      auto artist = Text((e + 2) * 3 + 2, {0x235 * k, y});
++      Fit(artist, 0x274 * k);
++      draw(std::move(artist));
++    }
++  }
++}
++
++}  // namespace SoundLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/games/sghd/soundlibrary.h b/src/games/sghd/soundlibrary.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..5465fd991d30d7e746cb2ab99d528b5219f06fc6
+--- /dev/null
++++ b/src/games/sghd/soundlibrary.h
+@@ -0,0 +1,15 @@
++#pragma once
++
++// SOUND LIBRARY of STEINS;GATE (Steam), see soundlibrary.cpp.
++
++namespace Impacto {
++namespace SGHD {
++namespace SoundLibrary {
++
++void Init();    // 10:1D type 0 (0x436b30)
++void Update();  // 10:1D type 1 (0x436c70)
++void Render();  // 0x4374f0, while GlobalVars[2148] is 10
++
++}  // namespace SoundLibrary
++}  // namespace SGHD
++}  // namespace Impacto
+diff --git a/src/vm/inst_sghd.h b/src/vm/inst_sghd.h
+index 89c4d458025db5ef5baa39fa812155e85d2b8a9e..e3624d999860b19168ce79b3f2312936401988fc 100644
+--- a/src/vm/inst_sghd.h
++++ b/src/vm/inst_sghd.h
+@@ -13,6 +13,8 @@
+ #include "../games/sghd/phone.h"
+ #include "../games/sghd/timeleap.h"
+ #include "../games/sghd/movielibrary.h"
++#include "../games/sghd/soundlibrary.h"
++#include "../games/sghd/cglibrary.h"
+ 
+ namespace Impacto {
+ 
+@@ -140,14 +142,22 @@ inline void InstSghdTimeLeapDates(Sc3VmThread* thread, float dt) {
+   SGHD::TimeLeap::Start(v);
+ }
+ 
+-// 10:1D (SOUND LIBRARY, 0x4673b0) / 10:1F (CG LIBRARY, 0x467410): not ported yet. Their screens would stay
+-// invisible while the script waits for them, so the first frame answers like the player leaving (flag 1805):
+-// the script goes back to the title.
+-inline void InstSghdLibraryNotPorted(Sc3VmThread* thread, float dt) {
++// 10:1F (0x467410): CG LIBRARY, type 0 opens it, type 1 runs it for a frame (CC: AlbumMenu).
++inline void InstSghdCgLibrary(Sc3VmThread* thread, float dt) {
+   thread->IpOffset += 2;
+   const uint8_t type = *thread->GetIp();
+   thread->IpOffset += 1;
+-  if (type == 1) SetFlag(1805, true);
++  if (type == 0) SGHD::CgLibrary::Init();
++  if (type == 1) SGHD::CgLibrary::Update();
++}
++
++// 10:1D (0x4673b0): SOUND LIBRARY, type 0 opens it, type 1 runs it for a frame (CC: MusicMenu).
++inline void InstSghdSoundLibrary(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset += 1;
++  if (type == 0) SGHD::SoundLibrary::Init();
++  if (type == 1) SGHD::SoundLibrary::Update();
+ }
+ 
+ // 10:20 (0x467450): MOVIE LIBRARY, type 0 opens it, type 1 runs it for a frame (CC: MovieMenu).
+diff --git a/src/vm/opcodetables_sghd.h b/src/vm/opcodetables_sghd.h
+index e18eade676a9a31afcb117fb37101bdd087ca9cd..4847bb687049e2703464ae689108de3da76d1b7f 100644
+--- a/src/vm/opcodetables_sghd.h
++++ b/src/vm/opcodetables_sghd.h
+@@ -24,8 +24,8 @@ inline void Configure_SGHD() {
+   OpcodeTableUser1_SGHD[0x1b] = InstSghdSkipByte;  // one byte, no known effect (CC: Dummy)
+   OpcodeTableUser1_SGHD[0x37] = InstSghdGroup1037;  // phone / mail group (CC: MapSystem)
+   OpcodeTableUser1_SGHD[0x38] = InstSghdGroup1038;  // type byte, a label when the type is 0 (CC: Mtrg)
+-  OpcodeTableUser1_SGHD[0x1d] = InstSghdLibraryNotPorted;  // SOUND LIBRARY (CC: MusicMenu)
+-  OpcodeTableUser1_SGHD[0x1f] = InstSghdLibraryNotPorted;  // CG LIBRARY (CC: AlbumMenu)
++  OpcodeTableUser1_SGHD[0x1d] = InstSghdSoundLibrary;  // SOUND LIBRARY (CC: MusicMenu)
++  OpcodeTableUser1_SGHD[0x1f] = InstSghdCgLibrary;  // CG LIBRARY (CC: AlbumMenu)
+   OpcodeTableUser1_SGHD[0x20] = InstSghdMovieLibrary;  // MOVIE LIBRARY (CC: MovieMenu, not built for sg-pc)
+   OpcodeTableUser1_SGHD[0x3a] = InstSghdTimeLeapDates;  // six expressions (CC: YesNoTrigger, other operands)
+   OpcodeTableUser1_SGHD[0x3f] = InstSghdMenuSignal;  // menu open / close signal (CC: Dummy, which hangs the thread)

@@ -190,6 +190,22 @@
       {
         "file": "0046-game-hidden-UI-can-always-be-shown-again.patch",
         "sha256": "6be6f6719415f85869c000f6a33c67f1ce5812888bfe058a5332c144172a66b8"
+      },
+      {
+        "file": "0047-profile-a-sheet-can-probe-cells-for-centred-ink-font.patch",
+        "sha256": "00c02dfb102e5ec89362b957ad8595772adf4bdb984aa85f8112dfd79956dae1"
+      },
+      {
+        "file": "0048-profile-screen-fill-count-spacing-and-second-layer-s.patch",
+        "sha256": "bf432cdceb2bd768d666d970f922171c4bd4bb4499d9e5d53af1bbf4fe080741"
+      },
+      {
+        "file": "0049-tyn-sg-pc-MOVIE-LIBRARY-10-20-0x436480-0x436540-0x43.patch",
+        "sha256": "c4196afcbb089cef4354b11d52d9195747a26f576a435962733612ebfaccb598"
+      },
+      {
+        "file": "0050-tyn-sg-pc-CG-LIBRARY-SOUND-LIBRARY-and-CLEAR-LIST-po.patch",
+        "sha256": "04e09a19cea4626a69ab8da9ca0478fe83cfa322504a878e164891e7b071bf41"
       }
     ]
   },

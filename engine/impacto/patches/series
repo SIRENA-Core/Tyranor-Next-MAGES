@@ -46,3 +46,7 @@
 0044-log-free-the-formatted-line-after-writing-it.patch
 0045-tyn-sg-pc-time-leap-flip-clock-0x41a140-0x41a960-0x4.patch
 0046-game-hidden-UI-can-always-be-shown-again.patch
+0047-profile-a-sheet-can-probe-cells-for-centred-ink-font.patch
+0048-profile-screen-fill-count-spacing-and-second-layer-s.patch
+0049-tyn-sg-pc-MOVIE-LIBRARY-10-20-0x436480-0x436540-0x43.patch
+0050-tyn-sg-pc-CG-LIBRARY-SOUND-LIBRARY-and-CLEAR-LIST-po.patch
