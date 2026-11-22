@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3（versionCode 10）
+
+- 新增（补丁 0051，通用）：内置 Bink 2 解码。`FFmpegPlayer` 遇到 Bink 2（`KB2*`）文件交给新的 `Bink2Player`，用 [libbink2](https://github.com/raynorpat/libbink2)（LGPL-2.1+）解码视频与 Bink Audio 2 音频；KB2g 起的透明通道按 FFmpeg Bink 2 补丁补上；视频时钟以帧时间为准，有声音时跟随声音（声轨比画面短时不再卡在最后一帧）。`sg-pc` 只用游戏原文件就能播放全部视频，包括世界线变动的辉光管动画，不再需要 `convert_bink2.py` 转换。发行包的许可证合集附上 libbink2 的 LICENSE。
+- 修复（补丁 0052，仅 TYN）：`sg-pc` 的视频标志改为原版 Game.exe 的 1851（播放中）与 2492（可取消）。之前沿用通用表的 1823，世界线变动的剧本（MACROSYS2 标签 375）一开始就认为视频结束，辉光管动画只闪一下就被停掉。
+- 新增（补丁 0053，通用）：调试模式，给适配新游戏用（`[CommonSettings] DebugMode`，宿主设置 `debugMode`，默认关闭）。触屏三指同按打开调试菜单的「适配工具」：逻辑速度 x1–x64、暂停与逐帧、强制快进（未读文字与视频也跳过）、跳过当前视频、每句自动快照与按句回退（回到选项可以重选）、跨启动保存的状态、跳到任意剧本的任意标签、重开当前剧本、一键解锁 CG／音乐／TIPS；界面中英可切换。用法见 `docs/debug-mode.md`。
+- 验证：MuMu 模拟器（Android 15，不是真机）上用 `sg-pc`（Steam 原文件＋2018 汉化）和 `mo6tw-pc-zhs` 两个游戏实测上述功能；`sg-pc` 的标题（带透明通道）、叠加特效与世界线变动视频 `imv007` 完整播放。真机未测。
+
 ## 0.4.2（versionCode 9）
 
 - 新增（补丁 0049–0050，仅 TYN）：`sg-pc` 标题 EXTRA 的 CLEAR LIST、CG LIBRARY、SOUND LIBRARY、MOVIE LIBRARY 按原版 Game.exe 移植（布局、点击区、解锁规则、CG 全屏查看的缩放与拖动、音乐的四种播放模式）。之前这四个画面没有实现，进入后剧本停在看不见的菜单里，标题画面不能再操作。MuMu 上用导入的全通关存档逐个打开验证。

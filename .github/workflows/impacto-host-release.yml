@@ -185,6 +185,8 @@ jobs:
           [[ "${count}" -gt 0 ]] || { echo "::error::no dependency license texts found"; exit 1; }
           cp "${BUILD_ROOT}/source/LICENSE" "${licenses}/impacto-LICENSE.txt"
           cp "${BUILD_ROOT}/source/THIRDPARTY.md" "${licenses}/impacto-THIRDPARTY.md"
+          # libbink2 (LGPL-2.1+) is compiled into libimpacto.so; its source is in the patch series below
+          cp "${BUILD_ROOT}/source/vendor/libbink2/LICENSE" "${licenses}/libbink2-LICENSE.txt"
           cp LICENSE NOTICE.md "${licenses}/"
           # Corresponding source of the modified ISC upstream = pinned revision + this series.
           cp -r engine/impacto/patches "${licenses}/patches"

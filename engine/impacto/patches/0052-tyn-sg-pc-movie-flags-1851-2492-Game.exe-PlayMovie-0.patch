@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Sun, 22 Nov 2026 06:48:00 -0800
+Subject: [PATCH] tyn: sg-pc movie flags 1851 / 2492 (Game.exe PlayMovie
+ 0x460d00)
+
+Game.exe PlayMovie sets flag 0x73b (1851) while a movie plays and stores the
+cancel argument in 0x9bc (2492). The common table has SF_MOVIEPLAY 1823 and
+SF_MOVIEFL 2493. MACROSYS2 label 375 (world line change) waits in a loop on
+1851; with the common value the loop ended at once and MovieMain_Stop cut
+every world line movie after its first frames.
+
+TYN only (sg-pc profile data).
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), Steam data
+with the 2018 Chinese patch: SG00_01 line 854, imv005 then imv007 play to the
+end and the scene goes on.
+
+diff --git a/profiles/sg-pc/scriptvars.lua b/profiles/sg-pc/scriptvars.lua
+index e87b7ffc430d67f6ac371cfcf11afa1210a061c9..0d383c77440f0fbf09bdab26ac12da4387d3d768 100644
+--- a/profiles/sg-pc/scriptvars.lua
++++ b/profiles/sg-pc/scriptvars.lua
+@@ -22,6 +22,12 @@ sv.SW_MESMODE0 = 4363;
+ 
+ sv.SF_SYSTEMMENUCAPTURE=1378;
+ 
++-- Movie flags of Game.exe PlayMovie (0x460d00): it sets flag 0x73b (1851) while a movie plays and stores the
++-- cancel argument in 0x9bc (2492); the common table has 1823 / 2493. MACROSYS2 (world line change, label 375)
++-- loops on 1851 until the movie ends, so with the common value it stopped every movie on its first frame.
++sv.SF_MOVIEPLAY = 1851;
++sv.SF_MOVIEFL = 2492;
++
+ -- The common table puts SW_MESWIN0TYPE at 4422, which is the second mask priority in STEINS;GATE (the scripts write 34 / 100
+ -- there). The scripts never set a window type, so read an unused block instead (draw window and text).
+ sv.SW_MESWIN0TYPE = 7970;

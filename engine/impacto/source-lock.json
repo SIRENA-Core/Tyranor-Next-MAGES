@@ -206,6 +206,18 @@
       {
         "file": "0050-tyn-sg-pc-CG-LIBRARY-SOUND-LIBRARY-and-CLEAR-LIST-po.patch",
         "sha256": "04e09a19cea4626a69ab8da9ca0478fe83cfa322504a878e164891e7b071bf41"
+      },
+      {
+        "file": "0051-tyn-built-in-Bink-2-decoding-libbink2-behind-FFmpegP.patch",
+        "sha256": "7425d05dfd6485c2a175a929adbf52d80a432358c07b1748696c73d30004d0c6"
+      },
+      {
+        "file": "0052-tyn-sg-pc-movie-flags-1851-2492-Game.exe-PlayMovie-0.patch",
+        "sha256": "e52685261580bf5ba2fd37935fa12d45d17d19d0251c4343b75e42b065d506bd"
+      },
+      {
+        "file": "0053-tyn-debug-mode-for-porting-speed-pause-rewind-saved-.patch",
+        "sha256": "2aea6aa0a8f3d99933badb6ac95e79208e56a40e01c8be68b03dd73b495c3885"
       }
     ]
   },

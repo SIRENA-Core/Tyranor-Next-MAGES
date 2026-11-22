@@ -39,7 +39,7 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 | `10:3F` | 一个字节：菜单打开／关闭信号（3/4 存读档、5/6 TIPS、17/18 系统菜单、21/22 选项、23/24 帮助） | 空 | 类型 4 清掉 `SW_SYSSUBMENUALPHA`（补丁 0023） |
 | `10:13`、`10:1A` | 同 CC（Option、Help） | 同 | profile 没有选项／帮助画面时，子菜单淡入后抬起 `SF_SUBMENUEXIT`（补丁 0023）；sg-pc 已有原版画面（补丁 0027、0028） |
 
-标题画面是原版的（补丁 0029，`TitleMenuType.SGHD`，布局、动画、输入都取自原版 Game.exe）：菜单在右侧，LOAD／EXTRA 打开子列表，选中的项闪烁 64 帧后才告诉脚本；脚本的编号是 0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP（EXTRA 在标志 860 设置后有五项，否则只有 CLEAR LIST 和 TIPS）。原版标题上的卫星是 Bink 2 视频，本引擎不能播放。CLEAR LIST、CG LIBRARY 的画面还没有（只能按返回退出）；TIPS 见补丁 0032。
+标题画面是原版的（补丁 0029，`TitleMenuType.SGHD`，布局、动画、输入都取自原版 Game.exe）：菜单在右侧，LOAD／EXTRA 打开子列表，选中的项闪烁 64 帧后才告诉脚本；脚本的编号是 0 START、10 QUICK LOAD、11 LOAD、20 CLEAR LIST、21 CG LIBRARY、22 SOUND、23 MOVIE、24 TIPS、30 CONFIG、40 HELP（EXTRA 在标志 860 设置后有五项，否则只有 CLEAR LIST 和 TIPS）。原版标题上的卫星是 Bink 2 视频（带透明通道），由内置的 libbink2 解码播放（补丁 0051）。CLEAR LIST、CG LIBRARY 的画面还没有（只能按返回退出）；TIPS 见补丁 0032。
 
 另外几处要识别 S;G：`SelInit` 的存档点 id、`NameID` 的名牌标号、`MSinit` 清零大小、CC 标题菜单状态机的「按任意键」检测、三处背景滤色读取。
 
@@ -54,7 +54,7 @@ Tyranor Next 主应用目前**不识别**这个游戏的目录（需要主应用
 - 日志的背景是一整张渐变图，引擎按 CC 的做法让它随滚动平铺，所以滚动时在平铺接缝处会有一道暗度跳变。
 - 人名固定在对话框右下（`SetMesModeFormat` 的名字显示模式是「固定位置、居中」，坐标按 1.5 倍放大后落在 (1620,1011)），这是脚本的设计，不是排版错误；没有与原版画面对照。名牌美术没有。
 - **手机**（补丁 0033–0037）：按原版 Game.exe 做出来，见下面「手机」一节。
-- **视频**：`USRDIR/movie/1920x1080` 里 13 个是 Bink 1（片头、序章、结局、`ar`、`imv005`／`041`／`042`），FFmpeg 能播；另外 24 个是 Bink 2（`IMV*` 的世界线变动辉光管动画、`title`、`timeleapbg` 等），FFmpeg 没有 Bink 2 解码器，引擎会跳过它们（不阻塞脚本）。用 `tools/impacto/sghd/convert_bink2.py` 转换后就能播，见「复现工具」。
+- **视频**：`USRDIR/movie/1920x1080` 里 13 个是 Bink 1（片头、序章、结局、`ar`、`imv005`／`041`／`042`），由 FFmpeg 解码；另外 24 个是 Bink 2（`IMV*` 的世界线变动辉光管动画、`title`、`timeleapbg`、`imv004` 的闪电等），FFmpeg 没有 Bink 2 解码器，引擎内置 [libbink2](https://github.com/raynorpat/libbink2)（LGPL-2.1+，源自 FFmpeg 的 Bink 2 补丁）解码，`FFmpegPlayer` 遇到 `KB2` 开头的文件就交给 `Bink2Player`。四个带透明通道的 KB2j （`title`、`imv001`、`imv004`、`imv038`）按 FFmpeg `bink2g.c` 补上了 alpha 平面在各种块里的解码，按引擎的上下拼接格式画出。在 PC 上对照游戏自带的 `bink2w32.dll`：辉光管画面一致，24 个视频里只有 `imv004` 的第 9 帧（帧头标志 `0xff0ee000` 的特殊关键帧）解不出，这一帧按全透明显示，之后照常播放。视频标志用原版的 1851（播放中，Game.exe PlayMovie 0x460d00 设置）和 2492（可取消），见补丁 0052：世界线变动的剧本（MACROSYS2 标签 375）循环等 1851 清零，用通用表的 1823 时视频一开始就被停掉。`tools/impacto/sghd/convert_bink2.py` 仍保留，作为在 PC 上转换成 H.264 的备用办法。
 - 内存（补丁 0043–0044）：每行日志的缓冲区不再泄漏（上游的 `ImpLogImpl`），背景与立绘上传到显卡后释放内存里的像素副本；之前 2 GB 内存的设备长时间游玩会被系统杀掉。每个正在播放的 1080p 视频约占 220 MB，停止后释放。
 - 时间跳跃的翻牌钟（补丁 0045，原版 0x41a140 / 0x41a960 / 0x418d60）：`10:3A` 给出出发与到达的时刻，`MACROSYS2` 把 `EFF_TIMELEAP`（背景 206）载入缓冲 128，在层 `GlobalVars[6702]` 上以 `GlobalVars[6703]` 的透明度、`GlobalVars[6704]` 的缩放画出月、日、星期、时、分的翻牌，倒数时先加速再减速，分的个位在快速时是几张半透明的叠影。移植时把原版 Game.exe 的这几个例程放在模拟器里运行，对剧本表里全部时间跳跃逐帧比较：画出的每一张精灵都相同。MuMu 上第 6 章的时间跳跃（8/13 19:56 → 16:56）画面正常。
 - 屏幕色层（补丁 0048）：S;G 有三个全屏色层（`GlobalVars[4400／4410／4420]`：颜色、透明度、层、位置、大小、第二层，原版 0x428d50），引擎原来按 Chaos;Child 只画两个、间隔 7，第二、三个从不显示，世界线变动的色调就在第三个上。
