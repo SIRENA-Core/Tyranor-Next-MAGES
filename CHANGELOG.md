@@ -7,6 +7,7 @@
 - 修复（补丁 0055，通用）：内置 Bink 2 播放时设置 `SW_MOVIEFRAME` 和 `SW_MOVIETOTALFRAME`（FFmpeg 路径本来就设）。S;G0 靠比较这两个值判断视频快结束，之前总帧数是 0，开场 intro 刚开始就被截掉。
 - 修复（补丁 0054，通用）：调试模式。保存状态前先建存档目录（从没存过档的游戏没有这个目录，状态写不进去、重启就丢）；跳过视频时把 `SW_MOVIEFRAME` 推到最后一帧，靠轮询帧数等视频结束的剧本（S;G0 世界线变动后的 `MACROSYS2` 标签 310）不再一直等下去。
 - 识别规则：`profiles.json` 加 `sg0-pc`（`Game.exe`、`USRDIR/script.mpk`、`USRDIR/system.mpk`、`USRDIR/mpk_bg.lst`），`sg-pc` 加可选字段 `noneOf: ["USRDIR/mpk_bg.lst"]`，SG0 目录不再同时命中前作；`test-profiles.py` 检查 `noneOf` 的格式，并检查不同游戏的规则不会同时命中同一个目录。旧版主应用不认识 `noneOf`，会把 SG0 目录当作有歧义、不识别（不会再用 `sg-pc` 去启动它）。
+- 测试：不依赖游戏数据的回归。`tools/impacto/profile-snapshot.py` 用检出里引擎自带的 minilua 按引擎的方式加载每个 profile，按顶层配置段记录哈希（`tools/impacto/profile-snapshots/`，共约 50 KB）；`test-profiles.py --source` 在本地和 CI 里逐个比对，`--diff-against <另一份检出>` 列出具体变化的行，有意的改动用 `--update` 更新。加 S;G0 前后 11 个已有 profile 的快照完全相同；故意改动共享的 `common/overlay.lua` 时 `sg-pc`、`mo6tw-pc` 等都被报出。规则写进 `AGENTS.md`「不依赖游戏数据的回归」。
 - 工具：`tools/impacto/sghd/gen_widths.py` 多一个 profile 参数，可以给 `sg0-pc` 生成字宽表（S;G0 字体 `font_a.dds` 是 80 行）。
 - 验证：MuMu 模拟器（Android 15，不是真机）。`sg0-pc`（Steam 原版数据＋中文脚本）从标题、新游戏一路到 `SG0_B01_12`；`sg-pc`（Steam 原文件＋2018 汉化）回归标题、按下开始、菜单、LOAD 子菜单、新游戏、第一次世界线变动，与改动前一致。真机未测。
 

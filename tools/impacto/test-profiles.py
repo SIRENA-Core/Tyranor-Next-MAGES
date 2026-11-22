@@ -115,6 +115,21 @@ class PatchedSourceTest(unittest.TestCase):
                              p["id"])
             self.assertTrue((SOURCE / "profiles" / p["id"] / "game.lua").is_file(), p["id"])
 
+    def test_profiles_match_their_snapshots(self):
+        # Games stay ported without their data at hand: every profile, as the engine resolves it, has to equal its
+        # committed snapshot (tools/impacto/profile-snapshot.py; --update after an intended change).
+        import importlib.util
+        import io
+        import shutil
+        if not (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")):
+            self.skipTest("no C compiler for the Lua runner")
+        spec = importlib.util.spec_from_file_location("profile_snapshot", ROOT / "tools/impacto/profile-snapshot.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        report = io.StringIO()
+        differing = module.check(SOURCE, module.profile_ids(), out=report)
+        self.assertEqual(differing, [], report.getvalue())
+
 
 if __name__ == "__main__":
     arguments = sys.argv[1:]

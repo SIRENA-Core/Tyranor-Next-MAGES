@@ -19,7 +19,7 @@
 补丁越小、越少碰上游已有文件，同步上游时冲突越少。写补丁时：
 
 - **优先新增文件**（新的界面类、profile、指令集文件放进新文件，如 `src/games/<代号>/`、`src/profile/games/<代号>/`、`profiles/<profile>/`），对上游已有文件只做最小的挂接（枚举值、`switch` 分支、`CMakeLists.txt` 文件列表）。
-- **改动通用行为时必须向后兼容**：新加的 profile 字段设为可选，默认值保持上游原行为；按指令集或 profile 条件分支，不改其他游戏的行为。改了通用代码就要回归其他受影响的 profile。
+- **改动通用行为时必须向后兼容**：新加的 profile 字段设为可选，默认值保持上游原行为；按指令集或 profile 条件分支，不改其他游戏的行为。已适配的游戏不一定还有数据可以重跑，回归靠下一节「不依赖游戏数据的回归」。
 - 不做与兼容性无关的重构、格式化、重命名或依赖升级；构建脚本与依赖版本不放进补丁。
 - **一个提交 = 一个补丁 = 一类改动**，标题 `tyn: <ASCII 描述>`（成为补丁文件名）。通用修复（可向上游提 PR）与仅 TYN 的内容（profile 数据、`gamedefinitions.lua` 注册）分开提交，并在提交正文写明「可向上游提交」或「仅 TYN」。补丁按依赖排序：通用修复与开关 → 指令集 → profile 数据与注册。
 - 提交正文写清楚改了什么、为什么、数据或行为的来源，以及在哪台设备上验证了什么。
@@ -32,10 +32,18 @@
 1. 在补丁分支上 `git rebase --onto <新提交> <旧 revision> tyn`，解决冲突；上游已吸收的补丁直接丢掉。
 2. 改 `source-lock.json` 的 `impacto.revision`（导出前改），核对其他固定项（`libatrac9`、`imgui`、`magic_enum`、vcpkg、NDK）是否需要随之更新。
 3. 重新导出补丁系列，跑「提交前自检」与 `verify-upstream.py --series-only`、`test-profiles.py`，再构建。
-4. 在设备上回归（至少每个有补丁内容的 profile 进标题、进游戏、存读档）。编译通过不等于兼容。
+4. 有游戏数据的 profile 在设备上回归（进标题、进游戏、存读档）；没有数据的靠 profile 快照与「不依赖游戏数据的回归」的规则。编译通过不等于兼容。
 5. 同步单独成一个提交，说明新的上游提交、丢弃或改写了哪些补丁。
 
 不要为了省事改动上游代码来「适配」补丁；冲突一律在补丁分支上解决。
+
+## 不依赖游戏数据的回归
+
+已经适配完成的游戏，本地不一定还留着数据，不能指望每次改动都把它们重新玩一遍。改动通用代码时这样保证不影响它们：
+
+- **profile 快照**：`tools/impacto/profile-snapshots/<id>.txt` 记录每个 profile 按引擎的方式加载后（`gamedefinitions.lua`、`game.lua` 及其 include，用检出里引擎自带的 minilua 执行）各顶层配置段的哈希。`test-profiles.py --source <补丁后检出>`（CI 也跑）逐个比对，改到共享的 `profiles/common/*.lua`、别的游戏 include 的布局等都会报出来。`python -I tools/impacto/profile-snapshot.py --source <检出> --diff-against <改动前的检出>` 列出具体变了哪几行；确属有意的改动用 `--update` 更新快照，和补丁一起提交，并在提交正文说明。新增 profile 同样要 `--update` 生成快照。
+- **识别规则**：`test-profiles.py` 检查任意两个不同游戏的 `detect` 不会同时命中同一个目录（主应用会把这种目录当作有歧义、两个都不识别）；新游戏的目录与已有规则重合时，给已有规则加可选的 `noneOf`。
+- **C++ 行为快照覆盖不到，只能靠结构保证**：通用代码里的新行为一律挂在新的 profile 字段（默认值等于原行为）或新的指令集判断后面，已有 profile 不填这些字段，快照自然不变。做不到这一点的改动（必须改变所有游戏的通用逻辑），提交正文写明影响到哪些 profile、为什么不会改变它们的表现，能在设备上验证的仍要验证。
 
 ## 兼容性工作的原则
 
@@ -76,7 +84,7 @@
 
 ## 检查与提交
 
-- 改补丁后：导出 → `python tools/impacto/test-patch-series.py`、`verify-upstream.py --series-only`、`test-profiles.py`（需要补丁后检出），以及 `tools/impacto/` 下与改动相关的 `test-*.py`；CI 工作流 `impacto-host-tools.yml` 跑同一组检查。
+- 改补丁后：导出 → `python tools/impacto/test-patch-series.py`、`verify-upstream.py --series-only`、`test-profiles.py`（需要补丁后检出，含 profile 快照比对），以及 `tools/impacto/` 下与改动相关的 `test-*.py`；CI 工作流 `impacto-host-tools.yml` 跑同一组检查。
 - 改宿主 Java 或打包内容后：Gradle 构建，并在设备上验证。
 - 改 `profiles.json` 后：`test-profiles.py`，并用主应用在设备上扫描一次确认识别结果。
 - 文件 UTF-8 无 BOM、LF 换行（`.gitattributes`；补丁目录关闭换行转换）。
