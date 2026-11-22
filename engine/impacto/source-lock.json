@@ -218,6 +218,30 @@
       {
         "file": "0053-tyn-debug-mode-for-porting-speed-pause-rewind-saved-.patch",
         "sha256": "2aea6aa0a8f3d99933badb6ac95e79208e56a40e01c8be68b03dd73b495c3885"
+      },
+      {
+        "file": "0054-tyn-debug-mode-create-the-save-folder-skipped-movies.patch",
+        "sha256": "450e98128c7d3729fd73e25fcc330fc614dd612486ee5efa1ea62f27e6a5c131"
+      },
+      {
+        "file": "0055-tyn-Bink-2-movies-set-SW_MOVIEFRAME-SW_MOVIETOTALFRA.patch",
+        "sha256": "f02580af4a94080bb9323b7b363d4a8760f9e237ea5a286c0799dd86a855a4e0"
+      },
+      {
+        "file": "0056-tyn-centred-FixedPos-names-on-half-the-name-width-Ce.patch",
+        "sha256": "4e6524c556ff3133b617d9199d80a7859cab0e75f94ade6c42205c3bcc77fbbb"
+      },
+      {
+        "file": "0057-tyn-SGHD-title-menu-options-for-STEINS-GATE-0.patch",
+        "sha256": "ed25cca999e2985ea37a2543dd780d80e8eb7b7c05c899f522cc7633c49260c6"
+      },
+      {
+        "file": "0058-tyn-STEINS-GATE-0-instruction-set-InstructionSet-SG0.patch",
+        "sha256": "1dd39a7140bb1f6ffc874f374e8ba72106fa336e6a301a11bef7f0534a137e19"
+      },
+      {
+        "file": "0059-tyn-add-the-sg0-pc-profile-STEINS-GATE-0-Steam-hidde.patch",
+        "sha256": "310c28759b84ee07c142ddd2e17d8f3152113ef8e3c4b57f1fc394f403497d0c"
       }
     ]
   },

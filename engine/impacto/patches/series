@@ -53,3 +53,9 @@
 0051-tyn-built-in-Bink-2-decoding-libbink2-behind-FFmpegP.patch
 0052-tyn-sg-pc-movie-flags-1851-2492-Game.exe-PlayMovie-0.patch
 0053-tyn-debug-mode-for-porting-speed-pause-rewind-saved-.patch
+0054-tyn-debug-mode-create-the-save-folder-skipped-movies.patch
+0055-tyn-Bink-2-movies-set-SW_MOVIEFRAME-SW_MOVIETOTALFRA.patch
+0056-tyn-centred-FixedPos-names-on-half-the-name-width-Ce.patch
+0057-tyn-SGHD-title-menu-options-for-STEINS-GATE-0.patch
+0058-tyn-STEINS-GATE-0-instruction-set-InstructionSet-SG0.patch
+0059-tyn-add-the-sg0-pc-profile-STEINS-GATE-0-Steam-hidde.patch

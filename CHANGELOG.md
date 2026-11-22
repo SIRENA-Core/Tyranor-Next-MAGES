@@ -1,5 +1,15 @@
 # Changelog
 
+## 未发布
+
+- 新增（补丁 0057–0059，S;G0 的数据与指令集仅 TYN，标题类的新字段为通用代码）：Steam 版 STEINS;GATE 0 的 profile `sg0-pc`（**适配中**，启动器里隐藏）。新指令集 `InstructionSet::SG0` 以 S;G 的指令表为基础，补上 S;G0 新增的条件调用、鼠标和键盘跳转（`00:53`–`00:59`）；标题画面按原版 Game.exe 移植（"0" Logo 动画、装饰、菜单、子菜单，SGHD 标题类加了一组可选字段，`sg-pc` 不使用）；对话框、名字和名牌按原版。手机／RINE、存读档、设置等画面还没做。详见 `docs/steins-gate-0-steam.md`。
+- 新增（补丁 0056，通用，可向上游提交）：两个可选的对话框字段。`FixedNameCenterOnHalfWidth`：固定位置、居中的名字以 `NamePos.x + MaxNameWidth / 2` 为中心（S;G0 的名字在屏幕正中）；`NametagType.CenteredTwoPiece`：名字两侧各一张图、随名字宽度对称展开的名牌。默认关闭，其他游戏不变。
+- 修复（补丁 0055，通用）：内置 Bink 2 播放时设置 `SW_MOVIEFRAME` 和 `SW_MOVIETOTALFRAME`（FFmpeg 路径本来就设）。S;G0 靠比较这两个值判断视频快结束，之前总帧数是 0，开场 intro 刚开始就被截掉。
+- 修复（补丁 0054，通用）：调试模式。保存状态前先建存档目录（从没存过档的游戏没有这个目录，状态写不进去、重启就丢）；跳过视频时把 `SW_MOVIEFRAME` 推到最后一帧，靠轮询帧数等视频结束的剧本（S;G0 世界线变动后的 `MACROSYS2` 标签 310）不再一直等下去。
+- 识别规则：`profiles.json` 加 `sg0-pc`（`Game.exe`、`USRDIR/script.mpk`、`USRDIR/system.mpk`、`USRDIR/mpk_bg.lst`），`sg-pc` 加可选字段 `noneOf: ["USRDIR/mpk_bg.lst"]`，SG0 目录不再同时命中前作；`test-profiles.py` 检查 `noneOf` 的格式，并检查不同游戏的规则不会同时命中同一个目录。旧版主应用不认识 `noneOf`，会把 SG0 目录当作有歧义、不识别（不会再用 `sg-pc` 去启动它）。
+- 工具：`tools/impacto/sghd/gen_widths.py` 多一个 profile 参数，可以给 `sg0-pc` 生成字宽表（S;G0 字体 `font_a.dds` 是 80 行）。
+- 验证：MuMu 模拟器（Android 15，不是真机）。`sg0-pc`（Steam 原版数据＋中文脚本）从标题、新游戏一路到 `SG0_B01_12`；`sg-pc`（Steam 原文件＋2018 汉化）回归标题、按下开始、菜单、LOAD 子菜单、新游戏、第一次世界线变动，与改动前一致。真机未测。
+
 ## 0.4.3（versionCode 10）
 
 - 新增（补丁 0051，通用）：内置 Bink 2 解码。`FFmpegPlayer` 遇到 Bink 2（`KB2*`）文件交给新的 `Bink2Player`，用 [libbink2](https://github.com/raynorpat/libbink2)（LGPL-2.1+）解码视频与 Bink Audio 2 音频；KB2g 起的透明通道按 FFmpeg Bink 2 补丁补上；视频时钟以帧时间为准，有声音时跟随声音（声轨比画面短时不再卡在最后一帧）。`sg-pc` 只用游戏原文件就能播放全部视频，包括世界线变动的辉光管动画，不再需要 `convert_bink2.py` 转换。发行包的许可证合集附上 libbink2 的 LICENSE。

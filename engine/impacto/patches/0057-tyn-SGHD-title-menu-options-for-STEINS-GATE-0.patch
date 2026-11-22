@@ -1,0 +1,462 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 09:50:21 -0800
+Subject: [PATCH] tyn: SGHD title menu options for STEINS;GATE 0
+
+The S;G0 title screen (Game.exe 0x45c1b0 and the routines it calls) follows
+the S;G one (same SW_TITLEMODE modes, press start blink, main list fading and
+sliding in, sub lists, decided entry blinking), with differences the data
+could not express. New optional fields of the SGHD title menu profile; sg-pc
+sets none of them and keeps its behaviour:
+
+- Variant 1 (S;G0): mode 0 blacks out only its first frame; mode 5 shows the
+  background and the logo only; the decoration is drawn every frame.
+- GuideSprite / GuidePosition optional (S;G0 has no guide strip there).
+- MenuEntryFlags: an entry shown only while a flag is set; the entries below a
+  hidden one move up, it cannot be chosen, the cursor skips it (S;G0 EXTRA
+  before flag 860, 0x45bf90 / 0x45c6aa).
+- MenuHitSize: the hit areas are the shown entries at MenuPosition.
+- MenuMask: a sprite drawn over the entries while they slide in.
+- SubAnimation 1 with SubFadeStartFrames, SubPointer and SubWipe: the pointer
+  fades in and moves right over the first frames, then bracket and items fade
+  in in place while a strip of the background is redrawn over them from a
+  growing left edge (0x45ac90 / 0x45b470 / 0x45ba80).
+- FlickerShowChance, FlickerDots (1, 2, 3 or no dots, the last first) and the
+  S;G0 decoration alpha: pieces at (256 - menu alpha) / 2, dots at the menu
+  alpha (0x45b030).
+- Logo: animated frames (one every FrameTicks frames) and a text sprite over
+  them, faded out by the menu (0x45be40).
+
+Generic code, used by the sg0-pc profile only (TYN).
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device): sg0-pc
+title with the logo animation, press start, menu without EXTRA (no save yet),
+NEW GAME by touch; sg-pc title, press start, menu, LOAD sub list and START as
+before. Not changed here, seen on both: a sub list cannot be closed with the
+Android back key or a two finger tap.
+
+diff --git a/src/games/sghd/titlemenu.cpp b/src/games/sghd/titlemenu.cpp
+index cb212cf08d3408002eb487e0a455cfe064452d12..0dec204e4a23cedcc85e00d0887fb907158f9218 100644
+--- a/src/games/sghd/titlemenu.cpp
++++ b/src/games/sghd/titlemenu.cpp
+@@ -45,6 +45,37 @@ const TitleMenu::SubList* TitleMenu::SubListOf(int entry) const {
+   return nullptr;
+ }
+ 
++bool TitleMenu::EntryShown(int entry) const {
++  if (entry < 0 || entry >= Common::MenuEntriesNum) return false;
++  if (entry >= (int)MenuEntryFlags.size() || MenuEntryFlags[entry] < 0) return true;
++  return GetFlag(MenuEntryFlags[entry]) != 0;
++}
++
++// The hit area of a main entry: from the profile, or (MenuHitSize) where the entry is drawn when fully shown.
++RectF TitleMenu::EntryHitArea(int entry) const {
++  if (MenuHitSize.x <= 0.0f) return MenuHitAreas[entry];
++  int slot = 0;
++  for (int i = 0; i < entry; i++)
++    if (EntryShown(i)) slot++;
++  return RectF(MenuPosition.x, MenuPosition.y + slot * MenuSpacing, MenuHitSize.x, MenuHitSize.y);
++}
++
++// Next shown entry from `from` in direction `step`, wrapping around; none chosen (-1) starts at the first entry.
++int TitleMenu::StepCursor(int from, int step) const {
++  const int n = Common::MenuEntriesNum;
++  if (from < 0) {
++    for (int i = 0; i < n; i++)
++      if (EntryShown(i)) return i;
++    return -1;
++  }
++  int i = from;
++  for (int k = 0; k < n; k++) {
++    i = (i + step + n) % n;
++    if (EntryShown(i)) return i;
++  }
++  return from;
++}
++
+ void TitleMenu::Show() {
+   if (State == Shown) return;
+   State = Shown;
+@@ -78,19 +109,25 @@ void TitleMenu::Reset() {
+ }
+ 
+ void TitleMenu::UpdateFlicker(float frames) {
+-  std::uniform_int_distribution<int> timer(10, 39), half(0, 1), third(0, 2);
++  std::uniform_int_distribution<int> timer(10, 39), third(0, 2);
++  std::bernoulli_distribution show(FlickerShowChance);
+   for (size_t i = 0; i < FlickerItems.size(); i++) {
+     if (!FlickerItems[i].Random) continue;
+     FlickerTimers[i] -= frames;
+     if (FlickerTimers[i] <= 0.0f) {
+       FlickerTimers[i] = (float)timer(Rng);
+-      FlickerOn[i] = half(Rng) != 0;
++      FlickerOn[i] = show(Rng);
+     }
+   }
+   BarTimer -= frames;
+   if (BarTimer <= 0.0f) {
+     BarTimer = (float)timer(Rng);
+-    BarChoice = third(Rng);
++    if (FlickerDotCounts.empty()) {
++      BarChoice = third(Rng);
++    } else {
++      std::uniform_int_distribution<int> dots(0, (int)FlickerDotCounts.size() - 1);
++      BarChoice = dots(Rng);
++    }
+   }
+ }
+ 
+@@ -105,6 +142,7 @@ void TitleMenu::Update(float dt) {
+   if (mode <= 2 && LastMode > 2) Reset();  // back to "press start": the menu starts afresh
+   LastMode = mode;
+   FrameClock += frames;
++  LogoClock += frames;
+   StartBlink = std::fmod(StartBlink + frames, PressToStartBlinkFrames);
+   UpdateFlicker(frames);
+ 
+@@ -148,7 +186,8 @@ void TitleMenu::StartDecide() {
+ }
+ 
+ void TitleMenu::UpdateInput(float dt) {
+-  const int n = std::min(Common::MenuEntriesNum, (int)MenuHitAreas.size());
++  const int n = MenuHitSize.x > 0.0f ? Common::MenuEntriesNum
++                                     : std::min(Common::MenuEntriesNum, (int)MenuHitAreas.size());
+   if (n <= 0) return;
+   const bool mouse = UseMouse();
+   const glm::vec2 pos = Input::CurMousePos;
+@@ -196,17 +235,17 @@ void TitleMenu::UpdateInput(float dt) {
+   if (mouse) {
+     Cursor = -1;
+     for (int i = 0; i < n; i++)
+-      if (MenuHitAreas[i].ContainsPoint(pos)) {
++      if (EntryShown(i) && EntryHitArea(i).ContainsPoint(pos)) {
+         Cursor = i;
+         decide = click;
+       }
+   }
+   if (up) {
+     PlaySe(1);
+-    Cursor = Cursor < 0 ? 0 : (Cursor == 0 ? n - 1 : Cursor - 1);
++    Cursor = Cursor < 0 ? StepCursor(-1, 1) : StepCursor(Cursor, -1);
+   } else if (down) {
+     PlaySe(1);
+-    Cursor = Cursor < 0 || Cursor + 1 >= n ? 0 : Cursor + 1;
++    Cursor = Cursor < 0 ? StepCursor(-1, 1) : StepCursor(Cursor, 1);
+   } else if ((ok || decide) && Cursor >= 0) {
+     if (SubListOf(Cursor) != nullptr) {
+       PlaySe(2);
+@@ -234,33 +273,88 @@ void TitleMenu::RenderFlicker(float alpha) {
+   }
+ }
+ 
++// S;G0 (0x45b030): the pieces at (256 - pieceAlpha) / 2 every frame, then 0..3 dots, the last ones first.
++void TitleMenu::RenderFlickerSg0(int pieceAlpha, int dotAlpha) {
++  const glm::vec4 pieces(glm::vec3(1.0f), (256 - pieceAlpha) * 0.5f / 256.0f);
++  for (size_t i = 0; i < FlickerItems.size(); i++)
++    if (!FlickerItems[i].Random || FlickerOn[i])
++      Renderer->DrawSprite(FlickerItems[i].Sprite_, FlickerItems[i].Position, pieces);
++  if (FlickerDotCounts.empty() || dotAlpha <= 0) return;
++  const int total = (int)FlickerDotPositions.size();
++  const int count = std::min(FlickerDotCounts[std::clamp(BarChoice, 0, (int)FlickerDotCounts.size() - 1)], total);
++  const glm::vec4 dots(glm::vec3(1.0f), dotAlpha / 256.0f);
++  for (int i = total - count; i < total; i++) Renderer->DrawSprite(FlickerDotSprite, FlickerDotPositions[i], dots);
++}
++
++// S;G0 (0x45be40): the logo animation and the title text over it.
++void TitleMenu::RenderLogo(int alpha) {
++  if (LogoFrames.empty() || alpha <= 0) return;
++  const glm::vec4 col(glm::vec3(1.0f), alpha / 256.0f);
++  const int frame = (int)(LogoClock / std::max(LogoFrameTicks, 1.0f)) % (int)LogoFrames.size();
++  Renderer->DrawSprite(LogoFrames[frame], LogoPosition, col);
++  if (HasLogoText) Renderer->DrawSprite(LogoTextSprite, LogoTextPosition, col);
++}
++
++void TitleMenu::RenderSubList(const SubList& sub, bool hideChosen) {
++  const float c = SubCounter;
++  const int chosenItem = SubCursor[Cursor];
++  if (SubAnimation == 1) {
++    // S;G0 (0x45ac90 / 0x45b470 / 0x45ba80): pointer first, then bracket and items, uncovered by a wipe
++    const float start = std::min(SubFadeStartFrames, SubOpenFrames - 1.0f);
++    const float pointer = std::min(1.0f, c / std::max(start, 1.0f));
++    const float items = std::max(c - start, 0.0f) / (SubOpenFrames - start);
++    if (HasSubPointer) {
++      const float x = SubPointerPosition.x - SubPointerDistance + (int)(pointer * SubPointerDistance);
++      Renderer->DrawSprite(SubPointerSprite, glm::vec2(x, SubPointerPosition.y),
++                           glm::vec4(glm::vec3(1.0f), (int)(pointer * 256.0f) / 256.0f));
++    }
++    const glm::vec4 col(glm::vec3(1.0f), (int)(items * 256.0f) / 256.0f);
++    Renderer->DrawSprite(sub.Bracket, sub.BracketPosition, col);
++    for (int i = 0; i < (int)sub.Items.size(); i++) {
++      const bool chosen = chosenItem == i;
++      if (chosen && hideChosen) continue;
++      Renderer->DrawSprite(chosen ? sub.Items[i].Highlighted : sub.Items[i].Normal, sub.Items[i].Position, col);
++    }
++    if (SubWipeArea.Width > 0.0f) {
++      const float done = (float)(int)(items * SubWipeDistance);
++      Sprite wipe = BackgroundSprite;
++      wipe.Bounds = RectF(BackgroundSprite.Bounds.X + SubWipeArea.X + done, BackgroundSprite.Bounds.Y + SubWipeArea.Y,
++                          SubWipeArea.Width - done, SubWipeArea.Height);
++      if (wipe.Bounds.Width > 0.0f)
++        Renderer->DrawSprite(wipe, glm::vec2(SubWipeArea.X + done, SubWipeArea.Y), glm::vec4(1.0f));
++    }
++    return;
++  }
++  const glm::vec2 off(SubSlideDistance * (SubOpenFrames - c) / SubOpenFrames, 0.0f);
++  const glm::vec4 col(glm::vec3(1.0f), c / SubOpenFrames);
++  Renderer->DrawSprite(sub.Bracket, sub.BracketPosition + off, col);
++  for (int i = 0; i < (int)sub.Items.size(); i++) {
++    const bool chosen = chosenItem == i;
++    if (chosen && hideChosen) continue;
++    Renderer->DrawSprite(chosen ? sub.Items[i].Highlighted : sub.Items[i].Normal, sub.Items[i].Position + off, col);
++  }
++}
++
+ void TitleMenu::RenderMenu(int alpha) {
+   const float a = alpha / 256.0f;
+   const bool hideChosen = DecideCounter > 0.0f && ((int)DecideCounter & DecideBlinkFrames) == 0;
+ 
+   const SubList* sub = Cursor >= 0 ? SubListOf(Cursor) : nullptr;
+-  if (sub != nullptr && SubCounter > 0.0f) {
+-    const float c = SubCounter;
+-    const glm::vec2 off(SubSlideDistance * (SubOpenFrames - c) / SubOpenFrames, 0.0f);
+-    const glm::vec4 col(glm::vec3(1.0f), c / SubOpenFrames);
+-    Renderer->DrawSprite(sub->Bracket, sub->BracketPosition + off, col);
+-    for (int i = 0; i < (int)sub->Items.size(); i++) {
+-      const bool chosen = SubCursor[Cursor] == i;
+-      if (chosen && hideChosen) continue;
+-      Renderer->DrawSprite(chosen ? sub->Items[i].Highlighted : sub->Items[i].Normal, sub->Items[i].Position + off,
+-                           col);
+-    }
+-  }
++  if (sub != nullptr && SubCounter > 0.0f) RenderSubList(*sub, hideChosen);
+ 
+   // the entries come in from the right in steps of alpha / 8, as the original
+   const float x = MenuPosition.x + MenuSlideDistance * (32 - (alpha >> 3)) / 32.0f;
+   const glm::vec4 col(glm::vec3(1.0f), a);
++  int slot = 0;
+   for (int i = 0; i < Common::MenuEntriesNum; i++) {
++    if (!EntryShown(i)) continue;  // S;G0: EXTRA before flag 860, the entries below move up
+     const bool chosen = i == Cursor;
++    const float y = MenuPosition.y + slot++ * MenuSpacing;
+     if (chosen && hideChosen) continue;
+-    Renderer->DrawSprite(chosen ? Common::MenuEntriesHSprites[i] : Common::MenuEntriesSprites[i],
+-                         glm::vec2(x, MenuPosition.y + i * MenuSpacing), col);
++    Renderer->DrawSprite(chosen ? Common::MenuEntriesHSprites[i] : Common::MenuEntriesSprites[i], glm::vec2(x, y),
++                         col);
+   }
++  if (HasMenuMask && alpha != 256) Renderer->DrawSprite(MenuMaskSprite, MenuMaskPosition, glm::vec4(1.0f));
+ }
+ 
+ void TitleMenu::Render() {
+@@ -268,12 +362,19 @@ void TitleMenu::Render() {
+   const int mode = ScrWork[SW_TITLEMODE];
+   const int ct = std::clamp(ScrWork[SW_TITLEDISPCT], 0, 32);
+   const glm::vec4 white(1.0f);
++  const bool sg0 = TitleVariant == Variant::SG0;
+   switch (mode) {
+     case 0:
+     case 1:
+     case 2: {
+       Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), white);
+-      RenderFlicker(1.0f);
++      if (sg0) {
++        // 0x45c870 / 0x45c920 / 0x45c990: the dots are hidden in mode 0 after its first frame
++        RenderFlickerSg0(0, mode == 0 && ct != 0 ? 0 : 256);
++        RenderLogo(256);
++      } else {
++        RenderFlicker(1.0f);
++      }
+       float blink = -1.0f;
+       if (mode == 2) {
+         const int c = ScrWork[SW_TITLEDISPCT] & 15;
+@@ -284,14 +385,30 @@ void TitleMenu::Render() {
+       }
+       if (blink >= 0.0f)
+         Renderer->DrawSprite(Common::PressToStartSprite, Common::PressToStartPos, glm::vec4(glm::vec3(1.0f), blink));
+-      if (mode == 0)
+-        Renderer->DrawQuad(RectF(0.0f, 0.0f, Profile::Game::DesignWidth, Profile::Game::DesignHeight),
+-                           glm::vec4(0.0f, 0.0f, 0.0f, (32 - ct) / 32.0f));
++      if (mode == 0) {
++        // S;G fades in from black over SW_TITLEDISPCT; S;G0 only blacks out the first frame
++        const float black = sg0 ? (ct == 0 ? 1.0f : 0.0f) : (32 - ct) / 32.0f;
++        if (black > 0.0f)
++          Renderer->DrawQuad(RectF(0.0f, 0.0f, Profile::Game::DesignWidth, Profile::Game::DesignHeight),
++                             glm::vec4(0.0f, 0.0f, 0.0f, black));
++      }
+     } break;
+     case 3:
+     case 5: {
+       const int alpha = ct * 8;
+       Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), white);
++      if (sg0) {
++        if (mode == 5) {  // 0x45cb70: background and logo only
++          RenderLogo(256 - (32 - ct) * 8);
++          break;
++        }
++        RenderFlickerSg0(alpha, alpha);  // 0x45ca70
++        RenderMenu(alpha);
++        RenderLogo(256 - alpha);
++        if (HasGuide)
++          Renderer->DrawSprite(GuideSprite, GuidePosition, glm::vec4(glm::vec3(1.0f), alpha / 256.0f));
++        break;
++      }
+       Renderer->DrawSprite(GuideSprite, GuidePosition, glm::vec4(glm::vec3(1.0f), alpha / 256.0f));
+       RenderFlicker(1.0f);
+       RenderMenu(alpha);
+@@ -300,9 +417,9 @@ void TitleMenu::Render() {
+       const int alpha = (32 - ct) * 8;
+       const glm::vec4 col(glm::vec3(1.0f), alpha / 256.0f);
+       Renderer->DrawSprite(BackgroundSprite, glm::vec2(0.0f), col);
+-      Renderer->DrawSprite(GuideSprite, GuidePosition, col);
+-      RenderFlicker(alpha / 256.0f);
+-      RenderMenu(alpha);
++      if (HasGuide) Renderer->DrawSprite(GuideSprite, GuidePosition, col);
++      if (!sg0) RenderFlicker(alpha / 256.0f);
++      RenderMenu(alpha);  // S;G0 0x45caf0: the logo is drawn with alpha 0
+     } break;
+     default:
+       break;
+diff --git a/src/games/sghd/titlemenu.h b/src/games/sghd/titlemenu.h
+index e0eb1403ac88f6d88853b47ca9866768d42a4703..7bd5180cc2eee256df573380d28a5a78d267eb2c 100644
+--- a/src/games/sghd/titlemenu.h
++++ b/src/games/sghd/titlemenu.h
+@@ -31,8 +31,14 @@ class TitleMenu : public Menu {
+   const SubList* SubListOf(int entry) const;
+   void Reset();
+   void StartDecide();
++  bool EntryShown(int entry) const;
++  RectF EntryHitArea(int entry) const;
++  int StepCursor(int from, int step) const;
+   void UpdateFlicker(float frames);
+   void RenderFlicker(float alpha);
++  void RenderFlickerSg0(int pieceAlpha, int dotAlpha);
++  void RenderSubList(const SubList& sub, bool hideChosen);
++  void RenderLogo(int alpha);
+   void RenderMenu(int alpha);
+ 
+   int Cursor = 0;              // main entry, -1 = none (mouse)
+@@ -50,6 +56,7 @@ class TitleMenu : public Menu {
+   std::vector<bool> FlickerOn;
+   float BarTimer = 0.0f;
+   int BarChoice = 0;
++  float LogoClock = 0.0f;
+ };
+ 
+ }  // namespace SGHD
+diff --git a/src/profile/games/sghd/titlemenu.cpp b/src/profile/games/sghd/titlemenu.cpp
+index 15f00b2ed59a3c32e4075c5e3832dc4fe737ecf2..2d3827f29cd88ab82ad2f59cead54fc5c1abfc4f 100644
+--- a/src/profile/games/sghd/titlemenu.cpp
++++ b/src/profile/games/sghd/titlemenu.cpp
+@@ -11,14 +11,59 @@ namespace TitleMenu {
+ 
+ void Configure() {
+   BackgroundSprite = EnsureGetMember<Sprite>("BackgroundSprite");
+-  GuideSprite = EnsureGetMember<Sprite>("GuideSprite");
+-  GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
++  int variant = 0;
++  TryGetMember<int>("Variant", variant);
++  TitleVariant = (Variant)variant;
++  HasGuide = TryGetMember<Sprite>("GuideSprite", GuideSprite);
++  if (HasGuide) GuidePosition = EnsureGetMember<glm::vec2>("GuidePosition");
+   TryGetMember<float>("PressToStartBlinkFrames", PressToStartBlinkFrames);
+   MenuPosition = EnsureGetMember<glm::vec2>("MenuPosition");
+   MenuSpacing = EnsureGetMember<float>("MenuSpacing");
+   TryGetMember<float>("MenuSlideDistance", MenuSlideDistance);
+-  MenuHitAreas = EnsureGetMember<std::vector<RectF>>("MenuHitAreas");
++  TryGetMember<glm::vec2>("MenuHitSize", MenuHitSize);
++  MenuHitAreas.clear();
++  if (MenuHitSize.x <= 0.0f) MenuHitAreas = EnsureGetMember<std::vector<RectF>>("MenuHitAreas");
+   MenuEntryIds = EnsureGetMember<std::vector<int>>("MenuEntryIds");
++  MenuEntryFlags.clear();
++  TryGetMember<std::vector<int>>("MenuEntryFlags", MenuEntryFlags);
++  HasMenuMask = TryPushMember("MenuMask");
++  if (HasMenuMask) {
++    MenuMaskSprite = EnsureGetMember<Sprite>("Sprite");
++    MenuMaskPosition = EnsureGetMember<glm::vec2>("Position");
++    Pop();
++  }
++  TryGetMember<int>("SubAnimation", SubAnimation);
++  TryGetMember<float>("SubFadeStartFrames", SubFadeStartFrames);
++  HasSubPointer = TryPushMember("SubPointer");
++  if (HasSubPointer) {
++    SubPointerSprite = EnsureGetMember<Sprite>("Sprite");
++    SubPointerPosition = EnsureGetMember<glm::vec2>("Position");
++    SubPointerDistance = EnsureGetMember<float>("Distance");
++    Pop();
++  }
++  if (TryPushMember("SubWipe")) {
++    SubWipeArea = EnsureGetMember<RectF>("Area");
++    SubWipeDistance = EnsureGetMember<float>("Distance");
++    Pop();
++  }
++  TryGetMember<float>("FlickerShowChance", FlickerShowChance);
++  FlickerDotPositions.clear();
++  FlickerDotCounts.clear();
++  if (TryPushMember("FlickerDots")) {
++    FlickerDotSprite = EnsureGetMember<Sprite>("Sprite");
++    FlickerDotPositions = EnsureGetMember<std::vector<glm::vec2>>("Positions");
++    FlickerDotCounts = EnsureGetMember<std::vector<int>>("Counts");
++    Pop();
++  }
++  LogoFrames.clear();
++  if (TryPushMember("Logo")) {
++    LogoFrames = EnsureGetMember<std::vector<Sprite>>("Frames");
++    LogoPosition = EnsureGetMember<glm::vec2>("Position");
++    TryGetMember<float>("FrameTicks", LogoFrameTicks);
++    HasLogoText = TryGetMember<Sprite>("TextSprite", LogoTextSprite);
++    if (HasLogoText) LogoTextPosition = EnsureGetMember<glm::vec2>("TextPosition");
++    Pop();
++  }
+   TryGetMember<float>("SubOpenFrames", SubOpenFrames);
+   TryGetMember<float>("SubSlideDistance", SubSlideDistance);
+   TryGetMember<float>("DecideFrames", DecideFrames);
+diff --git a/src/profile/games/sghd/titlemenu.h b/src/profile/games/sghd/titlemenu.h
+index 73376471fe7f035b015074c7b51c9e6cdeabe320..d71fcd892a671ff6f1a94a008f8776272b577dee 100644
+--- a/src/profile/games/sghd/titlemenu.h
++++ b/src/profile/games/sghd/titlemenu.h
+@@ -56,6 +56,45 @@ inline float SubSlideDistance = 0.0f;  // sub lists come in from the right while
+ inline float DecideFrames = 64.0f;     // the chosen entry blinks this long before the script is told
+ inline int DecideBlinkFrames = 8;
+ 
++// Behaviour of the original that the data cannot express. 0 = STEINS;GATE (Steam), the defaults above and below.
++// 1 = STEINS;GATE 0 (Steam): mode 0 only blacks out its first frame; the decoration pieces are shown with chance
++// FlickerShowChance at half alpha and fade out while the menu fades in, every frame, and FlickerDots replace the bar;
++// sub lists open with SubAnimation 1; mode 5 shows the background and the logo only.
++enum class Variant { SG = 0, SG0 = 1 };
++inline Variant TitleVariant = Variant::SG;
++inline bool HasGuide = true;  // GuideSprite is optional (S;G0 has no guide strip on the title)
++
++inline std::vector<int> MenuEntryFlags;  // per entry: shown only while this flag is set, -1 always; the entries
++                                         // below a hidden one move up and it cannot be chosen
++inline glm::vec2 MenuHitSize{};          // > 0: hit areas are the shown entries at MenuPosition (MenuHitAreas unused)
++inline bool HasMenuMask = false;         // drawn over the entries while they slide in (alpha < 256)
++inline Sprite MenuMaskSprite;
++inline glm::vec2 MenuMaskPosition{};
++
++// SubAnimation 1 (S;G0): the pointer fades in and moves SubPointerDistance to the right over SubFadeStartFrames, then
++// bracket and items fade in at their positions while the background over SubWipeArea is redrawn from
++// SubWipeDistance * progress to its right edge (a wipe from left to right).
++inline int SubAnimation = 0;
++inline float SubFadeStartFrames = 8.0f;
++inline bool HasSubPointer = false;
++inline Sprite SubPointerSprite;
++inline glm::vec2 SubPointerPosition{};  // when fully open
++inline float SubPointerDistance = 0.0f;
++inline RectF SubWipeArea{};
++inline float SubWipeDistance = 0.0f;
++
++inline float FlickerShowChance = 0.5f;
++inline Sprite FlickerDotSprite;  // S;G0: 1, 2, 3 or none of FlickerDotPositions (the last ones first)
++inline std::vector<glm::vec2> FlickerDotPositions;
++inline std::vector<int> FlickerDotCounts;  // dot count per random choice
++
++inline std::vector<Sprite> LogoFrames;  // animated logo, one frame every LogoFrameTicks frames, fading out with the menu
++inline glm::vec2 LogoPosition{};
++inline float LogoFrameTicks = 2.0f;
++inline bool HasLogoText = false;
++inline Sprite LogoTextSprite;
++inline glm::vec2 LogoTextPosition{};
++
+ void Configure();
+ 
+ }  // namespace TitleMenu

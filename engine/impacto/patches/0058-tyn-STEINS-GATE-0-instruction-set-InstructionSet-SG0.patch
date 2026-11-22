@@ -1,0 +1,470 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 09:50:21 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 instruction set (InstructionSet::SG0)
+
+STEINS;GATE 0 (Steam, 2018) runs the STEINS;GATE (Steam) dialect of the SC3
+VM: the opcode tables of its Game.exe (system 0xdcc198, graph 0xdcbfb0, user 1
+0xdcc320) have the same operand shapes except for a few groups.
+InstructionSet::SG0 starts from the SGHD tables (Configure_SG0 in
+opcodetables_sg0.h) and overrides:
+
+- 00:53..00:59 (unused by S;G): 00:53 read and ignored, CallIfFlag,
+  JumpFarIfFlag, CallFarIfFlag, ReturnIfFlag, mouse on jump (0x47f770:
+  rectangles in 1280x720 units, button masks), keyboard on jump (0x47f980:
+  KBcustom or key codes, "is down" / "went down").
+- 10:37 / 10:38 operand shapes of the RINE / phone group (0x482df0,
+  0x4831a0), read and skipped for now.
+
+Everywhere the engine treats SGHD specially, SG0 follows it (backgrounds and
+captures tint, movie priority 10000, backlog by flick or wheel, SystemMes id
+byte, MSinit ranges and movie channels, backlog show / hide, Sel save point,
+NameID name plates, title menu, LoadSystemData without a save file). Press
+start is taken at any time in title mode 1 (Game.exe 0x45c321), not only once
+SW_TITLEDISPCT reaches 60.
+
+TYN only (new game generation, no upstream support yet).
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc
+(Steam data, Chinese scripts): startup movies, title, new game, prologue and
+chapter 1 to SG0_B01_12 at x64 with the debug mode, world line change and
+chapter title movies, NVL pages. RINE / phone screens not implemented.
+
+diff --git a/src/background2d.cpp b/src/background2d.cpp
+index 712e549e4d5e3279d247226bb8b20c42cb353f67..a2c71f38229dea90f92426fb3b953e3f887b97a9 100644
+--- a/src/background2d.cpp
++++ b/src/background2d.cpp
+@@ -468,6 +468,7 @@ void Background2D::UpdateState(const int bgId) {
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
+     case Vm::InstructionSet::SGHD:
++    case Vm::InstructionSet::SG0:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_BG1FILTER + structOffset);
+       break;
+@@ -636,6 +637,7 @@ void Capture2D::UpdateState(const int capId) {
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
+     case Vm::InstructionSet::SGHD:
++    case Vm::InstructionSet::SG0:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_CAP1FILTER + structOffset);
+       break;
+@@ -737,6 +739,7 @@ void BackgroundEffect2D::UpdateState(const int bgId) {
+   switch (GameInstructionSet) {
+     case Vm::InstructionSet::CC:
+     case Vm::InstructionSet::SGHD:
++    case Vm::InstructionSet::SG0:
+     case Vm::InstructionSet::LCCSwitch:
+       Tint = ScrWorkGetColor(SW_BGEFF1_FILTER + structOffset);
+       break;
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index 35f505dfbf72861879e0bd2eb85ecfe40b0b3409..d7b83cca60c02e75fbcd4d7dd92da29f75bd637c 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -200,7 +200,10 @@ SaveError LoadSystemData() {
+   if (Implementation) return Implementation->LoadSystemData();
+   // STEINS;GATE (Steam) has no save implementation yet: its startup script treats Failed as fatal ("It failed to load
+   // system data"), so report a fresh install instead.
+-  return Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD ? SaveError::OK : SaveError::Failed;
++  return Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD ||
++                 Profile::Vm::GameInstructionSet == Vm::InstructionSet::SG0
++             ? SaveError::OK
++             : SaveError::Failed;
+ }
+ 
+ void SaveThumbnailData() {
+diff --git a/src/game.cpp b/src/game.cpp
+index 3933c3a4285ced6d81f57294a10c59662e1e4585..5c987520f486cf76ed76fde50a7284e579eb22ed 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -658,7 +658,9 @@ static void RenderMain() {
+   }
+   // STEINS;GATE: priority 10000 puts the movie over everything, the HUD and the text included (original 0x44f840)
+   if ((+Profile::Game::GameFeatures & +GameFeature::Video) && Profile::Game::UseMoviePriority &&
+-      Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD && ScrWork[SW_MOVIEPRI] == 10000 &&
++      (Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD ||
++       Profile::Vm::GameInstructionSet == Vm::InstructionSet::SG0) &&
++      ScrWork[SW_MOVIEPRI] == 10000 &&
+       ScrWork[SW_MOVIEALPHA] > 0) {
+     Video::VideoRender(ScrWork[SW_MOVIEALPHA] / 256.0f);
+   }
+diff --git a/src/vm/inst_dialogue.cpp b/src/vm/inst_dialogue.cpp
+index 331b8f32d82fb12b18a28a379c64b77a2b6cf451..4c386cb3208d27cac61910df14182ad58092759c 100644
+--- a/src/vm/inst_dialogue.cpp
++++ b/src/vm/inst_dialogue.cpp
+@@ -828,7 +828,8 @@ VmInstruction(InstMesRev) {
+     case 0:  // DispInit
+       if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+-          Profile::Vm::GameInstructionSet == InstructionSet::SGHD)
++          Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SG0)
+         UI::BacklogMenuPtr->Show();
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction SetMesModeFormat(type: DispInit)\n");
+@@ -840,7 +841,8 @@ VmInstruction(InstMesRev) {
+     case 2:  // AllCls
+       if (Profile::Vm::GameInstructionSet == InstructionSet::MO6TW ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+-          Profile::Vm::GameInstructionSet == InstructionSet::SGHD)
++          Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SG0)
+         UI::BacklogMenuPtr->Hide();
+       ImpLogSlow(LogLevel::Warning, LogChannel::VMStub,
+                  "STUB instruction SetMesModeFormat(type: AllCls)\n");
+@@ -973,6 +975,7 @@ VmInstruction(InstSel) {
+           Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SG0 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC) {
+         PopUint16(savepointid);
+         // SF_MESSAVEPOINT_SSP + dialog page's field 5 in decompile?
+@@ -1159,6 +1162,7 @@ VmInstruction(InstNameID) {
+           Profile::Vm::GameInstructionSet == InstructionSet::MO8 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::MO6TWPC ||
+           Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++          Profile::Vm::GameInstructionSet == InstructionSet::SG0 ||
+           Profile::Vm::GameInstructionSet == InstructionSet::CHN) {
+         PopLocalLabel(namePlateDataBlock);
+         Sc3Stream namePlateData(
+diff --git a/src/vm/inst_misc.cpp b/src/vm/inst_misc.cpp
+index 762f91df5b763b331baeadb498e72262d674807f..7f3deac45cf978119457df5b1eec08e77616630c 100644
+--- a/src/vm/inst_misc.cpp
++++ b/src/vm/inst_misc.cpp
+@@ -562,6 +562,7 @@ VmInstruction(InstTitleMenuNew) {
+         case InstructionSet::LCCSwitch:
+         case InstructionSet::CC:
+         case InstructionSet::SGHD:
++        case InstructionSet::SG0:
+         case InstructionSet::CHN: {
+           int mainState;
+           int startTransitionState;
+@@ -585,10 +586,11 @@ VmInstruction(InstTitleMenuNew) {
+               BlockThread;
+             }
+           } else if (ScrWork[SW_TITLEMODE] == pressToStartState &&
+-                     ScrWork[SW_TITLEDISPCT] ==
+-                         (Profile::Vm::GameInstructionSet == InstructionSet::CHN
+-                              ? 400
+-                              : 60)) {
++                     (Profile::Vm::GameInstructionSet == InstructionSet::SG0 ||  // any time (Game.exe 0x45c321)
++                      ScrWork[SW_TITLEDISPCT] ==
++                          (Profile::Vm::GameInstructionSet == InstructionSet::CHN
++                               ? 400
++                               : 60))) {
+             // Check "PRESS TO START" here
+             if (((Interface::PADinputButtonWentDown & Interface::PAD1A) ||
+                  (Interface::PADinputMouseWentDown & Interface::PAD1A))) {
+diff --git a/src/vm/inst_sg0.h b/src/vm/inst_sg0.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b80c35bc9639e538ddee10a9e29821987cc7d79
+--- /dev/null
++++ b/src/vm/inst_sg0.h
+@@ -0,0 +1,176 @@
++#pragma once
++// STEINS;GATE 0 (Steam) instructions whose operands or meaning differ from STEINS;GATE (Steam), whose dialect it
++// otherwise shares. Header-only on purpose (like the opcode tables): vm.cpp is the only user.
++// Addresses are functions of the S;G0 Game.exe (opcode tables 0xdcc198 system, 0xdcc320 user 1).
++#include "inst_sghd.h"
++#include "../inputsystem.h"
++#include "../util.h"
++#include "../profile/game.h"
++#include "../profile/vm.h"
++#include "inst_controlflow.h"
++#include "interface/input.h"
++
++namespace Impacto {
++
++namespace Vm {
++
++namespace Sg0Detail {
++
++inline uint16_t ReadU16(Sc3VmThread* thread) {
++  const uint16_t v = SDL_Swap16LE(UnalignedRead<uint16_t>(thread->GetIp()));
++  thread->IpOffset += 2;
++  return v;
++}
++
++inline uint8_t ReadU8(Sc3VmThread* thread) {
++  const uint8_t v = *thread->GetIp();
++  thread->IpOffset += 1;
++  return v;
++}
++
++// Pushes the return id of the current script buffer and continues at labelAdr of scriptBufferId (the original stores
++// the return label and the buffer at thread + 0x30 / + 0x50, at most 8 deep).
++inline void PushAndJump(Sc3VmThread* thread, uint16_t retNum, uint32_t scriptBufferId, uint32_t labelAdr) {
++  if (thread->CallStackDepth == MaxCallStackDepth) {
++    ImpLog(LogLevel::Error, LogChannel::VM, "SG0 conditional call: call stack overflow\n");
++    return;
++  }
++  if (Profile::Vm::UseReturnIds) {
++    thread->ReturnIds[thread->CallStackDepth] = retNum;
++  } else {
++    thread->ReturnAddresses[thread->CallStackDepth] = thread->IpOffset;
++  }
++  thread->ReturnScriptBufferIds[thread->CallStackDepth++] = thread->ScriptBufferId;
++  thread->ScriptBufferId = scriptBufferId;
++  thread->IpOffset = labelAdr;
++}
++
++}  // namespace Sg0Detail
++
++// 00:53 (0x47f4d0): one byte, an expression and a label that the original reads and ignores.
++inline void InstSg0Unk0053(Sc3VmThread* thread, float dt) {
++  thread->IpOffset += 3;
++  (void)ExpressionEval(thread);
++  thread->IpOffset += 2;
++}
++
++// 00:54 (0x47f510): CallIfFlag(value, flag, label, return id): call the local label when the flag equals the value.
++inline void InstSg0CallIfFlag(Sc3VmThread* thread, float dt) {
++  using namespace Sg0Detail;
++  thread->IpOffset += 2;
++  const uint8_t value = ReadU8(thread);
++  const int flag = ExpressionEval(thread);
++  const uint32_t labelAdr = ScriptGetLabelAddress(thread->ScriptBufferId, ReadU16(thread));
++  const uint16_t retNum = ReadU16(thread);
++  if (GetFlag(flag) == (bool)value) PushAndJump(thread, retNum, thread->ScriptBufferId, labelAdr);
++}
++
++// 00:55 (0x47f5c0): JumpFarIfFlag(value, flag, script buffer, label).
++inline void InstSg0JumpFarIfFlag(Sc3VmThread* thread, float dt) {
++  using namespace Sg0Detail;
++  thread->IpOffset += 2;
++  const uint8_t value = ReadU8(thread);
++  const int flag = ExpressionEval(thread);
++  const int scriptBufferId = ExpressionEval(thread);
++  const uint32_t labelAdr = ScriptGetLabelAddress(scriptBufferId, ReadU16(thread));
++  if (GetFlag(flag) == (bool)value) {
++    thread->ScriptBufferId = scriptBufferId;
++    thread->IpOffset = labelAdr;
++  }
++}
++
++// 00:56 (0x47f640): CallFarIfFlag(value, flag, script buffer, label, return id).
++inline void InstSg0CallFarIfFlag(Sc3VmThread* thread, float dt) {
++  using namespace Sg0Detail;
++  thread->IpOffset += 2;
++  const uint8_t value = ReadU8(thread);
++  const int flag = ExpressionEval(thread);
++  const int scriptBufferId = ExpressionEval(thread);
++  const uint32_t labelAdr = ScriptGetLabelAddress(scriptBufferId, ReadU16(thread));
++  const uint16_t retNum = ReadU16(thread);
++  if (GetFlag(flag) == (bool)value) PushAndJump(thread, retNum, scriptBufferId, labelAdr);
++}
++
++// 00:58 (0x47f770): mouse on jump. Types 2 / 3 take a rectangle (x, y, w, h) and jump when it is clicked (2) or only
++// hovered (3); the other types take a button mask (1 left, 2 right, 4 middle, 8 wheel up, 0x100000 wheel down,
++// 0x200000 any button) and jump when "the mask went down" equals the type.
++inline void InstSg0MouseOnJump(Sc3VmThread* thread, float dt) {
++  using namespace Sg0Detail;
++  thread->IpOffset += 2;
++  const uint8_t type = ReadU8(thread);
++  int rect[4] = {};
++  int mask = 0;
++  if (type == 2 || type == 3) {
++    for (int& v : rect) v = ExpressionEval(thread);
++  } else {
++    mask = ExpressionEval(thread);
++  }
++  const uint32_t labelAdr = ScriptGetLabelAddress(thread->ScriptBufferId, ReadU16(thread));
++
++  using namespace Impacto::Input;
++  if (type == 2 || type == 3) {
++    // the script rectangles are in the 1280x720 space of the original
++    const float scale = Profile::Game::DesignWidth / 1280.0f;
++    const RectF area(rect[0] * scale, rect[1] * scale, rect[2] * scale, rect[3] * scale);
++    const bool inside = area.ContainsPoint(CurMousePos);
++    const bool clicked = inside && MouseButtonWentDown[SDL_BUTTON_LEFT];
++    if ((type == 2 && clicked) || (type == 3 && inside && !clicked)) thread->IpOffset = labelAdr;
++    return;
++  }
++  bool down = false;
++  if ((mask & 0x200000) && (MouseButtonWentDown[SDL_BUTTON_LEFT] || MouseButtonWentDown[SDL_BUTTON_RIGHT] ||
++                            MouseButtonWentDown[SDL_BUTTON_MIDDLE]))
++    down = true;
++  if ((mask & 1) && MouseButtonWentDown[SDL_BUTTON_LEFT]) down = true;
++  if ((mask & 2) && MouseButtonWentDown[SDL_BUTTON_RIGHT]) down = true;
++  if ((mask & 4) && MouseButtonWentDown[SDL_BUTTON_MIDDLE]) down = true;
++  if ((mask & 8) && MouseWheelDeltaY > 0) down = true;
++  if ((mask & 0x100000) && MouseWheelDeltaY < 0) down = true;
++  if ((bool)type == down) thread->IpOffset = labelAdr;
++}
++
++// 00:59 (0x47f980): keyboard on jump(type, key, mode, label). Bit 1 of the type picks a configurable key (KBcustom)
++// instead of a key code; mode 0 tests "is down", 1 "went down"; the jump is taken when the result equals bit 0.
++inline void InstSg0KeyboardOnJump(Sc3VmThread* thread, float dt) {
++  using namespace Sg0Detail;
++  thread->IpOffset += 2;
++  const uint8_t type = ReadU8(thread);
++  const int key = ExpressionEval(thread);
++  const int mode = ExpressionEval(thread);
++  const uint32_t labelAdr = ScriptGetLabelAddress(thread->ScriptBufferId, ReadU16(thread));
++  if (mode != 0 && mode != 1) {
++    if (type & 1) thread->IpOffset = labelAdr;  // the original compares against an unset result
++    return;
++  }
++  using namespace Impacto::Input;
++  std::span<const bool> keys = mode == 0 ? std::span<const bool>(KeyboardButtonIsDown)
++                                         : std::span<const bool>(KeyboardButtonWentDown);
++  bool result;
++  if (type & 2) {
++    result = Interface::GetKbCustom(key, [&](KeyboardScanCode code) { return keys[code]; });
++  } else {
++    result = key >= 0 && key < (int)keys.size() && keys[key];
++  }
++  if (result == (bool)(type & 1)) thread->IpOffset = labelAdr;
++}
++
++// 10:37 (0x482df0): the RINE messenger and phone group. Operands per type as the original reads them
++// (h = label / u16, E = expression); types the original does not handle take no operands.
++inline void InstSg0Group1037(Sc3VmThread* thread, float dt) {
++  static constexpr SghdDetail::SubShape Shapes[] = {
++      {0x00, "hhhhhhh"}, {0x01, ""},   {0x02, ""},   {0x03, ""},    {0x04, ""},    {0x0a, "h"}, {0x0b, ""},
++      {0x0c, "EE"},      {0x0d, "EE"}, {0x0f, "EEE"}, {0x28, ""},   {0x29, ""},    {0x2a, "E"}, {0x2b, "E"},
++      {0x2c, "E"},       {0x2d, "E"},  {0x2e, "EEE"}, {0x2f, ""},   {0x30, "E"},   {0x31, "EE"}, {0x32, "h"},
++  };
++  SghdDetail::RunGroup(thread, "SG0 RINE 10:37", Shapes);
++}
++
++// 10:38 (0x4831a0): type byte, a label when the type is 0. Not used by the shipped scripts.
++inline void InstSg0Group1038(Sc3VmThread* thread, float dt) {
++  static constexpr SghdDetail::SubShape Shapes[] = {{0x00, "h"}};
++  SghdDetail::RunGroup(thread, "SG0 10:38", Shapes);
++}
++
++}  // namespace Vm
++
++}  // namespace Impacto
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index d474cc1d518af29325b2e292b64dad8581d3cc7a..0b3bef548d28fc4c638e485e09bf918c3c5c6fb2 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -706,6 +706,7 @@ VmInstruction(InstSystemMes) {
+       break;
+     case InstructionSet::Dash:
+     case InstructionSet::CC:
++    case InstructionSet::SG0:
+     case InstructionSet::LCCSwitch:
+       PopUint8(id);
+       sysMesId = id;
+@@ -1037,7 +1038,8 @@ VmInstruction(InstMSinit) {
+       memset(&FlagWork, 0, 500);
+       memset(&ScrWork, 0, 24000);
+     } else if (Profile::Vm::GameInstructionSet == InstructionSet::CC ||
+-               Profile::Vm::GameInstructionSet == InstructionSet::SGHD) {
++               Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++               Profile::Vm::GameInstructionSet == InstructionSet::SG0) {
+       memset(&FlagWork, 0, 1000);
+       memset(&ScrWork, 0, 32000);
+     } else if (Profile::Vm::GameInstructionSet == InstructionSet::LCCSwitch) {
+@@ -1161,7 +1163,8 @@ VmInstruction(InstMSinit) {
+   ScrWork[SW_SEVOL + 1] = 100;
+   ScrWork[SW_SEVOL + 2] = 100;
+   ScrWork[SW_MOVIEALPHA] = 256;
+-  if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD) {
++  if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++      Profile::Vm::GameInstructionSet == InstructionSet::SG0) {
+     // STEINS;GATE: no movie on either channel (original init 0x468630); the load recovery in _STARTUP_WIN replays
+     // every channel whose number is not 0xFFFF
+     for (int channel : {0, 20}) {
+diff --git a/src/vm/interface/input.cpp b/src/vm/interface/input.cpp
+index 826e24f1ba319efd078335df4ebbeba0dbedc3d1..e2ce1a891d0db2f8dd58faf39a7ef5847486e45b 100644
+--- a/src/vm/interface/input.cpp
++++ b/src/vm/interface/input.cpp
+@@ -240,7 +240,8 @@ void UpdatePADInput() {
+   // The STEINS;GATE (Steam) scripts open the backlog by polling the Backlog pad
+   // button (KeyOnJump) instead of the F2 keyboard key, so scrolling down or
+   // flicking down must raise that button as well.
+-  if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD &&
++  if ((Profile::Vm::GameInstructionSet == InstructionSet::SGHD ||
++       Profile::Vm::GameInstructionSet == InstructionSet::SG0) &&
+       (Input::MouseWheelDeltaY < 0 || Input::TouchFlickDown) &&
+       PADcustom.size() > 12) {
+     PADinputButtonWentDown |= PADcustom[12];
+diff --git a/src/vm/opcodetables_sg0.h b/src/vm/opcodetables_sg0.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..af26281a141d4adf7543ee38904601f20f7a8a8f
+--- /dev/null
++++ b/src/vm/opcodetables_sg0.h
+@@ -0,0 +1,39 @@
++#pragma once
++// STEINS;GATE 0 (Steam, 2018) runs the STEINS;GATE (Steam) dialect of the SC3 virtual machine: the opcode tables of
++// both Game.exe builds (S;G0 0xdcc198 / 0xdcbfb0 / 0xdcc320) have the same operand shapes except for the groups
++// below. Configure_SG0() starts from the SGHD tables and applies the overrides.
++// vm.cpp includes this after opcodetables_sghd.h.
++#include "inst_sg0.h"
++
++namespace Impacto {
++
++namespace Vm {
++
++inline InstructionProc OpcodeTableSystem_SG0[256];
++inline InstructionProc OpcodeTableGraph_SG0[256];
++inline InstructionProc OpcodeTableUser1_SG0[256];
++
++inline void Configure_SG0() {
++  Configure_SGHD();
++  for (int i = 0; i < 256; i++) {
++    OpcodeTableSystem_SG0[i] = OpcodeTableSystem_SGHD[i];
++    OpcodeTableGraph_SG0[i] = OpcodeTableGraph_SGHD[i];
++    OpcodeTableUser1_SG0[i] = OpcodeTableUser1_SGHD[i];
++  }
++  // 00:53..00:59 are unused by STEINS;GATE; S;G0 calls, jumps and polls mouse / keyboard with them.
++  OpcodeTableSystem_SG0[0x53] = InstSg0Unk0053;  // byte, expression, label: read and ignored
++  OpcodeTableSystem_SG0[0x54] = InstSg0CallIfFlag;
++  OpcodeTableSystem_SG0[0x55] = InstSg0JumpFarIfFlag;
++  OpcodeTableSystem_SG0[0x56] = InstSg0CallFarIfFlag;
++  OpcodeTableSystem_SG0[0x57] = InstReturnIfFlag;  // (0x47f700) same operands and effect as the upstream one
++  OpcodeTableSystem_SG0[0x58] = InstSg0MouseOnJump;
++  OpcodeTableSystem_SG0[0x59] = InstSg0KeyboardOnJump;
++  OpcodeTableUser1_SG0[0x37] = InstSg0Group1037;  // RINE / phone group (SGHD: the S;G phone)
++  OpcodeTableUser1_SG0[0x38] = InstSg0Group1038;  // same operands as SGHD, not the S;G phone attachments
++  // 10:3A and 10:3F are empty handlers in the S;G0 Game.exe (0x47f0d0); the scripts do not use them.
++  OpcodeTableUser1_SG0[0x3a] = OpcodeTableUser1_CC[0x3a];
++}
++
++}  // namespace Vm
++
++}  // namespace Impacto
+diff --git a/src/vm/vm.cpp b/src/vm/vm.cpp
+index 3fbcaecc6ee8586029ed3cae6e22178023a1d5b4..ec6fb88d8748481896e1ddb33001ed088ba5869f 100644
+--- a/src/vm/vm.cpp
++++ b/src/vm/vm.cpp
+@@ -22,6 +22,7 @@
+ #include "opcodetables_chn.h"
+ #include "opcodetables_lccswitch.h"
+ #include "opcodetables_sghd.h"
++#include "opcodetables_sg0.h"
+ #include "../profile/game.h"
+ #include "../profile/vm.h"
+ #include "../profile/scriptinput.h"
+@@ -151,6 +152,13 @@ void Init() {
+       OpcodeTableUser1 = OpcodeTableUser1_SGHD;
+       break;
+     }
++    case InstructionSet::SG0: {
++      Configure_SG0();
++      OpcodeTableSystem = OpcodeTableSystem_SG0;
++      OpcodeTableGraph = OpcodeTableGraph_SG0;
++      OpcodeTableUser1 = OpcodeTableUser1_SG0;
++      break;
++    }
+     case InstructionSet::LCCSwitch: {
+       OpcodeTableSystem = OpcodeTableSystem_LCCSwitch;
+       OpcodeTableGraph = OpcodeTableGraph_LCCSwitch;
+diff --git a/src/vm/vm.h b/src/vm/vm.h
+index c475a7d72b1a811fbf5199b48b3e2cd848e86a36..ac76da89512e5a7a0f5ebfae729e494aecbbce34 100644
+--- a/src/vm/vm.h
++++ b/src/vm/vm.h
+@@ -28,6 +28,7 @@ enum class InstructionSet : int {
+   LCCSwitch,
+   MO6TWPC,
+   SGHD,
++  SG0,
+ };
+ using InstructionProc = auto (*)(Sc3VmThread* thread, float dt) -> void;
+ 
