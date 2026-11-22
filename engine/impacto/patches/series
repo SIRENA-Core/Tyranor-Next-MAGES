@@ -40,3 +40,7 @@
 0038-tyn-sg-pc-movies-USRDIR-movie-1920x1080-folder-mount.patch
 0039-tyn-sg-pc-10-3A-reads-its-six-expressions-undecodabl.patch
 0040-tyn-sg-pc-time-leap-counter-length-0x41a140-0x41a960.patch
+0041-tyn-sg-pc-no-stray-movie-after-loading-a-save-priori.patch
+0042-tyn-sg-pc-phone-trigger-the-underlined-words-of-an-a.patch
+0043-tyn-free-the-CPU-copy-of-background-and-character-te.patch
+0044-log-free-the-formatted-line-after-writing-it.patch

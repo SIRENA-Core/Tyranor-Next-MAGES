@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn <tyn@localhost>
+Date: Sat, 21 Nov 2026 07:31:30 -0800
+Subject: [PATCH] tyn: sg-pc no stray movie after loading a save; priority
+ 10000 movies over the HUD
+
+The init instruction (InstMSinit) zeroed SW_MOVIE_PLAYNO / SW_MOVIE_LOADNO of both movie channels; the original
+init (Game.exe 0x468630, type 1) sets them to 0xFFFF. Every save therefore held "movie 0" on channel 1, and the load
+recovery of _STARTUP_WIN (it replays each channel whose number is not 0xFFFF) started movie 0 behind the story after
+every load: the video looped under the text box and the date display. Init now sets both channels to 0xFFFF (SGHD
+only), and loading treats the old zero pair as "no movie".
+
+A movie with SW_MOVIEPRI 10000 is drawn after everything, the HUD and text included, as the original does at the end
+of 0x44f840; it was not drawn at all before (no layer matched).
+
+Only TYN (SGHD instruction set). MuMu (Android 15, not a real device), Chinese data: loading a save made before the fix
+no longer starts a video (both channels 0xFFFF, no looping playback); the scene shows only the background and text.
+
+diff --git a/src/game.cpp b/src/game.cpp
+index 2bfa96ce15fd6b36128ccad051488428850e467b..f4a10a5014d347de8fd499bdf9ab1ac02fbfd8be 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -634,6 +634,12 @@ static void RenderMain() {
+         (ScrWork[SW_MOVIEPRI] == 3000 || ScrWork[SW_MOVIEPRI] == 4000)))) {
+     Video::VideoRender(ScrWork[SW_MOVIEALPHA] / 256.0f);
+   }
++  // STEINS;GATE: priority 10000 puts the movie over everything, the HUD and the text included (original 0x44f840)
++  if ((+Profile::Game::GameFeatures & +GameFeature::Video) && Profile::Game::UseMoviePriority &&
++      Profile::Vm::GameInstructionSet == Vm::InstructionSet::SGHD && ScrWork[SW_MOVIEPRI] == 10000 &&
++      ScrWork[SW_MOVIEALPHA] > 0) {
++    Video::VideoRender(ScrWork[SW_MOVIEALPHA] / 256.0f);
++  }
+ 
+   if (+Profile::Game::GameFeatures & +GameFeature::Audio &&
+       +Profile::Game::GameFeatures & +GameFeature::Subtitles) {
+diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
+index fa3ff56300b4383057215bbc2792c93227e4c250..0ff646a10f608f3c5a0f194b3c02562fa0fdc7c7 100644
+--- a/src/games/mo6twpc/savesystem.cpp
++++ b/src/games/mo6twpc/savesystem.cpp
+@@ -678,6 +678,13 @@ void SaveSystem::LoadMemoryNew(LoadProcess load) {
+     if (GameInstructionSet == InstructionSet::SGHD) {
+       std::copy_n(WorkingSaveEntry->GameData.begin(), SGHD::Phone::SaveDataSize, SGHD::Phone::SaveData());
+       SGHD::Phone::AfterLoad();
++      // saves written before the init set the movie numbers to 0xFFFF hold zeros there: no movie, not movie 0
++      for (int channel : {0, 20}) {
++        if (ScrWork[SW_MOVIE_PLAYNO + channel] == 0 && ScrWork[SW_MOVIE_LOADNO + channel] == 0) {
++          ScrWork[SW_MOVIE_PLAYNO + channel] = 0xFFFF;
++          ScrWork[SW_MOVIE_LOADNO + channel] = 0xFFFF;
++        }
++      }
+     }
+     LoadScrWork();
+   } else if (load == LoadProcess::Thread && ScrWork[SW_MAINTHDP] != 0) {
+diff --git a/src/vm/inst_system.cpp b/src/vm/inst_system.cpp
+index 859fd2cb3e6851ad56e8242dec7a05f17fc717d8..d474cc1d518af29325b2e292b64dad8581d3cc7a 100644
+--- a/src/vm/inst_system.cpp
++++ b/src/vm/inst_system.cpp
+@@ -1161,6 +1161,14 @@ VmInstruction(InstMSinit) {
+   ScrWork[SW_SEVOL + 1] = 100;
+   ScrWork[SW_SEVOL + 2] = 100;
+   ScrWork[SW_MOVIEALPHA] = 256;
++  if (Profile::Vm::GameInstructionSet == InstructionSet::SGHD) {
++    // STEINS;GATE: no movie on either channel (original init 0x468630); the load recovery in _STARTUP_WIN replays
++    // every channel whose number is not 0xFFFF
++    for (int channel : {0, 20}) {
++      ScrWork[SW_MOVIE_PLAYNO + channel] = 0xFFFF;
++      ScrWork[SW_MOVIE_LOADNO + channel] = 0xFFFF;
++    }
++  }
+ 
+   if (Profile::Vm::GameInstructionSet == InstructionSet::RNE ||
+       Profile::Vm::GameInstructionSet == InstructionSet::Dash) {
