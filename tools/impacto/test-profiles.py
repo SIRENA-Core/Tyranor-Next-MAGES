@@ -37,6 +37,28 @@ class ProfilesJsonTest(unittest.TestCase):
             self.assertTrue(p["detect"]["allOf"])
             for name in p["detect"]["allOf"] + [p["detect"].get("textArchive")] * ("textArchive" in p["detect"]):
                 self.assert_entry(name)
+            # optional: entries that must not exist (apps that do not know the field ignore it)
+            none_of = p["detect"].get("noneOf", [])
+            self.assertIsInstance(none_of, list, p["id"])
+            for name in none_of:
+                self.assert_entry(name)
+            self.assertFalse(set(none_of) & set(p["detect"]["allOf"]), p["id"])
+
+    def test_no_two_games_match_the_same_folder(self):
+        # The app treats a folder matched by two unrelated profiles as ambiguous and recognises neither. A folder
+        # holding exactly the entries of B also matches A when A needs a subset of B's entries and none of A's
+        # excluded entries is among them; that only works for language variants of one game.
+        profiles = load()
+        family = {p["id"]: p.get("variantOf", p["id"]) for p in profiles}
+        for a in profiles:
+            for b in profiles:
+                if a is b or family[a["id"]] == family[b["id"]]:
+                    continue
+                folder = set(b["detect"]["allOf"]) | {b["detect"].get("textArchive")} - {None}
+                da = a["detect"]
+                needed = set(da["allOf"]) | {da.get("textArchive")} - {None}
+                hit = needed <= folder and not set(da.get("noneOf", [])) & folder
+                self.assertFalse(hit, f"a {b['id']} folder also matches {a['id']}")
 
     def assert_entry(self, name):
         # relative, at most one directory level, no empty / dot segments: the app's scanner looks one level deep
