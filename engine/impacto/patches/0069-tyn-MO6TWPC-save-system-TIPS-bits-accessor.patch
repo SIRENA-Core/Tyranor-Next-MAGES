@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 21:39:35 -0800
+Subject: [PATCH] tyn: MO6TWPC save system: TIPS bits accessor
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index eb70f22dd524a650efb90a0b49a169dffa191afd..d3a064cabd5d2603b6e07edbe0ad2e626ced25a4 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -103,6 +103,8 @@ class SaveSystem final : public SaveSystemBase {
+   void SetBgmFlag(int id, bool flag) override;
+   void SetCheckpointId(int id) override;
+   Sprite& GetSaveThumbnail(SaveType type, int id) override;
++  // the TIPS bits (3 per tip, GetTipStatus) for code that reads them like the original (STEINS;GATE 0)
++  uint8_t* TipsBits() { return GameExtraData.data(); }
+ 
+  private:
+   void LoadScrWork();

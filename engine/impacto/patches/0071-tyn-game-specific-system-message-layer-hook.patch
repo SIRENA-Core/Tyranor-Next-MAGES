@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 21:48:14 -0800
+Subject: [PATCH] tyn: game specific system message layer hook
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/game.cpp b/src/game.cpp
+index 381c0f300c9c19a3f3bf0f1a731071d169549861..c97ef360b9cdc91d7d98f865bea7cb8974c7d3a0 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -769,6 +769,7 @@ void Render() {
+           for (auto const& [id, box] : UI::SysMesBox::MsgBoxes) {
+             box->Render();
+           }
++          UI::GameSpecific::RenderSystemMessage();
+           break;
+         }
+         case DrawComponentType::SaveIcon: {
+diff --git a/src/ui/gamespecific.cpp b/src/ui/gamespecific.cpp
+index a99b649285b3b0e2f48cb2397d19901a4c2b352f..8e62a141cc29d61302b6b27ec4a8791489110225 100644
+--- a/src/ui/gamespecific.cpp
++++ b/src/ui/gamespecific.cpp
+@@ -247,6 +247,10 @@ void RenderSystemMenu(bool afterMenus) {
+     SG0::Phone::RenderSystemMenuLayer(afterMenus);
+ }
+ 
++void RenderSystemMessage() {
++  if (Profile::GameSpecific::GameSpecificType == GameSpecificType::SG0) SG0::Phone::RenderSystemMessage();
++}
++
+ void RenderCCButtonGuide() {
+   if (!GetFlag(SF_UIHIDDEN) && !GetFlag(2487)) {
+     if (ScrWork[SW_UI_BTNGUIDE_PROG] != 0) {
+diff --git a/src/ui/gamespecific.h b/src/ui/gamespecific.h
+index 2858f9a48f47cb678d5a5d9787e6cb33046ecdd8..3c101c645aeb1e44e5040ff5083c7adf296056ab 100644
+--- a/src/ui/gamespecific.h
++++ b/src/ui/gamespecific.h
+@@ -16,6 +16,8 @@ void RenderLayer(uint32_t layer);
+ void RenderAfterText();
+ // the system menu layer of the game (DrawComponentType::SystemMenu), before its menus
+ void RenderSystemMenu(bool afterMenus);
++// the system message layer of the game (DrawComponentType::SystemMessage), after the engine message boxes
++void RenderSystemMessage();
+ void RenderCCButtonGuide();
+ void UpdateCCButtonGuide(float dt);
+ 

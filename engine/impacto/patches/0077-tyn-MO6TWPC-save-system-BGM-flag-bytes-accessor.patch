@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 02:40:17 -0800
+Subject: [PATCH] tyn: MO6TWPC save system: BGM flag bytes accessor
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index e01029e1b79ec18b189ba31343790462ecdd28e9..d6a4122430f16041251854dd59d4bd08542fd633 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -107,6 +107,8 @@ class SaveSystem final : public SaveSystemBase {
+   uint8_t* TipsBits() { return GameExtraData.data(); }
+   // the CG flags (one byte each) for code that reads them like the original
+   uint8_t* EvBytes() { return reinterpret_cast<uint8_t*>(EVFlags.data()); }
++  // the BGM flags (one byte per track) for code that reads them like the original
++  uint8_t* BgmBytes() { return BGMFlags.data(); }
+ 
+  private:
+   void LoadScrWork();

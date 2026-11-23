@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 20:48:43 -0800
+Subject: [PATCH] tyn: backlog IsEmpty, optional CC backlog mask, system menu
+ render hook
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/game.cpp b/src/game.cpp
+index a5f028bf2e466faa888aecc68308b3a92a4a6303..381c0f300c9c19a3f3bf0f1a731071d169549861 100644
+--- a/src/game.cpp
++++ b/src/game.cpp
+@@ -759,6 +759,7 @@ void Render() {
+           break;
+         }
+         case DrawComponentType::SystemMenu: {
++          UI::GameSpecific::RenderSystemMenu(false);
+           break;
+         }
+         case DrawComponentType::PlayData: {
+@@ -790,7 +791,7 @@ void Render() {
+       // the game's own system menu layer, over the menus of the layer (the
+       // STEINS;GATE 0 save screen over its title menu)
+       if (DrawComponents[i] == DrawComponentType::SystemMenu)
+-        UI::GameSpecific::RenderSystemMenu();
++        UI::GameSpecific::RenderSystemMenu(true);
+     }
+   }
+   // STEINS;GATE: the libraries of EXTRA are drawn by the menu pass of the
+diff --git a/src/profile/games/cc/backlogmenu.cpp b/src/profile/games/cc/backlogmenu.cpp
+index 6936d3c6a20bd27661f31e347b0dc29be3af0316..3823d51eaefe96a85ea51e3ec8c7f3f7e063b19f 100644
+--- a/src/profile/games/cc/backlogmenu.cpp
++++ b/src/profile/games/cc/backlogmenu.cpp
+@@ -17,7 +17,7 @@ void Configure() {
+   BacklogControlsPosition =
+       EnsureGetMember<glm::vec2>("BacklogControlsPosition");
+ 
+-  BacklogMaskSheet = EnsureGetMember<SpriteSheet>("BacklogMask");
++  HasBacklogMask = TryGetMember<SpriteSheet>("BacklogMask", BacklogMaskSheet);
+ 
+   FadeInDirectDuration = EnsureGetMember<float>("FadeInDirectDuration");
+   FadeOutDirectDuration = EnsureGetMember<float>("FadeOutDirectDuration");
+diff --git a/src/profile/games/cc/backlogmenu.h b/src/profile/games/cc/backlogmenu.h
+index b9814040dc7033e4544cee3d861e66c40c6c8f24..8b2c26bc5399e39758682b7c4a66a7cbca29f6bc 100644
+--- a/src/profile/games/cc/backlogmenu.h
++++ b/src/profile/games/cc/backlogmenu.h
+@@ -17,6 +17,9 @@ inline UI::ButtonPrompt BacklogControlsSprite;
+ inline glm::vec2 BacklogControlsPosition;
+ 
+ inline SpriteSheet BacklogMaskSheet;
++// BacklogMask is optional: without it the entries are drawn unmasked (games whose backlog panel has no mask
++// picture of the screen size)
++inline bool HasBacklogMask = true;
+ 
+ inline float FadeInDirectDuration;
+ inline float FadeOutDirectDuration;
+diff --git a/src/ui/backlogmenu.h b/src/ui/backlogmenu.h
+index 63f90434206d23d863d327823817f3b421b691e9..b7144ecea35478408bb8dfe73313a7ebb19366c9 100644
+--- a/src/ui/backlogmenu.h
++++ b/src/ui/backlogmenu.h
+@@ -16,6 +16,8 @@ class BacklogMenuInterface : public Menu {
+ 
+   virtual void MenuButtonOnClick(Widgets::BacklogEntry* target) = 0;
+   virtual void Clear() = 0;
++  // no message yet (the STEINS;GATE 0 system menu greys BACK LOG out then)
++  virtual bool IsEmpty() const { return false; }
+ 
+   float PageY = 0.0f;
+ };
+@@ -39,6 +41,7 @@ class BacklogMenu : public BacklogMenuInterface {
+ 
+   virtual void MenuButtonOnClick(Widgets::BacklogEntry* target) override;
+   void Clear() override;
++  bool IsEmpty() const override { return Entries.empty(); }
+ 
+  protected:
+   virtual void UpdateVisibility() {};
+diff --git a/src/ui/gamespecific.cpp b/src/ui/gamespecific.cpp
+index 405101f50cf2d921fc1ec074a122b9d322c7dc37..a99b649285b3b0e2f48cb2397d19901a4c2b352f 100644
+--- a/src/ui/gamespecific.cpp
++++ b/src/ui/gamespecific.cpp
+@@ -242,8 +242,9 @@ void RenderAfterText() {
+   if (Profile::GameSpecific::GameSpecificType == GameSpecificType::SG0) SG0::Phone::RenderAfterText();
+ }
+ 
+-void RenderSystemMenu() {
+-  if (Profile::GameSpecific::GameSpecificType == GameSpecificType::SG0) SG0::Phone::RenderSystemMenuLayer();
++void RenderSystemMenu(bool afterMenus) {
++  if (Profile::GameSpecific::GameSpecificType == GameSpecificType::SG0)
++    SG0::Phone::RenderSystemMenuLayer(afterMenus);
+ }
+ 
+ void RenderCCButtonGuide() {
+diff --git a/src/ui/gamespecific.h b/src/ui/gamespecific.h
+index 4efe95675a3354d07226efca95e8b523cb5774c2..2858f9a48f47cb678d5a5d9787e6cb33046ecdd8 100644
+--- a/src/ui/gamespecific.h
++++ b/src/ui/gamespecific.h
+@@ -15,7 +15,7 @@ void RenderLayer(uint32_t layer);
+ // after the message window (DrawComponentType::Text)
+ void RenderAfterText();
+ // the system menu layer of the game (DrawComponentType::SystemMenu), before its menus
+-void RenderSystemMenu();
++void RenderSystemMenu(bool afterMenus);
+ void RenderCCButtonGuide();
+ void UpdateCCButtonGuide(float dt);
+ 
+diff --git a/src/ui/widgets/cc/backlogentry.cpp b/src/ui/widgets/cc/backlogentry.cpp
+index 0a52a7d367e254f09f8eb3ded9f746104c9d4dd3..c5b2679b226234c2ca12f493d80dc56b2cadcda1 100644
+--- a/src/ui/widgets/cc/backlogentry.cpp
++++ b/src/ui/widgets/cc/backlogentry.cpp
+@@ -13,6 +13,7 @@ using namespace Impacto::Profile::BacklogMenu;
+ using namespace Impacto::Profile::CC::BacklogMenu;
+ 
+ void BacklogEntry::Render() {
++  const SpriteSheet* maskSheet = HasBacklogMask ? &BacklogMaskSheet : nullptr;
+   if (AudioId.has_value()) {
+     const glm::vec2 textPos = Page.Name.empty()
+                                   ? Page.Glyphs[0].DestRect.GetPos()
+@@ -22,28 +23,32 @@ void BacklogEntry::Render() {
+         RectF(textPos.x - VoiceIcon.ScaledWidth() + VoiceIconOffset.x,
+               textPos.y + VoiceIconOffset.y, VoiceIcon.ScaledWidth(),
+               VoiceIcon.ScaledHeight());
+-    Sprite mask;
+-    mask.Sheet = BacklogMaskSheet;
+-    mask.Bounds = bounds;
+-
+-    Renderer->DrawMaskedSpriteOverlay(VoiceIcon, mask, bounds,
+-                                      (int)(Tint.a * 255), 256, glm::mat4(1.0f),
+-                                      Tint, false, false);
++    if (maskSheet) {
++      Sprite mask;
++      mask.Sheet = BacklogMaskSheet;
++      mask.Bounds = bounds;
++
++      Renderer->DrawMaskedSpriteOverlay(VoiceIcon, mask, bounds,
++                                        (int)(Tint.a * 255), 256,
++                                        glm::mat4(1.0f), Tint, false, false);
++    } else {
++      Renderer->DrawSprite(VoiceIcon, bounds, Tint);
++    }
+   }
+ 
+   Profile::Dialogue::DialogueFont->DrawProcessedText(
+       Page.Name, Tint.a, Profile::Dialogue::REVNameOutlineMode,
+-      &BacklogMaskSheet);
++      maskSheet);
+ 
+   for (RubyChunk& chunk : Page.RubyChunks) {
+     Profile::Dialogue::DialogueFont->DrawProcessedText(
+         chunk.Text, Tint.a, Profile::Dialogue::REVOutlineMode,
+-        &BacklogMaskSheet);
++        maskSheet);
+   }
+ 
+   Profile::Dialogue::DialogueFont->DrawProcessedText(
+       Page.Glyphs, Tint.a, Profile::Dialogue::REVOutlineMode,
+-      &BacklogMaskSheet);
++      maskSheet);
+ }
+ 
+ }  // namespace CC

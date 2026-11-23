@@ -33,7 +33,7 @@ final class ImpactoRequest {
      * unit test keeps the two in step.
      */
     static final Set<String> PROFILES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "chlcc", "cclcc", "cclcc-switch", "mo6tw", "mo6tw-pc", "mo6tw-pc-zhs", "mo6tw-pc-zht", "sg-pc", "darling", "dash", "rne")));
+            "chlcc", "cclcc", "cclcc-switch", "mo6tw", "mo6tw-pc", "mo6tw-pc-zhs", "mo6tw-pc-zht", "sg-pc", "sg0-pc", "darling", "dash", "rne")));
 
     private static final Pattern GAME_KEY = Pattern.compile("[0-9a-f]{24}");
     private static final int MAX_TITLE = 200;

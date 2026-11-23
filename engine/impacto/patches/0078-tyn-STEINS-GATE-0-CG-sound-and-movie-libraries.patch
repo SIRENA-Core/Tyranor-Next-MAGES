@@ -1,0 +1,2992 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 02:40:17 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 CG, sound and movie libraries
+
+Instructions 10:1F / 10:1D / 10:20 run the original libraries (translated with
+the phone). The CG viewer zoom is typed float, the sound library plays through
+the original BGM channel request bridged to the engine BGM channels, and the
+movie library draws the engine video player.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/sg0/phone.cpp b/src/games/sg0/phone.cpp
+index ee32c474ff2d55bf120eaf55333a76ea40afbd43..f5e00dcac917c7bb5c2298ace2807247a7539ba4 100755
+--- a/src/games/sg0/phone.cpp
++++ b/src/games/sg0/phone.cpp
+@@ -18,6 +18,8 @@
+ #include "../../profile/scriptvars.h"
+ #include "../../renderer/renderer.h"
+ #include "../../vm/interface/input.h"
++#include "../../audio/audiochannel.h"
++#include "../../audio/audiosystem.h"
+ 
+ namespace Impacto {
+ namespace SG0 {
+@@ -174,7 +176,7 @@ void RenderMain() {
+   static int ct = 0;
+   if (DebugTools::Enabled() && ++ct % 15 == 0)  // for the porting tools (work scripts of the porting tools)
+     ImpLog(LogLevel::Debug, LogChannel::General,
+-           "SG0 phone: 2608 {} 1611 {} 2600 {} alpha {} surf74 {} 6602 {} ab4 {} ab7 {} 6655 {:x} 6656 {} rine {:x} pri {} {} mes {} menu {} screen {} {} tipsf {}{} tl {} {} f457 {} scr {} dc {}\n",
++           "SG0 phone: 2608 {} 1611 {} 2600 {} alpha {} surf74 {} 6602 {} ab4 {} ab7 {} 6655 {:x} 6656 {} rine {:x} pri {} {} mes {} menu {} screen {} {} tipsf {}{} tl {} {} f457 {} scr {} bgm {} {} {} {} st {} dc {}\n",
+            GetFlag(0xa30), GetFlag(1611), GetFlag(2600), *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x0198a360)),
+            Renderer->SurfToId.contains(0x4a), Sw(0x6728), GetFlag(0xab4), GetFlag(0xab7), Sw(0x67fc), Sw(0x6800),
+            *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x0198a2f8)), Sw(0x672c), Sw(0x6748), Sw(0x5dec), Sw(0x217c),
+@@ -183,7 +185,11 @@ void RenderMain() {
+              for (const auto& m : Vm::LoadedScriptMetas)
+                if (m.FileName.rfind("SG0_", 0) == 0) return m.FileName;
+              return std::string("-");
+-           }(), [] {
++           }(), *reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16e0 + (*reinterpret_cast<uint32_t*>(Sg0Emu::At(0x00dde0ec)) & 1) * 0x98)),
++           *reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16ec + (*reinterpret_cast<uint32_t*>(Sg0Emu::At(0x00dde0ec)) & 1) * 0x98)),
++           *reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1718 + (*reinterpret_cast<uint32_t*>(Sg0Emu::At(0x00dde0ec)) & 1) * 0x98)),
++           *reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed171c + (*reinterpret_cast<uint32_t*>(Sg0Emu::At(0x00dde0ec)) & 1) * 0x98)),
++           (int)Audio::Channels[Audio::AC_BGM0]->GetState(), [] {
+              std::string order;
+              for (auto c : Game::DrawComponents) {
+                if (c == DrawComponentType::None) break;
+diff --git a/src/games/sg0/phone.h b/src/games/sg0/phone.h
+index 8aed690baf368187997a2326af6b2cbadf4288a0..63c690b9158fbf6d74d2e406ff04b6fa1f6d12bc 100755
+--- a/src/games/sg0/phone.h
++++ b/src/games/sg0/phone.h
+@@ -58,6 +58,9 @@ void SystemMenuInstruction(Vm::Sc3VmThread* thread);
+ bool SystemMesInstruction(Vm::Sc3VmThread* thread);
+ // The clear list (instruction 10:21, 0x485b80): drawn on the system menu layer (screen 7)
+ void ClearListInstruction(Vm::Sc3VmThread* thread);
++// The CG / sound / movie libraries (instructions 10:1F, 10:1D, 10:20): drawn on the system menu layer (screens 9, 10,
++// 12)
++void LibraryInstruction(Vm::Sc3VmThread* thread, int opcode);
+ // its draw (draw component 0xb of the original: 0x458200 at the alpha ScrWork 0x3430)
+ void RenderSystemMessage();
+ void RenderSystemMenuLayer(bool afterMenus);
+diff --git a/src/games/sg0/phonecode.cpp b/src/games/sg0/phonecode.cpp
+index dd0549054d7d559be2be0179e59921b79179a1c2..812ff081cc6524712b3cfff5d578d313f3831283 100755
+--- a/src/games/sg0/phonecode.cpp
++++ b/src/games/sg0/phonecode.cpp
+@@ -19,6 +19,71 @@ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
+ 
+ const Sg0Emu::RdataChunk RdataChunks[] = {
++    {0x00545450, {0x8d,0x80,0xfc,0xff,0xff,0xe9,0x06,0x89,0xf4,0xff,0x8d,0x8d,0xcc,0xfc,0xff,0xff}},
++    {0x00545460, {0xe9,0x5b,0x88,0xf4,0xff,0x8d,0x4d,0xa8,0xe9,0xb3,0x87,0xf4,0xff,0x8d,0x8d,0x58}},
++    {0x00545470, {0xfe,0xff,0xff,0xe9,0xe8,0x87,0xf4,0xff,0x8d,0x8d,0x70,0xfe,0xff,0xff,0xe9,0xdd}},
++    {0x00545480, {0x87,0xf4,0xff,0x68,0x60,0xdc,0x48,0x00,0x6a,0x03,0x6a,0x18,0x8d,0x85,0x58,0xfe}},
++    {0x00545490, {0xff,0xff,0x50,0xe8,0x3b,0x99,0xf6,0xff,0xc3,0x8d,0x8d,0x74,0xfc,0xff,0xff,0xe9}},
++    {0x005454a0, {0xbc,0x88,0xf4,0xff,0x8d,0x8d,0xf0,0xfc,0xff,0xff,0xe9,0x11,0x88,0xf4,0xff,0x8d}},
++    {0x005454b0, {0x4d,0x90,0xe9,0x69,0x87,0xf4,0xff,0x8d,0x8d,0x10,0xfe,0xff,0xff,0xe9,0x9e,0x87}},
++    {0x005454c0, {0xf4,0xff,0x8d,0x8d,0x28,0xfe,0xff,0xff,0xe9,0x93,0x87,0xf4,0xff,0x68,0x60,0xdc}},
++    {0x005454d0, {0x48,0x00,0x6a,0x03,0x6a,0x18,0x8d,0x85,0x10,0xfe,0xff,0xff,0x50,0xe8,0xf1,0x98}},
++    {0x005454e0, {0xf6,0xff,0xc3,0x8d,0x8d,0x68,0xfc,0xff,0xff,0xe9,0x72,0x88,0xf4,0xff,0x8d,0x8d}},
++    {0x005454f0, {0x14,0xfd,0xff,0xff,0xe9,0xc7,0x87,0xf4,0xff,0x8d,0x8d,0x78,0xff,0xff,0xff,0xe9}},
++    {0x00545500, {0x1c,0x87,0xf4,0xff,0x8d,0x8d,0xc8,0xfd,0xff,0xff,0xe9,0x51,0x87,0xf4,0xff,0x8d}},
++    {0x00545510, {0x8d,0xe0,0xfd,0xff,0xff,0xe9,0x46,0x87,0xf4,0xff,0x68,0x60,0xdc,0x48,0x00,0x6a}},
++    {0x00545520, {0x03,0x6a,0x18,0x8d,0x85,0xc8,0xfd,0xff,0xff,0x50,0xe8,0xa4,0x98,0xf6,0xff,0xc3}},
++    {0x00545530, {0x8d,0x8d,0x5c,0xfc,0xff,0xff,0xe9,0x25,0x88,0xf4,0xff,0x8d,0x8d,0x38,0xfd,0xff}},
++    {0x00545540, {0xff,0xe9,0x7a,0x87,0xf4,0xff,0x8d,0x8d,0x60,0xff,0xff,0xff,0xe9,0xcf,0x86,0xf4}},
++    {0x00545550, {0xff,0x8d,0x8d,0x80,0xfd,0xff,0xff,0xe9,0x04,0x87,0xf4,0xff,0x8d,0x8d,0x98,0xfd}},
++    {0x00545560, {0xff,0xff,0xe9,0xf9,0x86,0xf4,0xff,0x68,0x60,0xdc,0x48,0x00,0x6a,0x03,0x6a,0x18}},
++    {0x00545570, {0x8d,0x85,0x80,0xfd,0xff,0xff,0x50,0xe8,0x57,0x98,0xf6,0xff,0xc3,0x8d,0x8d,0x50}},
++    {0x00545580, {0xfc,0xff,0xff,0xe9,0xd8,0x87,0xf4,0xff,0x8d,0x8d,0x5c,0xfd,0xff,0xff,0xe9,0x2d}},
++    {0x00545590, {0x87,0xf4,0xff,0x68,0xc0,0xdc,0x48,0x00,0x6a,0x06,0x6a,0x24,0x8d,0x85,0xa8,0xfc}},
++    {0x005455a0, {0xff,0xff,0x50,0xe8,0x2b,0x98,0xf6,0xff,0xc3,0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c}},
++    {0x005455b0, {0x8b,0x8a,0x54,0xfc,0xff,0xff,0x33,0xc8,0xe8,0x92,0x97,0xf6,0xff,0x8b,0x4a,0xfc}},
++    {0x005455c0, {0x33,0xc8,0xe8,0x88,0x97,0xf6,0xff,0xb8,0x08,0xf6,0x5b,0x00,0xe9,0xfc,0xe7,0xf8}},
++    {0x005455d0, {0xff,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x005455e0, {0x8d,0x4d,0x08,0xe9,0x38,0x86,0xf4,0xff,0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b}},
++    {0x005455f0, {0x4a,0xf0,0x33,0xc8,0xe8,0x56,0x97,0xf6,0xff,0xb8,0x04,0xf8,0x5b,0x00,0xe9,0xca}},
++    {0x00545600, {0xe7,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x00545610, {0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xe4,0x33,0xc8,0xe8,0x2e,0x97,0xf6}},
++    {0x00545620, {0xff,0xb8,0x88,0xf4,0x5b,0x00,0xe9,0xa2,0xe7,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x00545630, {0xe8,0xcb,0xfb,0xf8,0xff,0xc3,0xe8,0xc5,0xfb,0xf8,0xff,0xc3,0x8b,0x54,0x24,0x08}},
++    {0x00545640, {0x8d,0x42,0x0c,0x8b,0x4a,0xe8,0x33,0xc8,0xe8,0x02,0x97,0xf6,0xff,0xb8,0x38,0xf8}},
++    {0x00545650, {0x5b,0x00,0xe9,0x76,0xe7,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x00545660, {0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xf0,0x33,0xc8,0xe8,0xde,0x96,0xf6}},
++    {0x00545670, {0xff,0xb8,0x08,0xf5,0x5b,0x00,0xe9,0x52,0xe7,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x00545680, {0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xe4,0x33,0xc8,0xe8,0xbe,0x96,0xf6}},
++    {0x00545690, {0xff,0xb8,0x88,0xf8,0x5b,0x00,0xe9,0x32,0xe7,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x005456a0, {0x8d,0x4d,0xc0,0xe9,0x78,0x85,0xf4,0xff,0x8d,0x4d,0xd8,0xe9,0x70,0x85,0xf4,0xff}},
++    {0x005456b0, {0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0x88,0x33,0xc8,0xe8,0x8e,0x96,0xf6}},
++    {0x005456c0, {0xff,0x8b,0x4a,0xfc,0x33,0xc8,0xe8,0x84,0x96,0xf6,0xff,0xb8,0x34,0xf9,0x5b,0x00}},
++    {0x005456d0, {0xe9,0xf8,0xe6,0xf8,0xff,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc,0xcc}},
++    {0x005456e0, {0xe8,0x1b,0xfb,0xf8,0xff,0xc3,0xe8,0x15,0xfb,0xf8,0xff,0xc3,0x8b,0x54,0x24,0x08}},
++    {0x005456f0, {0x8d,0x42,0x0c,0x8b,0x8a,0x60,0xec,0xff,0xff,0x33,0xc8,0xe8,0x4f,0x96,0xf6,0xff}},
++    {0x00545700, {0x8b,0x4a,0xfc,0x33,0xc8,0xe8,0x45,0x96,0xf6,0xff,0xb8,0xe4,0xf4,0x5b,0x00,0xe9}},
++    {0x00545710, {0xb9,0xe6,0xf8,0xff,0x8b,0x4d,0xf0,0xe9,0x74,0x88,0xf4,0xff,0x8b,0x4d,0xf0,0x83}},
++    {0x00545720, {0xc1,0x18,0xe9,0xb9,0x84,0xf4,0xff,0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a}},
++    {0x00545730, {0xec,0x33,0xc8,0xe8,0x17,0x96,0xf6,0xff,0xb8,0xa4,0xfe,0x5b,0x00,0xe9,0x8b,0xe6}},
++    {0x00545740, {0xf8,0xff,0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xf4,0x33,0xc8,0xe8,0xfc}},
++    {0x00545750, {0x95,0xf6,0xff,0xb8,0xf4,0xfd,0x5b,0x00,0xe9,0x70,0xe6,0xf8,0xff,0x8b,0x54,0x24}},
++    {0x00545760, {0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xf8,0x33,0xc8,0xe8,0xe1,0x95,0xf6,0xff,0xb8,0x18}},
++    {0x00545770, {0xfe,0x5b,0x00,0xe9,0x55,0xe6,0xf8,0xff,0x8d,0x4d,0xf0,0xe9,0x59,0xd2,0xf4,0xff}},
++    {0x00545780, {0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xe8,0x33,0xc8,0xe8,0xbe,0x95,0xf6}},
++    {0x00545790, {0xff,0xb8,0xd0,0xfe,0x5b,0x00,0xe9,0x32,0xe6,0xf8,0xff,0x8d,0x4d,0xec,0xe9,0x36}},
++    {0x005457a0, {0xd2,0xf4,0xff,0x8b,0x54,0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xe8,0x33,0xc8,0xe8}},
++    {0x005457b0, {0x9b,0x95,0xf6,0xff,0xb8,0x70,0xfe,0x5b,0x00,0xe9,0x0f,0xe6,0xf8,0xff,0x6a,0x20}},
++    {0x005457c0, {0xff,0x75,0xf0,0xe8,0xa7,0xa3,0xf6,0xff,0x59,0x59,0xc3,0x8b,0x54,0x24,0x08,0x8d}},
++    {0x005457d0, {0x42,0x0c,0x8b,0x4a,0xec,0x33,0xc8,0xe8,0x73,0x95,0xf6,0xff,0xb8,0x44,0xfe,0x5b}},
++    {0x005457e0, {0x00,0xe9,0xe7,0xe5,0xf8,0xff,0x8d,0x4d,0xd8,0xe9,0x32,0x84,0xf4,0xff,0x8b,0x54}},
++    {0x005457f0, {0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xb8,0x33,0xc8,0xe8,0x50,0x95,0xf6,0xff,0x8b}},
++    {0x00545800, {0x4a,0xfc,0x33,0xc8,0xe8,0x46,0x95,0xf6,0xff,0xb8,0x1c,0x06,0x5c,0x00,0xe9,0xba}},
++    {0x00545810, {0xe5,0xf8,0xff,0x8d,0x4d,0xec,0xe9,0xbe,0xd1,0xf4,0xff,0x8b,0x54,0x24,0x08,0x8d}},
++    {0x00545820, {0x42,0x0c,0x8b,0x4a,0xdc,0x33,0xc8,0xe8,0x23,0x95,0xf6,0xff,0xb8,0xf0,0x05,0x5c}},
++    {0x00545830, {0x00,0xe9,0x97,0xe5,0xf8,0xff,0x8d,0x4d,0xec,0xe9,0x9b,0xd1,0xf4,0xff,0x8b,0x54}},
++    {0x00545840, {0x24,0x08,0x8d,0x42,0x0c,0x8b,0x4a,0xdc,0x33,0xc8,0xe8,0x00,0x95,0xf6,0xff,0xb8}},
++    {0x00545850, {0xa4,0x00,0x5c,0x00,0xe9,0x74,0xe5,0xf8,0xff,0x8d,0x4d,0xec,0xe9,0x78,0xd1,0xf4}},
+     {0x00549430, {0x2f,0x00,0x00,0x00,0x0a,0xd7,0xa3,0x3c,0x00,0x00,0x20,0x42,0x00,0x00,0x84,0x42}},
+     {0x00549440, {0x00,0x00,0x70,0x43,0x00,0x00,0x87,0x44,0x00,0x00,0xf0,0x44,0x00,0x00,0x00,0x3c}},
+     {0x00549550, {0x00,0x00,0xc0,0x3f,0x00,0x00,0x40,0x40,0x00,0x00,0x20,0x41,0x00,0x00,0xa0,0x41}},
+@@ -59,6 +124,8 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x0054a7e0, {0x00,0x00,0x70,0x41,0x00,0x40,0xb3,0x44,0x00,0x80,0xf1,0x44,0x00,0x00,0xc0,0xc0}},
+     {0x0054a7f0, {0x00,0x80,0x02,0xc4,0x00,0x00,0x10,0x41,0x00,0x00,0xcc,0x42,0x00,0x00,0x10,0x43}},
+     {0x0054a800, {0x00,0x00,0x34,0x43,0x00,0x00,0x10,0x44,0x00,0xc0,0x37,0x44,0x00,0x10,0x20,0x00}},
++    {0x005ba4a0, {0x00,0x00,0x00,0x3f,0x00,0x00,0x00,0x00,0xc8,0xc9,0x48,0xe6,0x26,0xa4,0x04,0x3f}},
++    {0x005ba4b0, {0x61,0x32,0x55,0x30,0x2a,0xa9,0x33,0x3f,0xf3,0x04,0x35,0x3f,0x00,0x00,0x00,0x00}},
+     {0x005ba4d0, {0x7b,0x14,0xae,0x47,0xe1,0x7a,0x74,0x3f,0x00,0x00,0x80,0x3f,0x00,0x00,0x00,0x00}},
+     {0x005ba560, {0x00,0x00,0x00,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40}},
+     {0x005ba610, {0x00,0x00,0xc0,0x40,0xdb,0x0f,0xc9,0x40,0xa1,0x0e,0xea,0x40,0x00,0x00,0x00,0x00}},
+@@ -76,7 +143,79 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x005ba780, {0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41}},
+     {0x005ba790, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x41}},
+     {0x005c5f10, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xc8,0x62,0x5c,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c5f20, {0x10,0x63,0x5c,0x00,0x01,0x00,0x00,0x00,0x70,0x63,0x5c,0x00,0x02,0x00,0x00,0x00}},
++    {0x005c6260, {0x10,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c6270, {0x1f,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x03,0x00,0x00,0x00}},
++    {0x005c6280, {0x01,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}},
+     {0x005c6290, {0x02,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00}},
++    {0x005c62a0, {0xff,0xff,0x00,0x00,0x02,0x04,0x06,0x08,0x0a,0x0c,0x0e,0x10,0x12,0x14,0x16,0x18}},
++    {0x005c62b0, {0x1a,0x1c,0x1e,0x20,0x22,0x24,0x26,0x28,0x2a,0x2c,0x2e,0x30,0x32,0x34,0x36,0x38}},
++    {0x005c62c0, {0x39,0x3b,0x45,0x47,0x48,0x46,0x00,0x00,0x14,0x00,0x00,0x00,0x92,0x01,0x00,0x00}},
++    {0x005c6e60, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}},
++    {0x005c6e70, {0x00,0x00,0x64,0x00,0xc9,0x00,0x2d,0x01,0x92,0x01,0xf6,0x01,0x5b,0x02,0xbf,0x02}},
++    {0x005c6e80, {0x24,0x03,0x88,0x03,0xed,0x03,0x51,0x04,0xb6,0x04,0x1a,0x05,0x7f,0x05,0xe3,0x05}},
++    {0x005c6e90, {0x48,0x06,0xac,0x06,0x11,0x07,0x75,0x07,0xda,0x07,0x3e,0x08,0xa3,0x08,0x07,0x09}},
++    {0x005c6ea0, {0x6c,0x09,0xd0,0x09,0x35,0x0a,0x99,0x0a,0xfe,0x0a,0x62,0x0b,0xc6,0x0b,0x2b,0x0c}},
++    {0x005c6eb0, {0x8f,0x0c,0xf4,0x0c,0x58,0x0d,0xbc,0x0d,0x21,0x0e,0x85,0x0e,0xea,0x0e,0x4e,0x0f}},
++    {0x005c6ec0, {0xb2,0x0f,0x17,0x10,0x7b,0x10,0xdf,0x10,0x44,0x11,0xa8,0x11,0x0c,0x12,0x70,0x12}},
++    {0x005c6ed0, {0xd5,0x12,0x39,0x13,0x9d,0x13,0x01,0x14,0x66,0x14,0xca,0x14,0x2e,0x15,0x92,0x15}},
++    {0x005c6ee0, {0xf6,0x15,0x5a,0x16,0xbf,0x16,0x23,0x17,0x87,0x17,0xeb,0x17,0x4f,0x18,0xb3,0x18}},
++    {0x005c6ef0, {0x17,0x19,0x7b,0x19,0xdf,0x19,0x43,0x1a,0xa7,0x1a,0x0b,0x1b,0x6f,0x1b,0xd3,0x1b}},
++    {0x005c6f00, {0x37,0x1c,0x9b,0x1c,0xff,0x1c,0x63,0x1d,0xc7,0x1d,0x2a,0x1e,0x8e,0x1e,0xf2,0x1e}},
++    {0x005c6f10, {0x56,0x1f,0xba,0x1f,0x1d,0x20,0x81,0x20,0xe5,0x20,0x48,0x21,0xac,0x21,0x10,0x22}},
++    {0x005c6f20, {0x73,0x22,0xd7,0x22,0x3b,0x23,0x9e,0x23,0x02,0x24,0x65,0x24,0xc9,0x24,0x2c,0x25}},
++    {0x005c6f30, {0x90,0x25,0xf3,0x25,0x56,0x26,0xba,0x26,0x1d,0x27,0x81,0x27,0xe4,0x27,0x47,0x28}},
++    {0x005c6f40, {0xaa,0x28,0x0e,0x29,0x71,0x29,0xd4,0x29,0x37,0x2a,0x9a,0x2a,0xfe,0x2a,0x61,0x2b}},
++    {0x005c6f50, {0xc4,0x2b,0x27,0x2c,0x8a,0x2c,0xed,0x2c,0x50,0x2d,0xb3,0x2d,0x15,0x2e,0x78,0x2e}},
++    {0x005c6f60, {0xdb,0x2e,0x3e,0x2f,0xa1,0x2f,0x04,0x30,0x66,0x30,0xc9,0x30,0x2c,0x31,0x8e,0x31}},
++    {0x005c6f70, {0xf1,0x31,0x54,0x32,0xb6,0x32,0x19,0x33,0x7b,0x33,0xde,0x33,0x40,0x34,0xa2,0x34}},
++    {0x005c6f80, {0x05,0x35,0x67,0x35,0xc9,0x35,0x2c,0x36,0x8e,0x36,0xf0,0x36,0x52,0x37,0xb4,0x37}},
++    {0x005c6f90, {0x17,0x38,0x79,0x38,0xdb,0x38,0x3d,0x39,0x9f,0x39,0x01,0x3a,0x62,0x3a,0xc4,0x3a}},
++    {0x005c6fa0, {0x26,0x3b,0x88,0x3b,0xea,0x3b,0x4b,0x3c,0xad,0x3c,0x0f,0x3d,0x70,0x3d,0xd2,0x3d}},
++    {0x005c6fb0, {0x33,0x3e,0x95,0x3e,0xf6,0x3e,0x58,0x3f,0xb9,0x3f,0x1b,0x40,0x7c,0x40,0xdd,0x40}},
++    {0x005c6fc0, {0x3e,0x41,0xa0,0x41,0x01,0x42,0x62,0x42,0xc3,0x42,0x24,0x43,0x85,0x43,0xe6,0x43}},
++    {0x005c6fd0, {0x47,0x44,0xa8,0x44,0x08,0x45,0x69,0x45,0xca,0x45,0x2b,0x46,0x8b,0x46,0xec,0x46}},
++    {0x005c6fe0, {0x4d,0x47,0xad,0x47,0x0e,0x48,0x6e,0x48,0xce,0x48,0x2f,0x49,0x8f,0x49,0xef,0x49}},
++    {0x005c6ff0, {0x50,0x4a,0xb0,0x4a,0x10,0x4b,0x70,0x4b,0xd0,0x4b,0x30,0x4c,0x90,0x4c,0xf0,0x4c}},
++    {0x005c7000, {0x50,0x4d,0xb0,0x4d,0x0f,0x4e,0x6f,0x4e,0xcf,0x4e,0x2e,0x4f,0x8e,0x4f,0xed,0x4f}},
++    {0x005c7010, {0x4d,0x50,0xac,0x50,0x0c,0x51,0x6b,0x51,0xca,0x51,0x2a,0x52,0x89,0x52,0xe8,0x52}},
++    {0x005c7020, {0x47,0x53,0xa6,0x53,0x05,0x54,0x64,0x54,0xc3,0x54,0x22,0x55,0x81,0x55,0xdf,0x55}},
++    {0x005c7030, {0x3e,0x56,0x9d,0x56,0xfb,0x56,0x5a,0x57,0xb8,0x57,0x17,0x58,0x75,0x58,0xd3,0x58}},
++    {0x005c7040, {0x31,0x59,0x90,0x59,0xee,0x59,0x4c,0x5a,0xaa,0x5a,0x08,0x5b,0x66,0x5b,0xc4,0x5b}},
++    {0x005c7050, {0x22,0x5c,0x7f,0x5c,0xdd,0x5c,0x3b,0x5d,0x98,0x5d,0xf6,0x5d,0x53,0x5e,0xb1,0x5e}},
++    {0x005c7060, {0x0e,0x5f,0x6b,0x5f,0xc9,0x5f,0x26,0x60,0x83,0x60,0xe0,0x60,0x3d,0x61,0x9a,0x61}},
++    {0x005c7070, {0xf7,0x61,0x54,0x62,0xb1,0x62,0x0d,0x63,0x6a,0x63,0xc7,0x63,0x23,0x64,0x80,0x64}},
++    {0x005c7080, {0xdc,0x64,0x39,0x65,0x95,0x65,0xf1,0x65,0x4d,0x66,0xa9,0x66,0x05,0x67,0x61,0x67}},
++    {0x005c7090, {0xbd,0x67,0x19,0x68,0x75,0x68,0xd1,0x68,0x2d,0x69,0x88,0x69,0xe4,0x69,0x3f,0x6a}},
++    {0x005c70a0, {0x9b,0x6a,0xf6,0x6a,0x51,0x6b,0xad,0x6b,0x08,0x6c,0x63,0x6c,0xbe,0x6c,0x19,0x6d}},
++    {0x005c70b0, {0x74,0x6d,0xcf,0x6d,0x29,0x6e,0x84,0x6e,0xdf,0x6e,0x39,0x6f,0x94,0x6f,0xee,0x6f}},
++    {0x005c70c0, {0x49,0x70,0xa3,0x70,0xfd,0x70,0x57,0x71,0xb1,0x71,0x0c,0x72,0x65,0x72,0xbf,0x72}},
++    {0x005c70d0, {0x19,0x73,0x73,0x73,0xcd,0x73,0x26,0x74,0x80,0x74,0xd9,0x74,0x33,0x75,0x8c,0x75}},
++    {0x005c70e0, {0xe5,0x75,0x3f,0x76,0x98,0x76,0xf1,0x76,0x4a,0x77,0xa3,0x77,0xfb,0x77,0x54,0x78}},
++    {0x005c70f0, {0xad,0x78,0x06,0x79,0x5e,0x79,0xb7,0x79,0x0f,0x7a,0x67,0x7a,0xc0,0x7a,0x18,0x7b}},
++    {0x005c7100, {0x70,0x7b,0xc8,0x7b,0x20,0x7c,0x78,0x7c,0xd0,0x7c,0x27,0x7d,0x7f,0x7d,0xd7,0x7d}},
++    {0x005c7110, {0x2e,0x7e,0x86,0x7e,0xdd,0x7e,0x34,0x7f,0x8b,0x7f,0xe2,0x7f,0x3a,0x80,0x90,0x80}},
++    {0x005c7120, {0xe7,0x80,0x3e,0x81,0x95,0x81,0xec,0x81,0x42,0x82,0x99,0x82,0xef,0x82,0x45,0x83}},
++    {0x005c7130, {0x9c,0x83,0xf2,0x83,0x48,0x84,0x9e,0x84,0xf4,0x84,0x4a,0x85,0xa0,0x85,0xf5,0x85}},
++    {0x005c7140, {0x4b,0x86,0xa1,0x86,0xf6,0x86,0x4b,0x87,0xa1,0x87,0xf6,0x87,0x4b,0x88,0xa0,0x88}},
++    {0x005c7150, {0xf5,0x88,0x4a,0x89,0x9f,0x89,0xf4,0x89,0x48,0x8a,0x9d,0x8a,0xf1,0x8a,0x46,0x8b}},
++    {0x005c7160, {0x9a,0x8b,0xee,0x8b,0x42,0x8c,0x96,0x8c,0xea,0x8c,0x3e,0x8d,0x92,0x8d,0xe6,0x8d}},
++    {0x005c7170, {0x39,0x8e,0x8d,0x8e,0xe0,0x8e,0x34,0x8f,0x87,0x8f,0xda,0x8f,0x2d,0x90,0x80,0x90}},
++    {0x005c7180, {0xd3,0x90,0x26,0x91,0x79,0x91,0xcc,0x91,0x1e,0x92,0x71,0x92,0xc3,0x92,0x15,0x93}},
++    {0x005c7190, {0x68,0x93,0xba,0x93,0x0c,0x94,0x5e,0x94,0xb0,0x94,0x02,0x95,0x53,0x95,0xa5,0x95}},
++    {0x005c71a0, {0xf6,0x95,0x48,0x96,0x99,0x96,0xea,0x96,0x3c,0x97,0x8d,0x97,0xde,0x97,0x2e,0x98}},
++    {0x005c71b0, {0x7f,0x98,0xd0,0x98,0x21,0x99,0x71,0x99,0xc2,0x99,0x12,0x9a,0x62,0x9a,0xb2,0x9a}},
++    {0x005c71c0, {0x02,0x9b,0x52,0x9b,0xa2,0x9b,0xf2,0x9b,0x42,0x9c,0x91,0x9c,0xe1,0x9c,0x30,0x9d}},
++    {0x005c71d0, {0x7f,0x9d,0xcf,0x9d,0x1e,0x9e,0x6d,0x9e,0xbc,0x9e,0x0a,0x9f,0x59,0x9f,0xa8,0x9f}},
++    {0x005c71e0, {0xf6,0x9f,0x45,0xa0,0x93,0xa0,0xe1,0xa0,0x2f,0xa1,0x7e,0xa1,0xcb,0xa1,0x19,0xa2}},
++    {0x005c71f0, {0x67,0xa2,0xb5,0xa2,0x02,0xa3,0x50,0xa3,0x9d,0xa3,0xea,0xa3,0x38,0xa4,0x85,0xa4}},
++    {0x005c7200, {0xd2,0xa4,0x1f,0xa5,0x6b,0xa5,0xb8,0xa5,0x05,0xa6,0x51,0xa6,0x9d,0xa6,0xea,0xa6}},
++    {0x005c7210, {0x36,0xa7,0x82,0xa7,0xce,0xa7,0x1a,0xa8,0x66,0xa8,0xb1,0xa8,0xfd,0xa8,0x48,0xa9}},
++    {0x005c7220, {0x94,0xa9,0xdf,0xa9,0x2a,0xaa,0x75,0xaa,0xc0,0xaa,0x0b,0xab,0x56,0xab,0xa0,0xab}},
++    {0x005c7230, {0xeb,0xab,0x35,0xac,0x80,0xac,0xca,0xac,0x14,0xad,0x5e,0xad,0xa8,0xad,0xf2,0xad}},
++    {0x005c7240, {0x3b,0xae,0x85,0xae,0xce,0xae,0x18,0xaf,0x61,0xaf,0xaa,0xaf,0xf3,0xaf,0x3c,0xb0}},
++    {0x005c7250, {0x85,0xb0,0xce,0xb0,0x17,0xb1,0x5f,0xb1,0xa8,0xb1,0xf0,0xb1,0x38,0xb2,0x80,0xb2}},
++    {0x005c7260, {0xc8,0xb2,0x10,0xb3,0x58,0xb3,0xa0,0xb3,0xe7,0xb3,0x2f,0xb4,0x76,0xb4,0xbd,0xb4}},
+     {0x005c8cc0, {0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}},
+     {0x005c8cd0, {0x86,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x48,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
+     {0x005c8ce0, {0x2c,0x01,0x00,0x00,0x36,0x00,0x00,0x00,0x23,0x03,0x00,0x00,0x10,0x00,0x00,0x00}},
+@@ -546,6 +685,16 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+ };
+ const size_t RdataChunkCount = sizeof(RdataChunks) / sizeof(RdataChunks[0]);
+ 
++// ===== FUN_0042a3e0 @ 0042a3e0
++
++void FUN_0042a3e0(undefined4 param_1)
++
++{
++  FUN_0042a7d0(Cv(0),Cv(param_1),Cv(DAT_00de7a9c << 2),Cv(DAT_00de65f4));
++  return;
++}
++
++
+ // ===== FUN_0042a410 @ 0042a410
+ 
+ uint FUN_0042a410(int *param_1,uint *param_2)
+@@ -617,6 +766,2074 @@ void FUN_0042a4f0(void)
+ }
+ 
+ 
++// ===== FUN_0042a650 @ 0042a650
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042a650(void)
++
++{
++  int iVar1;
++  int iVar2;
++  int iVar3;
++  uint uVar4;
++  
++  FUN_00491b90(0x51e,0);
++  FUN_00491b90(0x51f,0);
++  FUN_00491b90(0x53d,0);
++  FUN_00491b90(0x53e,0);
++  FUN_00491b90(0x53f,0);
++  *(undefined4 *)(DAT_02ee7660 + 0x2408) = 0;
++  *(undefined4 *)(DAT_02ee7660 + 0x240c) = 0;
++  iVar2 = 0;
++  DAT_00de8fd8 = 0;
++  DAT_00de8fdc = 1;
++  DAT_00de8f5c = 0;
++  DAT_00de8f60 = 0;
++  DAT_00de8f64 = 0;
++  _DAT_00de8f4c = 0;
++  DAT_00de65f4 = 0;
++  DAT_00de8f44 = 0;
++  DAT_00de8f48 = 0;
++  if (PTR_DAT_005c5f18 == (undefined *)0x0) {
++    (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = (int *)0x0;
++    (*Sg0Emu::TypedSlot<int>(0x00de8ff0)) = (int *)0x0;
++    return;
++  }
++  iVar3 = 0;
++  (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = (int *)PTR_DAT_005c5f18;
++  do {
++    (&DAT_00de61c8)[iVar2] = 0;
++    (&DAT_00de5fb0)[iVar2] = 0;
++    (&DAT_00de63e0)[iVar2] = 0;
++    if ((*Sg0Emu::TypedSlot<int>(0x00de8fec)) != (int *)0x0) {
++      uVar4 = 0;
++      do {
++        if (*(*Sg0Emu::TypedSlot<int>(0x00de8fec)) == 0xffff) break;
++        (&DAT_00de5fb0)[iVar2] = (&DAT_00de5fb0)[iVar2] + 1;
++        if (*(signed char *)(DAT_02ee71a4 + *(*Sg0Emu::TypedSlot<int>(0x00de8fec))) == '\0') {
++          (&DAT_00de61c8)[iVar2] = (&DAT_00de61c8)[iVar2] + 1;
++        }
++        else {
++          iVar1 = (&DAT_00de63e0)[iVar2];
++          (&DAT_00de65f8)[iVar3 + iVar1] = uVar4;
++          (&DAT_00de63e0)[iVar2] = iVar1 + 1;
++        }
++        uVar4 = uVar4 + 1;
++        (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = (*Sg0Emu::TypedSlot<int>(0x00de8fec)) + 6;
++      } while (uVar4 < 10);
++    }
++    (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = (int *)(&PTR_DAT_005c5f20)[iVar2 * 2];
++    iVar2 = iVar2 + 1;
++    iVar3 = iVar3 + 10;
++    if ((*Sg0Emu::TypedSlot<int>(0x00de8fec)) == (int *)0x0) {
++      (*Sg0Emu::TypedSlot<int>(0x00de8ff0)) = (*Sg0Emu::TypedSlot<int>(0x00de8fec));
++      return;
++    }
++  } while( true );
++}
++
++
++// ===== FUN_0042a7d0 @ 0042a7d0
++
++void FUN_0042a7d0(undefined4 param_1,int param_2,uint param_3,int param_4)
++
++{
++  uint uVar1;
++  int iVar2;
++  int iVar3;
++  int iVar4;
++  float fVar5;
++  float fVar6;
++  float fVar7;
++  undefined4 uVar8;
++  float fVar9;
++  float fVar10;
++  undefined4 uVar11;
++  undefined4 uVar12;
++  float fVar13;
++  uint *local_228;
++  int local_224;
++  int local_220;
++  int local_21c;
++  int local_218;
++  int *local_210;
++  uint local_20c;
++  signed char local_208 [256];
++  signed char local_108 [256];
++  undefined4 local_8;
++  if (param_2 != 0) {
++    DAT_00de5e94 = DAT_00de5e94 + 1 & 0x1f;
++    if (DAT_00de63dc < 5) {
++      iVar2 = 0xb4;
++    }
++    else {
++      iVar2 = ((param_3 >> 2) * 0x2b8) / (DAT_00de63dc - 4) + 0xb4;
++    }
++    FUN_0044cba0(0x96,0x45244000,0x43a50000,0x42280000,0x429c0000,0x44e34000,(float)iVar2,0xffffff,
++                 param_2,1);
++    FUN_00446f60(0x44e34000,(float)iVar2,0x42280000,0x429c0000,2,2);
++    local_224 = 0xd2;
++    iVar2 = 0;
++    local_20c = 4;
++    do {
++      iVar4 = 0x204;
++      fVar7 = (float)local_224;
++      local_218 = 4;
++      local_228 = (uint *)(&DAT_005c5f1c + (param_3 + iVar2) * 8);
++      local_210 = (decltype(local_210))(&DAT_00de63e0 + param_3 + iVar2);
++      fVar6 = fVar7 - DAT_005ba610;
++      do {
++        fVar5 = (float)iVar4;
++        if (param_3 + iVar2 < DAT_00de61c4) {
++          if (*local_210 == 0) {
++            fVar5 = fVar5 - DAT_005ba610;
++            uVar12 = 0x43340000;
++            uVar11 = 0x43990000;
++            fVar10 = 690.0;
++            fVar9 = 2766.0;
++            uVar8 = 0x96;
++            fVar13 = fVar6;
++          }
++          else {
++            uVar12 = 0x43220000;
++            uVar11 = 0x43900000;
++            fVar10 = (float)(int)((*local_228 / 10) * 0xa8);
++            fVar9 = (float)((*local_228 % 10) * 0x126);
++            uVar8 = 0x98;
++            fVar13 = fVar7;
++          }
++          FUN_0044cba0(uVar8,fVar9,fVar10,uVar11,uVar12,fVar5,fVar13,0xffffff,param_2,1);
++          fVar5 = (float)iVar4 - DAT_005ba610;
++          uVar8 = 0x43b10000;
++        }
++        else {
++          fVar5 = fVar5 - DAT_005ba610;
++          uVar8 = 0x43280000;
++        }
++        FUN_0044cba0(0x96,0x452ce000,uVar8,0x43990000,0x43340000,fVar5,fVar6,0xffffff,param_2,1);
++        if (iVar2 == param_4) {
++          FUN_0044b390();
++          FUN_0044cba0(0x96,0x452ce000,0,0x43900000,0x43220000,(float)iVar4,fVar7,0xffffff,param_2,1
++                      );
++          FUN_0044b3b0();
++        }
++        iVar2 = iVar2 + 1;
++        local_210 = local_210 + 1;
++        local_228 = local_228 + 2;
++        iVar4 = iVar4 + 0x144;
++        local_218 = local_218 + -1;
++      } while (local_218 != 0);
++      local_224 = local_224 + 0xba;
++      local_20c = local_20c + -1;
++    } while (local_20c != 0);
++    FUN_00448e10();
++    FUN_00448fa0(0x4c);
++    local_21c = 0x294;
++    local_218 = 4;
++    local_20c = param_3;
++    local_210 = (int *)(param_3 * 4);
++    do {
++      iVar2 = (intptr_t)local_210 + 0x10;
++      uVar1 = local_20c + 4;
++      local_224 = 0x630;
++      local_220 = 4;
++      do {
++        if ((local_20c < DAT_00de61c4) && (*(int *)((intptr_t)&DAT_00de63e0 + (intptr_t)local_210) != 0)) {
++          FID_conflict___itoa_s(*(int *)((intptr_t)&DAT_00de63e0 + (intptr_t)local_210),local_208,0x100,10);
++          _strcpy_s(local_108,0x100,local_208);
++          _strcat_s(local_108,0x100,"/");
++          FID_conflict___itoa_s(*(long *)((intptr_t)&DAT_00de5fb0 + (intptr_t)local_210),local_208,0x100,10);
++          _strcat_s(local_108,0x100,local_208);
++          iVar4 = FUN_0045d5c0(Cv(0x4c),Cv(local_108),Cv(0x100),Cv(0x14));
++          iVar4 = local_224 / 3 - iVar4;
++          FUN_00463b20(Cv(0x4c),Cv(iVar4 + 1),Cv(local_21c / 3 + 1),Cv(local_108),Cv(0),Cv(0x14),Cv(0x18),Cv(param_2));
++          FUN_00463b20(Cv(0x4c),Cv(iVar4),Cv(local_21c / 3),Cv(local_108),Cv(0xffffff),Cv(0x14),Cv(0x18),Cv(param_2));
++        }
++        local_20c = local_20c + 1;
++        local_224 = local_224 + 0x288;
++        local_210 = (int *)((intptr_t)local_210 + 4);
++        local_220 = local_220 + -1;
++      } while (local_220 != 0);
++      local_21c = local_21c + 0x174;
++      local_218 = local_218 + -1;
++      local_20c = uVar1;
++      local_210 = (int *)iVar2;
++    } while (local_218 != 0);
++    FUN_00448e00();
++    FUN_0044cba0(0x96,0,0x4507c000,0x44f00000,0x429c0000,0,0x44718000,0xffffff,param_2,1);
++    FUN_00446f60(0x43ed0000,0x43340000,0x44ad4000,0x44400000,2,0);
++    FUN_00446f60(0x44e40000,0x43340000,0x42100000,0x44400000,2,1);
++    iVar2 = 0xd2;
++    iVar4 = 0;
++    do {
++      iVar3 = 0x204;
++      do {
++        FUN_00446f60((float)iVar3,(float)iVar2,0x43900000,0x43200000,3,iVar4);
++        iVar3 = iVar3 + 0x144;
++        iVar4 = iVar4 + 1;
++      } while (iVar3 < 0x714);
++      iVar2 = iVar2 + 0xba;
++    } while (iVar2 < 0x3ba);
++  }
++  return;
++}
++
++
++// ===== FUN_0042ae40 @ 0042ae40
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042ae40(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  uint uVar3;
++  
++  if ((DAT_00de8f44 == 2) || (DAT_00de8f5c != 0)) {
++    FUN_0042b500(Cv(0));
++    return;
++  }
++  if (DAT_00de8f44 == 1) {
++    DAT_00de8f48 = DAT_00de8f48 + 1;
++    if (DAT_00de8f48 == 0x10) {
++      DAT_00de8f44 = 2;
++      return;
++    }
++    return;
++  }
++  if (DAT_00de8f44 == 3) {
++    DAT_00de8f48 = DAT_00de8f48 + -1;
++    if (DAT_00de8f48 == 0) {
++      DAT_00de8f44 = 0;
++      return;
++    }
++    return;
++  }
++  FUN_00446ef0(2,0,1);
++  FUN_00446ef0(2,1,1);
++  FUN_00446ef0(2,2,1);
++  uVar3 = 0;
++  do {
++    FUN_00446ef0(3,uVar3,1);
++    uVar3 = uVar3 + 1;
++  } while (uVar3 < 0x10);
++  if ((DAT_032fc7a8 & 1) == 0) {
++    (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = 0;
++LAB_0042af5a:
++    if ((DAT_032fc7a0 & 1) == 0) {
++      if (DAT_032fc7e0 < 0) {
++        cVar1 = FUN_00446ef0(2,0,1);
++        if ((cVar1 != '\0') && (DAT_00de7a9c < DAT_00de63dc - 4U)) {
++          DAT_00de7a9c = DAT_00de7a9c + 1;
++        }
++      }
++      else if (DAT_032fc7e0 < 1) {
++        uVar3 = 0;
++        do {
++          cVar1 = FUN_00446ef0(3,uVar3,1);
++          if (cVar1 != '\0') {
++            DAT_00de65f4 = uVar3;
++            break;
++          }
++          uVar3 = uVar3 + 1;
++        } while (uVar3 < 0x10);
++      }
++      else {
++        cVar1 = FUN_00446ef0(2,0,1);
++        if ((cVar1 != '\0') && (DAT_00de7a9c != 0)) {
++          DAT_00de7a9c = DAT_00de7a9c - 1;
++        }
++      }
++    }
++    else {
++      uVar3 = 0;
++      do {
++        cVar1 = FUN_00446ef0(3,uVar3,1);
++        if (cVar1 != '\0') {
++          DAT_00de65f4 = uVar3;
++          goto LAB_0042b050;
++        }
++        uVar3 = uVar3 + 1;
++      } while (uVar3 < 0x10);
++    }
++  }
++  else {
++    if ((*Sg0Emu::TypedSlot<int>(0x00de8fec)) == 0) {
++      cVar1 = FUN_00446ef0(2,2,1);
++      if (cVar1 == '\0') {
++        if ((*Sg0Emu::TypedSlot<int>(0x00de8fec)) == 0) goto LAB_0042af5a;
++      }
++      else {
++        (*Sg0Emu::TypedSlot<int>(0x00de8fec)) = 1;
++      }
++    }
++    iVar2 = DAT_032fc7f0 + -0xdb;
++    if (iVar2 < 0) {
++      iVar2 = 0;
++    }
++    else if (0x2b2 < iVar2) {
++      iVar2 = 0x2b2;
++    }
++    DAT_00de7a9c = (uint)((DAT_00de63dc + -4) * iVar2) / 0x2b2;
++  }
++  if (((DAT_0197a1d8 & DAT_01979f10) != 0) || ((DAT_032fc7a0 & 2) != 0)) {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(3);
++    FUN_00491b90(0x51f,1);
++    return;
++  }
++  if (DAT_00de65f4 != 0xff) {
++    if ((DAT_0197a1d4 & DAT_01979f10) == 0) {
++      if ((_DAT_0197a1c0 & DAT_01979f18) == 0) {
++        if ((_DAT_0197a1c4 & DAT_01979f18) == 0) {
++          if ((_DAT_0197a1c8 & DAT_01979f18) != 0) {
++            FUN_00489c30(DAT_02ee767c);
++            FUN_00489c20(1);
++            if ((((DAT_00de65f4 == 0) || (DAT_00de65f4 == 4)) || (DAT_00de65f4 == 8)) ||
++               (DAT_00de65f4 == 0xc)) {
++              DAT_00de65f4 = DAT_00de65f4 + 3;
++              return;
++            }
++            DAT_00de65f4 = DAT_00de65f4 - 1;
++            return;
++          }
++          if ((DAT_0197a1cc & DAT_01979f18) != 0) {
++            FUN_00489c30(DAT_02ee767c);
++            FUN_00489c20(1);
++            if (((DAT_00de65f4 == 3) || (DAT_00de65f4 == 7)) ||
++               ((DAT_00de65f4 == 0xb || (DAT_00de65f4 == 0xf)))) {
++              DAT_00de65f4 = DAT_00de65f4 - 3;
++              return;
++            }
++            DAT_00de65f4 = DAT_00de65f4 + 1;
++            return;
++          }
++        }
++        else {
++          FUN_00489c30(DAT_02ee767c);
++          FUN_00489c20(1);
++          if (DAT_00de65f4 < 0xc) {
++            DAT_00de65f4 = DAT_00de65f4 + 4;
++            return;
++          }
++          if (DAT_00de7a9c < DAT_00de63dc - 4U) {
++            DAT_00de7a9c = DAT_00de7a9c + 1;
++            return;
++          }
++        }
++      }
++      else {
++        FUN_00489c30(DAT_02ee767c);
++        FUN_00489c20(1);
++        if (DAT_00de65f4 < 4) {
++          if (DAT_00de7a9c != 0) {
++            DAT_00de7a9c = DAT_00de7a9c - 1;
++            return;
++          }
++        }
++        else {
++          DAT_00de65f4 = DAT_00de65f4 - 4;
++        }
++      }
++    }
++    else {
++LAB_0042b050:
++      if ((&DAT_00de63e0)[DAT_00de65f4 + DAT_00de7a9c * 4] != 0) {
++        FUN_00489c30(DAT_02ee767c);
++        FUN_00489c20(2);
++        DAT_00de8fe4 = 1;
++        _DAT_00de8f78 = 0;
++        DAT_00de8f7c = 0;
++        DAT_00de8f5c = 0;
++        DAT_00de8f58 = (&DAT_00de63e0)[DAT_00de65f4 + DAT_00de7a9c * 4];
++        DAT_00de8f60 = 0;
++        DAT_00de8f64 = 0;
++        DAT_00de8f54 = 0;
++        DAT_00de8f44 = 1;
++        DAT_00de8f48 = 0;
++        FUN_0042bbe0(Cv(0));
++        DAT_00de8fe8 = 0;
++        return;
++      }
++    }
++  }
++  return;
++}
++
++
++// ===== FUN_0042b260 @ 0042b260
++
++void FUN_0042b260(int param_1)
++
++{
++  float fVar1;
++  undefined4 uVar2;
++  float fVar3;
++  int iVar4;
++  float fVar5;
++  
++  uVar2 = *(undefined4 *)(DAT_02ee7660 + 0x3520 + (&DAT_00de8fd8)[param_1] * 4);
++  iVar4 = FUN_00449780(uVar2);
++  *(float *)(&DAT_00de8f78 + param_1 * 4) = (float)iVar4;
++  iVar4 = FUN_004497e0(uVar2);
++  fVar3 = DAT_00549448;
++  fVar1 = *(float *)(&DAT_00de8f78 + param_1 * 4);
++  (&DAT_00de8f70)[param_1] = 1.0f;
++  fVar5 = (float)iVar4;
++  *(float *)(&DAT_00de8f80 + param_1 * 4) = fVar5;
++  if (fVar3 < fVar1) {
++    (&DAT_00de8f70)[param_1] = fVar3 / fVar1;
++    return;
++  }
++  if (DAT_00549444 < fVar5) {
++    (&DAT_00de8f70)[param_1] = DAT_00549444 / fVar5;
++  }
++  return;
++}
++
++
++// ===== FUN_0042b330 @ 0042b330
++
++void FUN_0042b330(int param_1)
++
++{
++  float fVar1;
++  undefined4 uVar2;
++  int iVar3;
++  
++  uVar2 = *(undefined4 *)(DAT_02ee7660 + 0x3520 + (&DAT_00de8fd8)[param_1] * 4);
++  FUN_0042bc70(Cv(param_1));
++  iVar3 = (&DAT_00de8f60)[param_1] << 4;
++  FUN_0044f270(uVar2,*(undefined4 *)(&DAT_00de8f98 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fa0 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fa8 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fb0 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fb8 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fc0 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fc8 + param_1 * 4),
++               *(undefined4 *)(&DAT_00de8fd0 + param_1 * 4),0xffffff,iVar3,1);
++  if (0.0 < *(float *)(&DAT_00de8fb8 + param_1 * 4)) {
++    FUN_00448d40(0,0,*(float *)(&DAT_00de8fb8 + param_1 * 4),0x44870000,0,iVar3,1);
++  }
++  fVar1 = *(float *)(&DAT_00de8fc8 + param_1 * 4);
++  if (fVar1 < DAT_00549448) {
++    FUN_00448d40(fVar1,0,DAT_00549448 - fVar1,0x44870000,0,iVar3,1);
++  }
++  if (0.0 < *(float *)(&DAT_00de8fc0 + param_1 * 4)) {
++    FUN_00448d40(0,0,0x44f00000,*(float *)(&DAT_00de8fc0 + param_1 * 4),0,iVar3,1);
++  }
++  fVar1 = *(float *)(&DAT_00de8fd0 + param_1 * 4);
++  if (0.0 < fVar1) {
++    FUN_00448d40(0,fVar1,0x44f00000,DAT_00549444 - fVar1,0,iVar3,1);
++  }
++  return;
++}
++
++
++// ===== FUN_0042b500 @ 0042b500
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042b500(undefined4 param_1)
++
++{
++  int iVar1;
++  uint uVar2;
++  signed char cVar3;
++  int iVar4;
++  int iVar5;
++  uint uVar6;
++  int iVar7;
++  float10 fVar8;
++  
++  if (DAT_00de8fe8 != 0) {
++    DAT_00de8fe8 = DAT_00de8fe8 + -1;
++  }
++  iVar4 = FUN_004919d0(0x53d,param_1);
++  if ((iVar4 == 1) && (iVar4 = FUN_004919d0(0x53e,param_1), iVar4 == 0)) {
++    return;
++  }
++  iVar4 = FUN_004919d0(0x53d,param_1);
++  if (iVar4 == 1) {
++    FUN_00491b90(0x53d,0);
++    FUN_00491b90(0x53e,0);
++    FUN_0042b260(Cv(1));
++    DAT_00de8f6c = DAT_00de8f74;
++    DAT_00de8f8c = DAT_00de8f7c * DAT_005ba4a0;
++    DAT_00de8f64 = 1;
++    DAT_00de8f94 = DAT_00de8f84 * DAT_005ba4a0;
++  }
++  iVar1 = DAT_005c6e6c;
++  iVar4 = DAT_005c6e68;
++  if (DAT_00de8f44 == 3) {
++    if (DAT_00de8f5c == 0) {
++      return;
++    }
++    DAT_00de8f60 = DAT_00de8f60 + -1;
++    DAT_00de8f5c = DAT_00de8f5c - 1;
++    return;
++  }
++  if (DAT_00de8f5c < 0x10) {
++    DAT_00de8f64 = DAT_00de8f64 + 1;
++    if (DAT_00de8f64 == 0x10) {
++      DAT_00de8f5c = DAT_00de8f64;
++      FUN_0042bdf0();
++      return;
++    }
++    DAT_00de8f5c = DAT_00de8f5c + 1;
++    return;
++  }
++  if (DAT_00de8f64 != 0) {
++    DAT_00de8f64 = DAT_00de8f64 + 1;
++    if (DAT_00de8f64 == 0x10) {
++      FUN_0042bdf0();
++      return;
++    }
++    return;
++  }
++  iVar5 = DAT_032fc7ec - DAT_005c6e68;
++  DAT_005c6e68 = DAT_032fc7ec;
++  iVar7 = 0;
++  if (-1 < iVar4) {
++    iVar7 = iVar5;
++  }
++  DAT_005c6e6c = DAT_032fc7f0;
++  iVar4 = 0;
++  if (-1 < iVar1) {
++    iVar4 = DAT_032fc7f0 - iVar1;
++  }
++  FUN_00446ef0(4,0,1);
++  FUN_00446ef0(4,1,1);
++  if ((DAT_032fc7a8 & 1) == 0) {
++    (*Sg0Emu::TypedSlot<int>(0x00de8ff0)) = 0;
++    if ((DAT_032fc7a0 & 1) == 0) {
++      if ((DAT_032fc7a0 & 4) != 0) {
++        DAT_00de8f68 = 1.0;
++        DAT_00de8fe8 = 0x14;
++        FUN_0042bae0(Cv(0));
++        return;
++      }
++    }
++    else {
++      cVar3 = FUN_00446ef0(4,0,1);
++      if (cVar3 == '\0') {
++        cVar3 = FUN_00446ef0(4,1,1);
++        if (cVar3 == '\0') goto LAB_0042b7e5;
++        DAT_00de8fe4 = 1;
++      }
++      else {
++        DAT_00de8fe4 = 0;
++      }
++    }
++  }
++  else {
++    if ((*Sg0Emu::TypedSlot<int>(0x00de8ff0)) == 0) {
++      (*Sg0Emu::TypedSlot<int>(0x00de8ff0)) = 1;
++    }
++    fVar8 = (float10)FUN_004b1270();
++    DAT_00de8f88 = DAT_00de8f88 - (float)(int)((float10)iVar7 / fVar8);
++    fVar8 = (float10)FUN_004b1280();
++    DAT_00de8f90 = DAT_00de8f90 - (float)(int)((float10)iVar4 / fVar8);
++    FUN_0042bae0(Cv(0));
++  }
++  uVar2 = DAT_01979f14;
++  if ((_DAT_0197a204 & DAT_01979f10) != 0) {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(2);
++    DAT_00de8fe4 = DAT_00de8fe4 ^ 1;
++    return;
++  }
++  if ((DAT_0197a1d4 & DAT_01979f10) != 0) {
++LAB_0042b7e5:
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(2);
++    if (DAT_00de8f54 + 1 == DAT_00de8f58) {
++      DAT_00de8f44 = 3;
++      return;
++    }
++    DAT_00de8f54 = DAT_00de8f54 + 1;
++    FUN_0042bbe0(Cv(0));
++    return;
++  }
++  if (((DAT_0197a1d8 & DAT_01979f10) != 0) || ((DAT_032fc7a0 & 2) != 0)) {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(3);
++    DAT_00de8f44 = 3;
++    return;
++  }
++  if (DAT_00de8fe8 != 0) {
++LAB_0042b9fc:
++    if ((DAT_01979f14 & 0x10000) != 0) {
++      DAT_00de8f90 = DAT_00de8f90 - DAT_00549438;
++      FUN_0042bae0(Cv(0));
++    }
++    if ((uVar2 & 0x20000) != 0) {
++      DAT_00de8f90 = DAT_00de8f90 + DAT_00549438;
++      FUN_0042bae0(Cv(0));
++    }
++    if ((uVar2 & 0x40000) != 0) {
++      DAT_00de8f88 = DAT_00de8f88 - DAT_00549438;
++      FUN_0042bae0(Cv(0));
++    }
++    if ((uVar2 & 0x80000) == 0) {
++      return;
++    }
++    DAT_00de8f88 = DAT_00de8f88 + DAT_00549438;
++    FUN_0042bae0(Cv(0));
++    return;
++  }
++  if ((DAT_01979f14 & 0xa00) != 0) {
++    iVar4 = 1;
++LAB_0042b89b:
++    if (DAT_005ba560 <= DAT_00de8f68) {
++      return;
++    }
++    if ((DAT_00de8f68 < DAT_005ba4d8) &&
++       (DAT_005ba4d8 <= (float)iVar4 * DAT_00549434 + DAT_00de8f68)) {
++      DAT_00de8f68 = 1.0;
++      DAT_00de8fe8 = 0x14;
++      FUN_0042bae0(Cv(0));
++      return;
++    }
++    DAT_00de8f68 = (float)iVar4 * DAT_00549434 + DAT_00de8f68;
++    if (DAT_005ba560 < DAT_00de8f68) {
++      DAT_00de8f68 = 2.0;
++    }
++    FUN_0042bae0(Cv(0));
++    return;
++  }
++  if ((DAT_01979f14 & 0x500) == 0) {
++    uVar6 = (int)DAT_032fc7e0 >> 0x1f;
++    if ((int)DAT_032fc7e0 < 0) {
++      iVar4 = (int)((DAT_032fc7e0 ^ uVar6) - uVar6) / 0x3c;
++      if (iVar4 == 0) {
++        iVar4 = 1;
++      }
++      goto LAB_0042b89b;
++    }
++    if ((int)DAT_032fc7e0 < 1) goto LAB_0042b9fc;
++    iVar4 = (int)((DAT_032fc7e0 ^ uVar6) - uVar6) / 0x3c;
++    if (iVar4 == 0) {
++      iVar4 = 1;
++    }
++  }
++  else {
++    iVar4 = 1;
++  }
++  if (DAT_00de8f68 <= DAT_00de8f70) {
++    return;
++  }
++  if ((DAT_005ba4d8 < DAT_00de8f68) && (DAT_00de8f68 - (float)iVar4 * DAT_00549434 <= DAT_005ba4d8))
++  {
++    DAT_00de8f68 = 1.0;
++    DAT_00de8fe8 = 0x14;
++    FUN_0042bae0(Cv(0));
++    return;
++  }
++  DAT_00de8f68 = DAT_00de8f68 - (float)iVar4 * DAT_00549434;
++  if (DAT_00de8f68 < DAT_00de8f70) {
++    DAT_00de8f68 = DAT_00de8f70;
++  }
++  FUN_0042bae0(Cv(0));
++  return;
++}
++
++
++// ===== FUN_0042bae0 @ 0042bae0
++
++void FUN_0042bae0(int param_1)
++
++{
++  float fVar1;
++  float fVar2;
++  float fVar3;
++  float fVar4;
++  float fVar5;
++  
++  fVar2 = DAT_005ba4a0;
++  fVar5 = DAT_00549448 / (float)(&DAT_00de8f68)[param_1];
++  fVar1 = *(float *)(&DAT_00de8f78 + param_1 * 4);
++  fVar4 = DAT_00549444 / (float)(&DAT_00de8f68)[param_1];
++  if (fVar5 < fVar1) {
++    fVar5 = fVar5 * DAT_005ba4a0;
++    fVar3 = (float)(&DAT_00de8f88)[param_1] - fVar5;
++    fVar5 = (float)(&DAT_00de8f88)[param_1] + fVar5;
++    if (fVar3 < 0.0) {
++      fVar5 = fVar5 - fVar3;
++      fVar3 = 0.0;
++    }
++    if (fVar1 < fVar5) {
++      fVar3 = fVar3 - (fVar5 - fVar1);
++      fVar5 = fVar1;
++    }
++    (&DAT_00de8f88)[param_1] = (fVar5 - fVar3) * DAT_005ba4a0 + fVar3;
++  }
++  else {
++    (&DAT_00de8f88)[param_1] = fVar1 * DAT_005ba4a0;
++  }
++  fVar1 = *(float *)(&DAT_00de8f80 + param_1 * 4);
++  if (fVar1 <= fVar4) {
++    (&DAT_00de8f90)[param_1] = fVar1 * fVar2;
++    return;
++  }
++  fVar4 = fVar4 * fVar2;
++  fVar5 = (float)(&DAT_00de8f90)[param_1] - fVar4;
++  fVar4 = (float)(&DAT_00de8f90)[param_1] + fVar4;
++  if (fVar5 < 0.0) {
++    fVar4 = fVar4 - fVar5;
++    fVar5 = 0.0;
++  }
++  if (fVar1 < fVar4) {
++    fVar5 = fVar5 - (fVar4 - fVar1);
++    fVar4 = fVar1;
++  }
++  (&DAT_00de8f90)[param_1] = (fVar4 - fVar5) * fVar2 + fVar5;
++  return;
++}
++
++
++// ===== FUN_0042bbe0 @ 0042bbe0
++
++void FUN_0042bbe0(undefined4 param_1)
++
++{
++  int iVar1;
++  
++  if (DAT_00de8fdc == 0) {
++    param_1 = 1;
++  }
++  else if (DAT_00de8fdc == 1) {
++    param_1 = 2;
++  }
++  iVar1 = DAT_00de65f4 + DAT_00de7a9c * 4;
++  *(undefined4 *)(DAT_02ee7660 + 0x2408) =
++       *(undefined4 *)
++        ((&PTR_DAT_005c5f18)[iVar1 * 2] + (&DAT_00de65f8)[DAT_00de8f54 + iVar1 * 10] * 0x18 + 4);
++  *(undefined4 *)(DAT_02ee7660 + 0x240c) = param_1;
++  FUN_00491b90(0x53d,1);
++  FUN_00491b90(0x53e,0);
++  return;
++}
++
++
++// ===== FUN_0042bc70 @ 0042bc70
++
++void FUN_0042bc70(float param_1)
++
++{
++  int iVar1;
++  float fVar2;
++  float fVar3;
++  float fVar4;
++  float fVar5;
++  float fVar6;
++  float fVar7;
++  float fVar8;
++  
++  iVar1 = (int)param_1;
++  fVar6 = 0.0;
++  fVar8 = (float)(&DAT_00de8f68)[(int)param_1];
++  fVar7 = *(float *)(&DAT_00de8f78 + (int)param_1 * 4);
++  if (DAT_00549448 / fVar8 < fVar7) {
++    fVar2 = (DAT_00549448 / fVar8) * DAT_005ba4a0;
++    fVar5 = (float)(&DAT_00de8f88)[(int)param_1] - fVar2;
++    fVar2 = (float)(&DAT_00de8f88)[(int)param_1] + fVar2;
++    if (fVar5 < 0.0) {
++      fVar2 = fVar2 - fVar5;
++      fVar5 = 0.0;
++    }
++    if (fVar7 < fVar2) {
++      fVar5 = fVar5 - (fVar2 - fVar7);
++      fVar2 = fVar7;
++    }
++    param_1 = 0.0;
++    fVar7 = fVar2 - fVar5;
++    fVar2 = DAT_00549448;
++  }
++  else {
++    fVar5 = 0.0;
++    param_1 = (DAT_00549448 - fVar7 * fVar8) * DAT_005ba4a0;
++    fVar2 = DAT_00549448 - param_1;
++  }
++  fVar4 = *(float *)(&DAT_00de8f80 + iVar1 * 4);
++  if (DAT_00549444 / fVar8 < fVar4) {
++    fVar8 = (DAT_00549444 / fVar8) * DAT_005ba4a0;
++    fVar3 = (float)(&DAT_00de8f90)[iVar1] - fVar8;
++    fVar8 = (float)(&DAT_00de8f90)[iVar1] + fVar8;
++    if (fVar3 < 0.0) {
++      fVar8 = fVar8 - fVar3;
++      fVar3 = 0.0;
++    }
++    if (fVar4 < fVar8) {
++      fVar3 = fVar3 - (fVar8 - fVar4);
++      fVar8 = fVar4;
++    }
++    fVar4 = fVar8 - fVar3;
++    fVar8 = DAT_00549444;
++  }
++  else {
++    fVar3 = 0.0;
++    fVar6 = (DAT_00549444 - fVar4 * (float)(&DAT_00de8f68)[iVar1]) * DAT_005ba4a0;
++    fVar8 = DAT_00549444 - fVar6;
++  }
++  *(float *)(&DAT_00de8f98 + iVar1 * 4) = fVar5;
++  *(float *)(&DAT_00de8fa0 + iVar1 * 4) = fVar3;
++  *(float *)(&DAT_00de8fa8 + iVar1 * 4) = fVar7;
++  *(float *)(&DAT_00de8fb0 + iVar1 * 4) = fVar4;
++  *(float *)(&DAT_00de8fb8 + iVar1 * 4) = param_1;
++  *(float *)(&DAT_00de8fc0 + iVar1 * 4) = fVar6;
++  *(float *)(&DAT_00de8fc8 + iVar1 * 4) = fVar2;
++  *(float *)(&DAT_00de8fd0 + iVar1 * 4) = fVar8;
++  return;
++}
++
++
++// ===== FUN_0042bdf0 @ 0042bdf0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042bdf0(void)
++
++{
++  undefined4 uVar1;
++  
++  uVar1 = DAT_00de8fd8;
++  DAT_00de8f68 = DAT_00de8f6c;
++  DAT_00de8f70 = DAT_00de8f74;
++  _DAT_00de8f78 = DAT_00de8f7c;
++  _DAT_00de8f80 = DAT_00de8f84;
++  DAT_00de8f88 = DAT_00de8f8c;
++  DAT_00de8f90 = DAT_00de8f94;
++  _DAT_00de8f98 = DAT_00de8f9c;
++  _DAT_00de8fa0 = DAT_00de8fa4;
++  _DAT_00de8fa8 = DAT_00de8fac;
++  _DAT_00de8fb0 = DAT_00de8fb4;
++  _DAT_00de8fb8 = DAT_00de8fbc;
++  _DAT_00de8fc0 = DAT_00de8fc4;
++  _DAT_00de8fc8 = DAT_00de8fcc;
++  DAT_00de8f60 = DAT_00de8f64;
++  _DAT_00de8fd0 = DAT_00de8fd4;
++  DAT_00de8fac = 0;
++  DAT_00de8f64 = 0;
++  DAT_00de8fd8 = DAT_00de8fdc;
++  DAT_00de8fdc = uVar1;
++  return;
++}
++
++
++// ===== FUN_0042bf10 @ 0042bf10
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042bf10(void)
++
++{
++  uint uVar1;
++  int iVar2;
++  bool bVar3;
++  undefined4 uVar4;
++  undefined4 uVar5;
++  undefined4 uVar6;
++  undefined4 uVar7;
++  
++  uVar1 = *(uint *)(DAT_02ee7660 + 0x218c);
++  if (uVar1 < 0x10) {
++    FUN_0044c0b0(0x96,0x96,0,0,0x44f00000,0x44870000,0,0x4487c000,0,0,0xffffff,0x100,0,
++                 uVar1 * 0x110 >> 4,0x10);
++    return;
++  }
++  FUN_0044cba0(0x96,0,0,0x44f00000,0x44870000,0,0,0xffffff,0x100,0);
++  iVar2 = uVar1 * 0x10 + -0x100;
++  if (DAT_00de8f5c < 0x10) {
++    FUN_0044cba0(0x97,0,0,0x44e28000,0x44748000,0x42580000,0x41f00000,0xffffff,iVar2,1);
++    FUN_0044cba0(0x96,0x44f0c000,0x42840000,0x43cf0000,0x42700000,0x42700000,0x43700000,0xffffff,
++                 iVar2,1);
++    FUN_0044cba0(0x96,0x44f0c000,0x43040000,0x43cf0000,0x42700000,0x42700000,0x43960000,0xffffff,
++                 iVar2,1);
++    FUN_0044cba0(0x96,0x44f0c000,0x43460000,0x43cf0000,0x42700000,0x42700000,0x43b40000,0xffffff,
++                 iVar2,1);
++    FUN_00446f60(0x42700000,0x43700000,0x43cf0000,0x42700000,0,0);
++    FUN_00446f60(0x42700000,0x43960000,0x43cf0000,0x42700000,0,1);
++    FUN_00446f60(0x42700000,0x43b40000,0x43cf0000,0x42700000,0,2);
++    FUN_0042dc30(Cv(iVar2),Cv(DAT_00de5f9c));
++    uVar1 = (uint)((0x10 - DAT_00de5fac) * iVar2) >> 4;
++    FUN_0044cba0(0x96,0x4512a000,
++                 (float)((double)DAT_00de5f9c + (double)(&DAT_005ba790)[-(DAT_00de5f9c >> 0x1f)]) *
++                 DAT_0054943c + DAT_0054943c,0x43cf0000,0x42700000,0x42700000,
++                 (float)((double)(DAT_00de5f9c * 0x3c) +
++                        (double)(&DAT_005ba790)[-(DAT_00de5f9c * 0x3c >> 0x1f)]) + _DAT_00549440,
++                 0xffffff,uVar1,1);
++    if (-1 < DAT_005c6288) {
++      FUN_0044cba0(0x96,0x44f0c000,0x440d0000,0x43cf0000,0x42700000,0x42700000,
++                   (float)(DAT_005c6288 * 0x3c) + _DAT_00549440,0xffffff,uVar1,1);
++    }
++    DAT_005c6288 = -1;
++    if (DAT_00de5f9c == 0) {
++      FUN_0042a7d0(Cv(0),Cv(uVar1),Cv(DAT_00de7a9c << 2),Cv(DAT_00de65f4));
++    }
++    else if (DAT_00de5f9c == 1) {
++      FUN_0042d770(Cv(uVar1));
++    }
++    else if (DAT_00de5f9c == 2) {
++      FUN_0042c830(Cv(uVar1));
++    }
++    if (DAT_00de5fac != 0) {
++      uVar1 = (uint)(DAT_00de5fac * iVar2) >> 4;
++      FUN_0044cba0(0x96,0x4512a000,
++                   (float)((double)DAT_00de5fa0 + (double)(&DAT_005ba790)[-(DAT_00de5fa0 >> 0x1f)])
++                   * DAT_0054943c + DAT_0054943c,0x43cf0000,0x42700000,0x42700000,
++                   (float)((double)(DAT_00de5fa0 * 0x3c) +
++                          (double)(&DAT_005ba790)[-(DAT_00de5fa0 * 0x3c >> 0x1f)]) + _DAT_00549440,
++                   0xffffff,uVar1,1);
++      if (DAT_00de5fa0 == 0) {
++        FUN_0042a3e0(Cv(uVar1));
++      }
++      else if (DAT_00de5fa0 == 1) {
++        FUN_0042d770(Cv(uVar1));
++      }
++      else if (DAT_00de5fa0 == 2) {
++        FUN_0042c830(Cv(uVar1));
++      }
++    }
++  }
++  if ((DAT_00de8f44 == 2) || (DAT_00de8f5c != 0)) {
++    if (DAT_00de8f60 != 0) {
++      FUN_0042b330(Cv(0));
++    }
++    if (DAT_00de8f64 != 0) {
++      FUN_0042b330(Cv(1));
++    }
++    if (0 < (int)(DAT_00de8f5c << 4)) {
++      bVar3 = DAT_00de8fe4 != 1;
++      if (bVar3) {
++        uVar7 = 0x42d80000;
++        uVar6 = 0x44f00000;
++        uVar5 = 0x44730000;
++        uVar4 = 0;
++      }
++      else {
++        FUN_0044cba0(0x96,0,0x450ca000,0x44f00000,0x429c0000,0,0x44718000,0xffffff,DAT_00de8f5c << 4
++                     ,1);
++        uVar7 = 0x42700000;
++        uVar6 = 0x448cc000;
++        uVar5 = 0x44738000;
++        uVar4 = 0x443cc000;
++      }
++      FUN_00446f60(uVar4,uVar5,uVar6,uVar7,4,bVar3);
++    }
++  }
++  iVar2 = FUN_004919d0(0x73b);
++  if (iVar2 != 0) {
++    uVar4 = FUN_0042f0a0();
++    *(undefined4 *)(DAT_02ee7660 + 0x631c) = uVar4;
++    uVar4 = FUN_0042ebb0();
++    *(undefined4 *)(DAT_02ee7660 + 0x6324) = uVar4;
++    if (*(int *)(DAT_02ee7660 + 0x6320) == 0) {
++      FUN_0042ef20(0xffffff,0x100);
++    }
++  }
++  return;
++}
++
++
++// ===== FUN_0042c530 @ 0042c530
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042c530(void)
++
++{
++  int iVar1;
++  
++  _DAT_00de5fa4 = 0;
++  DAT_00de5fac = 0;
++  _DAT_00de5fa8 = 0;
++  iVar1 = *(int *)(DAT_02ee7660 + 0x2190);
++  if (iVar1 == 8) {
++    DAT_00de5f9c = 0;
++  }
++  else if (iVar1 == 9) {
++    DAT_00de5f9c = 2;
++  }
++  else if (iVar1 == 10) {
++    DAT_00de5f9c = 1;
++  }
++  *(undefined4 *)(DAT_02ee7660 + 0x2190) = 0xc;
++  DAT_00de5fa0 = DAT_00de5f9c;
++  FUN_0042a650();
++  FUN_0042d220();
++  FUN_0042cda0();
++  *(undefined4 *)(DAT_02ee7660 + 0x23f4) = 0xff;
++  DAT_005c6288 = 0xffffffff;
++  DAT_005c628c = 0xffffffff;
++  return;
++}
++
++
++// ===== FUN_0042c630 @ 0042c630
++
++void FUN_0042c630(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  
++  if (DAT_00de5fac != 0) {
++    DAT_00de5fac = DAT_00de5fac + -1;
++    if (DAT_00de5fac == 0) {
++      DAT_00de5fa0 = DAT_00de5f9c;
++      if (DAT_00de5f9c == 0) {
++        FUN_00477b20(0x11);
++        return;
++      }
++      if (DAT_00de5f9c == 1) {
++        FUN_00477b20(0x12);
++        return;
++      }
++      if (DAT_00de5f9c == 2) {
++        FUN_00477b20(0x13);
++        return;
++      }
++    }
++    return;
++  }
++  if ((DAT_00de8f44 != 0) || (DAT_00de8f5c != 0)) {
++LAB_0042c7dc:
++    cVar1 = FUN_0042e040();
++    if (cVar1 == '\0') {
++      if (DAT_00de5f9c == 0) {
++        FUN_0042ae40();
++      }
++      else {
++        if (DAT_00de5f9c == 1) {
++          FUN_0042d3c0();
++          FUN_0042e390();
++          return;
++        }
++        if (DAT_00de5f9c == 2) {
++          FUN_0042ce10();
++          FUN_0042e390();
++          return;
++        }
++      }
++    }
++    FUN_0042e390();
++    return;
++  }
++  iVar2 = 0;
++  do {
++    FUN_00446ef0(0,iVar2,1);
++    iVar2 = iVar2 + 1;
++  } while (iVar2 < 3);
++  DAT_005c6288 = -1;
++  iVar2 = 0;
++  do {
++    cVar1 = FUN_00446ef0(0,iVar2,1);
++    if (cVar1 != '\0') {
++      DAT_005c6288 = iVar2;
++      break;
++    }
++    iVar2 = iVar2 + 1;
++  } while (iVar2 < 3);
++  if ((DAT_032fc7a0 & 2) == 0) {
++    if ((DAT_032fc7a0 & 3) != 0) {
++      iVar2 = 0;
++      do {
++        cVar1 = FUN_00446ef0(0,iVar2,1);
++        if (cVar1 != '\0') {
++          DAT_00de5f9c = iVar2;
++          DAT_00de5fac = 0x10;
++          return;
++        }
++        iVar2 = iVar2 + 1;
++      } while (iVar2 < 3);
++    }
++    if ((DAT_01979f18 & 0x500) != 0) {
++      FUN_00489c30(DAT_02ee767c);
++      FUN_00489c20(1);
++      iVar2 = 2;
++      if (DAT_00de5f9c != 0) {
++        iVar2 = DAT_00de5f9c - 1;
++      }
++      DAT_00de5f9c = iVar2;
++      DAT_00de5fac = 0x10;
++      return;
++    }
++    if ((DAT_01979f18 & 0xa00) != 0) {
++      FUN_00489c30(DAT_02ee767c);
++      FUN_00489c20(1);
++      DAT_00de5fac = 0x10;
++      iVar2 = 0;
++      if (DAT_00de5f9c < 2) {
++        iVar2 = DAT_00de5f9c + 1;
++      }
++      DAT_00de5f9c = iVar2;
++      return;
++    }
++    if ((DAT_01979f10 & DAT_0197a1d8) == 0) goto LAB_0042c7dc;
++  }
++  FUN_00489c30(DAT_02ee767c);
++  FUN_00489c20(3);
++  FUN_00491b90(0x51f,1);
++  return;
++}
++
++
++// ===== FUN_0042c830 @ 0042c830
++
++void FUN_0042c830(uint param_1)
++
++{
++  undefined *puVar1;
++  undefined4 uVar2;
++  uint uVar3;
++  int iVar4;
++  int iVar5;
++  uint local_1c;
++  signed char local_14 [12];
++  undefined4 local_8;
++  FUN_0044cba0(0x96,0x44d74000,0x4525c000,0x44a8c000,0x43d20000,0x43ed0000,0x43340000,0xffffff,
++               param_1,1);
++  FUN_0044cba0(0x96,0,0x45298000,0x44a8c000,0x42280000,0x43ed0000,0x44160000,0xffffff,param_1,1);
++  iVar4 = 0x282;
++  iVar5 = 2;
++  do {
++    FUN_0044cba0(0x96,0,0x452ce000,0x44a8c000,0x42f00000,0x43ed0000,(float)iVar4,0xffffff,param_1,1)
++    ;
++    iVar4 = iVar4 + 0x78;
++    iVar5 = iVar5 + -1;
++  } while (iVar5 != 0);
++  FUN_0044cba0(0x96,0,0x452ce000,0x44a8c000,0x42880000,0x43ed0000,(float)iVar4,0xffffff,param_1,1);
++  FUN_0044cba0(0x96,0,0x45256000,0x44a8c000,0x42700000,0x43ed0000,
++               (float)(int)(DAT_00de5e98 * 0x3c + 0x282),0xffffff,param_1,1);
++  FUN_0044cba0(0x96,0x45244000,0x43a50000,0x42280000,0x429c0000,0x44e34000,0x43340000,0xffffff,
++               param_1 >> 1,1);
++  if (*(int *)(DAT_02ee7660 + 0x23f4) == 0xff) {
++    FUN_00446f60(0x44e34000,0x43340000,0x42280000,0x429c0000,2,2);
++  }
++  if ((&DAT_00de5ea0)[DAT_00de5e9c + DAT_00de5e98] != '\0') {
++    uVar3 = *(uint *)(&DAT_005c6274 + (DAT_00de5e9c + DAT_00de5e98) * 4) >> 1;
++    FUN_0044cba0(0x96,(float)(int)((*(uint *)(&DAT_005c6274 + (DAT_00de5e9c + DAT_00de5e98) * 4) +
++                                   uVar3 * -2) * 0x1e6 + 0x786),(float)(int)(uVar3 * 0x114 + 0x708),
++                 0x43f00000,0x43870000,0x44630000,0x436a0000,0xffffff,param_1,1);
++  }
++  FUN_00448e10();
++  FUN_00448fa0(0x4c);
++  iVar4 = 0x1b4;
++  local_1c = 0;
++  if (DAT_00de5eb8 != 0) {
++    do {
++      puVar1 = (decltype(puVar1))(&DAT_00545454);
++      if (local_1c == DAT_00de5e98) {
++        puVar1 = (undefined *)0xffffff;
++      }
++      iVar5 = DAT_00de5e9c + local_1c;
++      FUN_0048b6b0(Cv(iVar5 + 1),Cv(local_14),Cv(2));
++      if (local_14[0] == ' ') {
++        local_14[0] = '0';
++      }
++      FUN_00463b20(Cv(0x4c),Cv(0x164),Cv(iVar4),Cv(local_14),Cv(puVar1),Cv(300),Cv(0x18),Cv(param_1));
++      if ((&DAT_00de5ea0)[iVar5] == '\0') {
++        uVar2 = FUN_004645a0(4,3);
++        FUN_00462f30(0x4c,400,iVar4,0x1d4,uVar2,0,puVar1,0x18,param_1);
++      }
++      else {
++        uVar2 = FUN_004645a0(5,iVar5 * 2);
++        FUN_00462f30(0x4c,400,iVar4,0x132,uVar2,0,puVar1,0x18,param_1);
++        uVar2 = FUN_004645a0(5,iVar5 * 2 + 1);
++        FUN_00462f30(0x4c,0x2d4,iVar4,0x1e0,uVar2,0,puVar1,0x18,param_1);
++      }
++      iVar4 = iVar4 + 0x28;
++      local_1c = local_1c + 1;
++    } while (local_1c < DAT_00de5eb8);
++  }
++  FUN_00448e00();
++  FUN_0044cba0(0x96,0,0x45166000,0x44f00000,0x429c0000,0,0x44718000,0xffffff,param_1,1);
++  if (*(int *)(DAT_02ee7660 + 0x62e8) == 3000) {
++    uVar2 = FUN_0042f0a0();
++    *(undefined4 *)(DAT_02ee7660 + 0x631c) = uVar2;
++    uVar2 = FUN_0042ebb0();
++    *(undefined4 *)(DAT_02ee7660 + 0x6324) = uVar2;
++    if (*(int *)(DAT_02ee7660 + 0x6320) == 0) {
++      FUN_0042ef20(0xffffff,0x100);
++    }
++  }
++  if (*(int *)(DAT_02ee7660 + 0x23f4) == 0xff) {
++    FUN_00446f60(0x43ed0000,0x43340000,0x44ad4000,0x44400000,2,0);
++    FUN_00446f60(0x44e40000,0x43340000,0x42100000,0x44400000,2,1);
++    iVar4 = 0x282;
++    iVar5 = 0;
++    do {
++      FUN_00446f60(0x43f00000,(float)iVar4,0x44a74000,0x42700000,3,iVar5);
++      iVar4 = iVar4 + 0x3c;
++      iVar5 = iVar5 + 1;
++    } while (iVar4 < 0x3ae);
++  }
++  return;
++}
++
++
++// ===== FUN_0042cda0 @ 0042cda0
++
++void FUN_0042cda0(void)
++
++{
++  DAT_00de5ea0 = 1;
++  DAT_00de5ea4 = 1;
++  DAT_00de5ea1 = FUN_004919d0(0x386);
++  DAT_00de5ea2 = FUN_004919d0(0x387);
++  DAT_00de5ea3 = FUN_004919d0(0x385);
++  DAT_00de5eb8 = 5;
++  DAT_00de5ebc = 0;
++  *(undefined4 *)(DAT_02ee7660 + 0x23f4) = 0xff;
++  return;
++}
++
++
++// ===== FUN_0042ce10 @ 0042ce10
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042ce10(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  uint uVar3;
++  
++  FUN_00446ef0(2,2,1);
++  iVar2 = 0;
++  do {
++    FUN_00446ef0(3,iVar2,1);
++    iVar2 = iVar2 + 1;
++  } while (iVar2 < 5);
++  if ((DAT_032fc7a8 & 1) == 0) {
++    DAT_00de5ebc = 0;
++LAB_0042ceb8:
++    if ((DAT_032fc7a0 & 1) == 0) {
++      if (DAT_032fc7e0 < 0) {
++        cVar1 = FUN_00446ef0(2,0,1);
++        if ((cVar1 != '\0') && (DAT_00de5e9c < DAT_00de5eb8 - 5U)) {
++          DAT_00de5e9c = DAT_00de5e9c + 1;
++        }
++      }
++      else if (DAT_032fc7e0 < 1) {
++        uVar3 = 0;
++        do {
++          cVar1 = FUN_00446ef0(3,uVar3,1);
++          if (cVar1 != '\0') {
++            DAT_00de5e98 = uVar3;
++            break;
++          }
++          uVar3 = uVar3 + 1;
++        } while ((int)uVar3 < 5);
++      }
++      else {
++        cVar1 = FUN_00446ef0(2,0,1);
++        if ((cVar1 != '\0') && (DAT_00de5e9c != 0)) {
++          DAT_00de5e9c = DAT_00de5e9c - 1;
++        }
++      }
++    }
++    else {
++      uVar3 = 0;
++      do {
++        cVar1 = FUN_00446ef0(3,uVar3,1);
++        if (cVar1 != '\0') {
++          DAT_00de5e98 = uVar3;
++          goto LAB_0042cf80;
++        }
++        uVar3 = uVar3 + 1;
++      } while ((int)uVar3 < 5);
++    }
++  }
++  else {
++    if (DAT_00de5ebc == 0) {
++      cVar1 = FUN_00446ef0(2,2,1);
++      if (cVar1 == '\0') {
++        if (DAT_00de5ebc == 0) goto LAB_0042ceb8;
++      }
++      else {
++        DAT_00de5ebc = 1;
++      }
++    }
++    iVar2 = DAT_032fc7f0 + -0xdb;
++    if (iVar2 < 0) {
++      iVar2 = 0;
++    }
++    else if (0x2b2 < iVar2) {
++      iVar2 = 0x2b2;
++    }
++    DAT_00de5e9c = (uint)((DAT_00de5eb8 + -5) * iVar2) / 0x2b2;
++  }
++  if ((DAT_0197a1d4 & DAT_01979f10) == 0) {
++    if ((DAT_0197a1d8 & DAT_01979f10) == 0) {
++      if (((_DAT_0197a1c0 & DAT_01979f1c) != 0) && (DAT_00de5e98 != 0)) {
++        DAT_00de5e98 = DAT_00de5e98 - 1;
++      }
++      if (((_DAT_0197a1c4 & DAT_01979f1c) != 0) && (DAT_00de5e98 < DAT_00de5eb8 - 1U)) {
++        DAT_00de5e98 = DAT_00de5e98 + 1;
++      }
++    }
++  }
++  else {
++LAB_0042cf80:
++    if ((&DAT_00de5ea0)[DAT_00de5e9c + DAT_00de5e98] != '\0') {
++      *(undefined4 *)(DAT_02ee7660 + 0x23f4) =
++           *(undefined4 *)(&DAT_005c6260 + (DAT_00de5e9c + DAT_00de5e98) * 4);
++      iVar2 = DAT_00dde0ec;
++      _DAT_00de5f20 = 0;
++      DAT_005c6294 = 0xff;
++      DAT_005c629c = 0xff;
++      (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = 0xffffffff;
++      (&DAT_02ed16ec)[iVar2 * 0x26] = 0;
++      (&DAT_02ed1730)[iVar2 * 0x26] = 1;
++      (&DAT_02ed1734)[iVar2 * 0x26] = ((&DAT_02ed1748)[iVar2 * 0x26] & 0xffff) << 0xb;
++      return;
++    }
++  }
++  return;
++}
++
++
++// ===== FUN_0042d0b0 @ 0042d0b0
++
++void FUN_0042d0b0(void)
++
++{
++  DAT_02ee7122 = DAT_02ee7121;
++  DAT_02ee7124 = DAT_02ee7123;
++  DAT_02ee7126 = DAT_02ee7125;
++  DAT_02ee7128 = DAT_02ee7127;
++  DAT_02ee712a = DAT_02ee7129;
++  DAT_02ee712c = DAT_02ee712b;
++  DAT_02ee712e = DAT_02ee712d;
++  DAT_02ee7130 = DAT_02ee712f;
++  DAT_02ee7132 = DAT_02ee7131;
++  DAT_02ee7134 = DAT_02ee7133;
++  DAT_02ee7136 = DAT_02ee7135;
++  DAT_02ee7138 = DAT_02ee7137;
++  DAT_02ee713a = DAT_02ee7139;
++  DAT_02ee713c = DAT_02ee713b;
++  DAT_02ee713e = DAT_02ee713d;
++  DAT_02ee7140 = DAT_02ee713f;
++  DAT_02ee7142 = DAT_02ee7141;
++  DAT_02ee7144 = DAT_02ee7143;
++  DAT_02ee7146 = DAT_02ee7145;
++  DAT_02ee7148 = DAT_02ee7147;
++  DAT_02ee714a = DAT_02ee7149;
++  DAT_02ee714c = DAT_02ee714b;
++  DAT_02ee714e = DAT_02ee714d;
++  DAT_02ee7150 = DAT_02ee714f;
++  DAT_02ee7152 = DAT_02ee7151;
++  DAT_02ee7154 = DAT_02ee7153;
++  DAT_02ee7156 = DAT_02ee7155;
++  DAT_02ee7158 = DAT_02ee7157;
++  DAT_02ee715b = DAT_02ee715a;
++  DAT_02ee7165 = 1;
++  return;
++}
++
++
++// ===== FUN_0042d220 @ 0042d220
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042d220(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  uint uVar3;
++  uint uVar4;
++  
++  uVar4 = DAT_005c62a0;
++  DAT_00de5f28 = -(uint)(DAT_005c62a0 < 0xff) & 1;
++  FUN_0042d0b0();
++  uVar3 = 0;
++  do {
++    cVar1 = (&DAT_02ee7120)[(byte)(&DAT_005c62a4)[uVar3]];
++    (&DAT_00de5f30)[uVar3] = cVar1;
++    if ((uVar4 == 0xffff) && (cVar1 != '\0')) {
++      DAT_00de5f28 = 1;
++      uVar4 = uVar3;
++      DAT_005c62a0 = uVar3;
++    }
++    cVar1 = (&DAT_02ee7120)[(byte)(&DAT_005c62a5)[uVar3]];
++    (&DAT_00de5f31)[uVar3] = cVar1;
++    if ((uVar4 == 0xffff) && (cVar1 != '\0')) {
++      uVar4 = uVar3 + 1;
++      DAT_00de5f28 = 1;
++      DAT_005c62a0 = uVar4;
++    }
++    uVar3 = uVar3 + 2;
++  } while (uVar3 < 0x22);
++  DAT_00de5e90 = 0;
++  _DAT_00de5f20 = 0;
++  _DAT_00de5f1c = 0;
++  DAT_005c6290 = 2;
++  DAT_005c6294 = 0xff;
++  _DAT_00de5f18 = 0;
++  DAT_005c629c = 0xff;
++  _DAT_00de5ecc = 0;
++  _DAT_00de5ec0 = 0;
++  DAT_00de5f24 = 0;
++  FUN_0042e700();
++  iVar2 = DAT_00dde0ec;
++  uVar4 = DAT_005c62a0;
++  DAT_00de5f2c = 0;
++  if (((DAT_00de5f28 != 0) && ((&DAT_00de5f30)[DAT_005c62a0] != '\0')) &&
++     (DAT_005c629c != DAT_005c62a0)) {
++    DAT_005c629c = DAT_005c62a0;
++    (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[DAT_005c62a0];
++    (&DAT_02ed16e4)[iVar2 * 0x26] = (uint)(byte)(&DAT_00de5f78)[uVar4];
++    (&DAT_02ed16e8)[iVar2 * 0x26] = 1;
++    (&DAT_02ed16ec)[iVar2 * 0x26] = 1;
++    (&DAT_02ed171c)[iVar2 * 0x26] = 0;
++  }
++  return;
++}
++
++
++// ===== FUN_0042d3c0 @ 0042d3c0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042d3c0(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  int iVar3;
++  uint uVar4;
++  bool bVar5;
++  
++  if (DAT_005c6294 == 0xff) {
++    if (DAT_00de5e90 != 0) {
++      DAT_00de5e90 = DAT_00de5e90 - 8;
++    }
++  }
++  else if (DAT_00de5e90 < 0x100) {
++    DAT_00de5e90 = DAT_00de5e90 + 8;
++  }
++  FUN_00446ef0(2,2,1);
++  uVar4 = 0;
++  do {
++    FUN_00446ef0(3,uVar4,1);
++    uVar4 = uVar4 + 1;
++  } while (uVar4 < 0xc);
++  uVar4 = 0;
++  do {
++    cVar1 = FUN_00446ef0(3,uVar4,1);
++    if (cVar1 != '\0') {
++      DAT_00de5ec4 = uVar4;
++      break;
++    }
++    uVar4 = uVar4 + 1;
++  } while (uVar4 < 0xc);
++  if ((DAT_032fc7a8 & 1) == 0) {
++    DAT_00de5f2c = 0;
++LAB_0042d4b1:
++    if ((DAT_032fc7a0 & 1) != 0) {
++      uVar4 = 0;
++      do {
++        cVar1 = FUN_00446ef0(3,uVar4,1);
++        if (cVar1 != '\0') {
++          DAT_00de5ec4 = uVar4;
++          if (DAT_005c629c == DAT_00de5ed0 + uVar4) goto LAB_0042d6b7;
++          goto LAB_0042d640;
++        }
++        uVar4 = uVar4 + 1;
++      } while (uVar4 < 0xc);
++    }
++  }
++  else {
++    if (DAT_00de5f2c == 0) {
++      cVar1 = FUN_00446ef0(2,2,1);
++      if (cVar1 == '\0') {
++        if (DAT_00de5f2c == 0) goto LAB_0042d4b1;
++      }
++      else {
++        DAT_00de5f2c = 1;
++      }
++    }
++    iVar2 = DAT_032fc7f0 + -0xdb;
++    if (iVar2 < 0) {
++      iVar2 = 0;
++    }
++    else if (0x2b2 < iVar2) {
++      iVar2 = 0x2b2;
++    }
++    DAT_00de5ed0 = (iVar2 * 0x16) / 0x2b2;
++  }
++  if ((_DAT_0197a1c0 & DAT_01979f1c) != 0) {
++    if (DAT_00de5ec4 < 2) {
++      if (DAT_00de5ed0 == 0) {
++        if (DAT_00de5ec4 != 0) goto LAB_0042d52c;
++      }
++      else {
++        DAT_00de5ed0 = DAT_00de5ed0 - 1;
++      }
++    }
++    else {
++LAB_0042d52c:
++      DAT_00de5ec4 = DAT_00de5ec4 - 1;
++    }
++  }
++  if ((_DAT_0197a1c4 & DAT_01979f1c) == 0) goto LAB_0042d563;
++  if (9 < DAT_00de5ec4) {
++    if (DAT_00de5ed0 < 0x16) {
++      DAT_00de5ed0 = DAT_00de5ed0 + 1;
++      goto LAB_0042d563;
++    }
++    if (0x20 < DAT_00de5ec4 + DAT_00de5ed0) goto LAB_0042d563;
++  }
++  DAT_00de5ec4 = DAT_00de5ec4 + 1;
++LAB_0042d563:
++  bVar5 = false;
++  if (DAT_032fc7e0 < 0) {
++    cVar1 = FUN_00446ef0(2,0,1);
++    if ((cVar1 != '\0') && (DAT_00de5ed0 < 0x16)) {
++      DAT_00de5ed0 = DAT_00de5ed0 + 1;
++    }
++    bVar5 = DAT_032fc7e0 < 0;
++  }
++  if (((DAT_032fc7e0 != 0 && !bVar5) && (cVar1 = FUN_00446ef0(2,0,1), cVar1 != '\0')) &&
++     (DAT_00de5ed0 != 0)) {
++    DAT_00de5ed0 = DAT_00de5ed0 - 1;
++  }
++  if ((_DAT_0197a1c0 & DAT_01979f18) == 0) {
++    if ((_DAT_0197a1c4 & DAT_01979f18) != 0) {
++      FUN_00489c30(DAT_02ee767c);
++      FUN_00489c20(1);
++      _DAT_00de5ec0 = 0;
++      _DAT_00de5ecc = 6;
++      return;
++    }
++    if ((DAT_0197a1d4 & DAT_01979f10) == 0) {
++      if ((_DAT_0197a204 & DAT_01979f10) != 0) {
++LAB_0042d6b7:
++        iVar2 = DAT_00dde0ec;
++        DAT_00de5f28 = 0;
++        _DAT_00de5f20 = 0;
++        DAT_005c6294 = 0xff;
++        DAT_005c629c = 0xff;
++        DAT_005c62a0 = 0xff;
++        (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = 0xffffffff;
++        (&DAT_02ed16ec)[iVar2 * 0x26] = 0;
++        (&DAT_02ed1730)[iVar2 * 0x26] = 1;
++        (&DAT_02ed1734)[iVar2 * 0x26] = ((&DAT_02ed1748)[iVar2 * 0x26] & 0xffff) << 0xb;
++        return;
++      }
++      if ((_DAT_0197a208 & DAT_01979f10) != 0) {
++        FUN_00489c30(DAT_02ee767c);
++        FUN_00489c20(2);
++        DAT_005c6290 = DAT_005c6290 + 1 & 3;
++        if (DAT_005c6290 == 3) {
++          DAT_00de5f24 = 0;
++          FUN_0042e700();
++          return;
++        }
++      }
++    }
++    else {
++LAB_0042d640:
++      iVar2 = DAT_00dde0ec;
++      iVar3 = DAT_00de5ec4 + DAT_00de5ed0;
++      if (((&DAT_00de5f30)[iVar3] != '\0') && (DAT_005c629c != iVar3)) {
++        DAT_00de5f28 = 1;
++        DAT_005c629c = iVar3;
++        DAT_005c62a0 = iVar3;
++        (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[iVar3];
++        (&DAT_02ed16e4)[iVar2 * 0x26] = (uint)(byte)(&DAT_00de5f78)[iVar3];
++        (&DAT_02ed16e8)[iVar2 * 0x26] = 1;
++        (&DAT_02ed16ec)[iVar2 * 0x26] = 1;
++        (&DAT_02ed171c)[iVar2 * 0x26] = 0;
++        return;
++      }
++    }
++  }
++  else {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(1);
++    _DAT_00de5ec0 = 1;
++    _DAT_00de5ecc = 6;
++  }
++  return;
++}
++
++
++// ===== FUN_0042d770 @ 0042d770
++
++void FUN_0042d770(undefined4 param_1)
++
++{
++  undefined4 uVar1;
++  undefined *puVar2;
++  int iVar3;
++  int iVar4;
++  int local_18;
++  signed char local_14 [12];
++  undefined4 local_8;
++  FUN_0044cba0(0x96,0,0x45298000,0x44a8c000,0x42280000,0x43ed0000,0x43340000,0xffffff,param_1,1);
++  iVar3 = 0xde;
++  iVar4 = 6;
++  do {
++    FUN_0044cba0(0x96,0,0x452ce000,0x44a8c000,0x42f00000,0x43ed0000,(float)iVar3,0xffffff,param_1,1)
++    ;
++    iVar3 = iVar3 + 0x78;
++    iVar4 = iVar4 + -1;
++  } while (iVar4 != 0);
++  FUN_0044cba0(0x96,0,0x452ce000,0x44a8c000,0x41000000,0x43ed0000,(float)iVar3,0xffffff,param_1,1);
++  FUN_0044cba0(0x96,0,0x45256000,0x44a8c000,0x42700000,0x43ed0000,
++               (float)(DAT_00de5ec4 * 0x3c + 0xde),0xffffff,param_1,1);
++  iVar3 = (int)(((longlong)(int)DAT_00de5ed0 * 0x2b8 & 0xffffffffU) / 0x16) + 0xb4;
++  FUN_0044cba0(0x96,0x45244000,0x43a50000,0x42280000,0x429c0000,0x44e34000,(float)iVar3,0xffffff,
++               param_1,1);
++  FUN_00446f60(0x44e34000,(float)iVar3,0x42280000,0x429c0000,2,2);
++  if (((DAT_005c6294 != 0xff) && (DAT_00de5ed0 <= DAT_005c6294)) &&
++     (DAT_005c6294 < DAT_00de5ed0 + 0xc)) {
++    iVar3 = 0x14a;
++    if (DAT_005c6294 == DAT_00de5ec4 + DAT_00de5ed0) {
++      iVar3 = 0x17a;
++    }
++    FUN_0044cba0(0x96,0x45214000,(float)iVar3,0x42280000,0x42280000,0x43f30000,
++                 (float)(int)((DAT_005c6294 - DAT_00de5ed0) * 0x3c + 0xe7),0xffffff,param_1,1);
++  }
++  FUN_00448e10();
++  FUN_00448fa0(0x4c);
++  iVar3 = 0x9c;
++  local_18 = 0;
++  do {
++    puVar2 = (decltype(puVar2))(&DAT_00545454);
++    if (local_18 == DAT_00de5ec4) {
++      puVar2 = (undefined *)0xffffff;
++    }
++    iVar4 = DAT_00de5ed0 + local_18;
++    FUN_0048b6b0(Cv(iVar4 + 1),Cv(local_14),Cv(2));
++    if (local_14[0] == ' ') {
++      local_14[0] = '0';
++    }
++    FUN_00463b20(Cv(0x4c),Cv(0x164),Cv(iVar3),Cv(local_14),Cv(puVar2),Cv(300),Cv(0x18),Cv(param_1));
++    if ((&DAT_02ee7120)[(byte)(&DAT_005c62a4)[iVar4]] == '\0') {
++      uVar1 = FUN_004645a0(4,3);
++      FUN_00462f30(0x4c,400,iVar3,0x140,uVar1,0,puVar2,0x18,param_1);
++    }
++    else {
++      uVar1 = FUN_004645a0(4,iVar4 * 2 + 6);
++      FUN_00462f30(0x4c,400,iVar3,0x1d4,uVar1,0,puVar2,0x18,param_1);
++      uVar1 = FUN_004645a0(4,iVar4 * 2 + 7);
++      FUN_00462f30(0x4c,0x2d4,iVar3,0x1e0,uVar1,0,puVar2,0x18,param_1);
++    }
++    iVar3 = iVar3 + 0x28;
++    local_18 = local_18 + 1;
++  } while (local_18 < 0xc);
++  FUN_00448e00();
++  FUN_0044cba0(0x96,0,0x45118000,0x44f00000,0x429c0000,0,0x44718000,0xffffff,param_1,1);
++  FUN_00446f60(0x43ed0000,0x43340000,0x44ad4000,0x44400000,2,0);
++  FUN_00446f60(0x44e40000,0x43340000,0x42100000,0x44400000,2,1);
++  iVar3 = 0xde;
++  iVar4 = 0;
++  do {
++    FUN_00446f60(0x43f00000,(float)iVar3,0x44a74000,0x42700000,3,iVar4);
++    iVar3 = iVar3 + 0x3c;
++    iVar4 = iVar4 + 1;
++  } while (iVar3 < 0x3ae);
++  return;
++}
++
++
++// ===== FUN_0042dc30 @ 0042dc30
++
++void FUN_0042dc30(undefined4 param_1,int param_2)
++
++{
++  undefined4 uVar1;
++  undefined4 uVar2;
++  undefined4 uVar3;
++  undefined4 uVar4;
++  undefined4 uVar5;
++  undefined4 uVar6;
++  
++  DAT_00de8fe0 = -(uint)(DAT_00de8fe0 + 1 < 0x78) & DAT_00de8fe0 + 1;
++  if (DAT_005c6294 == 0xff) {
++    FUN_0044cba0(0x96,0x45274000,0x43a50000,0x42a80000,0x42b40000,0x43160000,0x42900000,0xffffff,
++                 param_1,1);
++  }
++  FUN_0044cba0(0x96,0x452ce000,(float)((DAT_005c6290 * 9 + 0x87) * 4),0x43810000,0x42100000,
++               0x44040000,0x42d80000,0xffffff,param_1,1);
++  if (DAT_005c628c == 0) {
++    uVar6 = 0x42900000;
++    uVar5 = 0x43100000;
++    uVar4 = 0x42b40000;
++    uVar3 = 0x42c00000;
++    uVar2 = 0x43a50000;
++    uVar1 = 0x44f6c000;
++LAB_0042dde2:
++    FUN_0044cba0(0x96,uVar1,uVar2,uVar3,uVar4,uVar5,uVar6,0xffffff,param_1,1);
++  }
++  else {
++    if (DAT_005c628c == 1) {
++      uVar5 = 0x42b40000;
++LAB_0042dd60:
++      uVar6 = 0x42980000;
++      uVar4 = 0x429c0000;
++      uVar3 = 0x42900000;
++      uVar2 = 0x43a50000;
++      uVar1 = 0x4501c000;
++      goto LAB_0042dde2;
++    }
++    if (DAT_005c628c == 2) {
++      uVar5 = 0x435e0000;
++      goto LAB_0042dd60;
++    }
++    if (DAT_005c628c == 3) {
++      uVar6 = 0x42700000;
++      uVar5 = 0x43f00000;
++      uVar4 = 0x43040000;
++      uVar3 = 0x43f30000;
++      uVar2 = 0x43d50000;
++      uVar1 = 0x44f0c000;
++      goto LAB_0042dde2;
++    }
++  }
++  DAT_005c628c = 0xffffffff;
++  if ((DAT_005c6294 == 0xff) || (0x3b < DAT_00de8fe0)) {
++    if (param_2 == 0) {
++      uVar2 = 0x436a0000;
++      uVar1 = 0x44f0c000;
++    }
++    else if (param_2 == 1) {
++      uVar2 = 0x43960000;
++      uVar1 = 0x45076000;
++    }
++    else {
++      if (param_2 != 2) goto LAB_0042df7e;
++      uVar2 = 0x43900000;
++      uVar1 = 0x451a8000;
++    }
++    FUN_0044cba0(0x96,uVar1,0x43840000,uVar2,0x42700000,0x44870000,0x429c0000,0xffffff,param_1,1);
++  }
++  else {
++    FUN_0044cba0(0x96,0x44f0c000,0x43a50000,0x42280000,0x42700000,0x44870000,0x429c0000,0xffffff,
++                 param_1,1);
++    FUN_00448e10();
++    FUN_00448fa0(0x4c);
++    uVar1 = FUN_004645a0(4,DAT_005c6294 * 2 + 6);
++    FUN_00462f30(0x4c,0x2f0,0x3c,0x180,uVar1,0,&DAT_00545454,0x18,param_1);
++    FUN_00448e00();
++  }
++LAB_0042df7e:
++  FUN_00446f60(0x43220000,0x42ae0000,0x42700000,0x42700000,1,0);
++  FUN_00446f60(0x42d20000,0x42c00000,0x42280000,0x42280000,1,1);
++  FUN_00446f60(0x436c0000,0x42c00000,0x42280000,0x42280000,1,2);
++  FUN_00446f60(0x44028000,0x42cc0000,0x43c90000,0x42400000,1,3);
++  return;
++}
++
++
++// ===== FUN_0042e040 @ 0042e040
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++undefined4 FUN_0042e040(void)
++
++{
++  signed char cVar1;
++  int iVar2;
++  int iVar3;
++  
++  FUN_00446ef0(1,0,1);
++  FUN_00446ef0(1,1,1);
++  FUN_00446ef0(1,2,1);
++  FUN_00446ef0(1,3,1);
++  DAT_005c628c = -1;
++  iVar3 = 0;
++  do {
++    cVar1 = FUN_00446ef0(1,iVar3,1);
++    if (cVar1 != '\0') {
++      DAT_005c628c = iVar3;
++      break;
++    }
++    iVar3 = iVar3 + 1;
++  } while (iVar3 < 4);
++  if ((DAT_032fc7a0 & 1) == 0) {
++    return 0;
++  }
++  cVar1 = FUN_00446ef0(1,0,1);
++  iVar3 = DAT_00dde0ec;
++  if (cVar1 != '\0') {
++    if (DAT_005c629c != 0xff) {
++      DAT_00de5f28 = 0;
++      _DAT_00de5f20 = 0;
++      DAT_005c6294 = 0xff;
++      DAT_005c629c = 0xff;
++      DAT_005c62a0 = 0xff;
++      (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = 0xffffffff;
++      (&DAT_02ed16ec)[iVar3 * 0x26] = 0;
++      (&DAT_02ed1730)[iVar3 * 0x26] = 1;
++      (&DAT_02ed1734)[iVar3 * 0x26] = ((&DAT_02ed1748)[iVar3 * 0x26] & 0xffff) << 0xb;
++      return 1;
++    }
++    goto LAB_0042e1ed;
++  }
++  cVar1 = FUN_00446ef0(1,1,1);
++  if (cVar1 == '\0') {
++    cVar1 = FUN_00446ef0(1,2,1);
++    if (cVar1 == '\0') {
++      cVar1 = FUN_00446ef0(1,3,1);
++      if (cVar1 == '\0') {
++        return 0;
++      }
++      FUN_00489c30(DAT_02ee767c);
++      FUN_00489c20(2);
++      DAT_005c6290 = DAT_005c6290 + 1 & 3;
++      if (DAT_005c6290 == 3) {
++        DAT_00de5f24 = 0;
++        FUN_0042e700();
++        return 1;
++      }
++      return 1;
++    }
++    if (DAT_00de5ec4 < 10) {
++LAB_0042e1da:
++      DAT_00de5ec4 = DAT_00de5ec4 + 1;
++    }
++    else if (DAT_00de5ed0 < 0x16) {
++      DAT_00de5ed0 = DAT_00de5ed0 + 1;
++    }
++    else if (DAT_00de5ed0 + DAT_00de5ec4 < 0x21) goto LAB_0042e1da;
++    if (DAT_005c629c == 0xff) {
++      return 1;
++    }
++    goto LAB_0042e1ed;
++  }
++  if (DAT_00de5ec4 < 2) {
++    if (DAT_00de5ed0 == 0) {
++      if (DAT_00de5ec4 != 0) goto LAB_0042e187;
++    }
++    else {
++      DAT_00de5ed0 = DAT_00de5ed0 - 1;
++    }
++  }
++  else {
++LAB_0042e187:
++    DAT_00de5ec4 = DAT_00de5ec4 - 1;
++  }
++  if (DAT_005c629c == 0xff) {
++    return 1;
++  }
++LAB_0042e1ed:
++  iVar3 = DAT_00dde0ec;
++  iVar2 = DAT_00de5ed0 + DAT_00de5ec4;
++  if (((&DAT_00de5f30)[iVar2] != '\0') && (DAT_005c629c != iVar2)) {
++    DAT_00de5f28 = 1;
++    DAT_005c629c = iVar2;
++    DAT_005c62a0 = iVar2;
++    (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[iVar2];
++    (&DAT_02ed16e4)[iVar3 * 0x26] = (uint)(byte)(&DAT_00de5f78)[iVar2];
++    (&DAT_02ed16e8)[iVar3 * 0x26] = 1;
++    (&DAT_02ed16ec)[iVar3 * 0x26] = 1;
++    (&DAT_02ed171c)[iVar3 * 0x26] = 0;
++  }
++  return 1;
++}
++
++
++// ===== FUN_0042e2b0 @ 0042e2b0
++
++void FUN_0042e2b0(void)
++
++{
++  int iVar1;
++  int iVar2;
++  
++  iVar2 = DAT_00dde0ec;
++  iVar1 = DAT_005c62a0;
++  if (((DAT_00de5f28 != 0) && ((&DAT_00de5f30)[DAT_005c62a0] != '\0')) &&
++     (DAT_005c629c != DAT_005c62a0)) {
++    DAT_005c629c = DAT_005c62a0;
++    (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[DAT_005c62a0];
++    (&DAT_02ed16e4)[iVar2 * 0x26] = (uint)(byte)(&DAT_00de5f78)[iVar1];
++    (&DAT_02ed16e8)[iVar2 * 0x26] = 1;
++    (&DAT_02ed16ec)[iVar2 * 0x26] = 1;
++    (&DAT_02ed171c)[iVar2 * 0x26] = 0;
++  }
++  return;
++}
++
++
++// ===== FUN_0042e390 @ 0042e390
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042e390(void)
++
++{
++  signed char *pcVar1;
++  int iVar2;
++  bool bVar3;
++  int iVar4;
++  uint uVar5;
++  uint uVar6;
++  bool bVar7;
++  bool bVar8;
++  int local_8;
++  
++  bVar3 = false;
++  bVar7 = (&DAT_02ed16ec)[DAT_00dde0ec * 0x26] != 0;
++  iVar2 = (&DAT_02ed171c)[DAT_00dde0ec * 0x26];
++  bVar8 = (&DAT_02ed1700)[DAT_00dde0ec * 0x26] != 0;
++  if ((iVar2 == 0) && ((&DAT_02ed1718)[DAT_00dde0ec * 0x26] == 1)) {
++    _DAT_00de5f18 = _DAT_00de5f18 + 1;
++    bVar3 = true;
++  }
++  if (((&DAT_02ed1718)[DAT_00dde0ec * 0x26] == 0) || (bVar8 || bVar7)) {
++    _DAT_00de5f1c = 0;
++    _DAT_00de5f18 = 0;
++  }
++  else if (DAT_005c629c != 0xff) {
++    _DAT_00de5f20 = 1;
++  }
++  local_8 = 0;
++  if ((DAT_005c6294 != 0xff) && (!bVar8 && !bVar7)) {
++    local_8 = FUN_00487a30(DAT_00dde0ec);
++  }
++  iVar4 = DAT_00dde0ec;
++  uVar5 = DAT_005c629c;
++  uVar6 = DAT_005c6294;
++  switch(DAT_005c6290) {
++  case 0:
++    if (iVar2 != 0) {
++      (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[DAT_005c6294];
++      (&DAT_02ed16e4)[iVar4 * 0x26] = 1;
++      (&DAT_02ed16e8)[iVar4 * 0x26] = 1;
++      (&DAT_02ed16ec)[iVar4 * 0x26] = 1;
++      (&DAT_02ed171c)[iVar4 * 0x26] = 0;
++    }
++    break;
++  case 1:
++    if (((iVar2 != 1) && (local_8 != 1)) || (bVar8 || bVar7)) break;
++    do {
++      uVar5 = DAT_005c629c + 1;
++      if (0x21 < uVar5) {
++        uVar6 = 0xff;
++        uVar5 = 0xff;
++        DAT_00de5f28 = 0;
++        _DAT_00de5f20 = 0;
++        DAT_005c6294 = 0xff;
++        DAT_005c629c = 0xff;
++        (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = 0xffffffff;
++        (&DAT_02ed16ec)[iVar4 * 0x26] = 0;
++        goto LAB_0042e524;
++      }
++      pcVar1 = (decltype(pcVar1))(&DAT_00de5f31 + DAT_005c629c);
++      DAT_005c629c = uVar5;
++    } while (*pcVar1 == '\0');
++    goto LAB_0042e495;
++  case 2:
++    if (((iVar2 != 1) && (local_8 != 1)) || (bVar8 || bVar7)) break;
++    do {
++      DAT_005c629c = DAT_005c629c + 1 & -(uint)(DAT_005c629c + 1 < 0x22);
++    } while ((&DAT_00de5f30)[DAT_005c629c] == '\0');
++LAB_0042e495:
++    uVar5 = DAT_005c629c;
++    (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[DAT_005c629c];
++    (&DAT_02ed16e4)[iVar4 * 0x26] = (uint)(byte)(&DAT_00de5f78)[uVar5];
++    (&DAT_02ed16e8)[iVar4 * 0x26] = 1;
++    (&DAT_02ed16ec)[iVar4 * 0x26] = 1;
++    (&DAT_02ed171c)[iVar4 * 0x26] = 0;
++LAB_0042e524:
++    if (local_8 != 0) {
++      (&DAT_02ed1730)[iVar4 * 0x26] = 1;
++      (&DAT_02ed1734)[iVar4 * 0x26] = ((&DAT_02ed1748)[iVar4 * 0x26] & 0xffff) << 10;
++    }
++    DAT_005c62a0 = uVar5;
++    break;
++  case 3:
++    if (((iVar2 == 1) || (local_8 == 1)) && (!bVar8 && !bVar7)) {
++      uVar6 = DAT_005c629c;
++      do {
++        if (DAT_00de5f24 == 0x22) {
++          DAT_00de5f24 = 0;
++          FUN_0042e700();
++          uVar6 = DAT_005c629c;
++        }
++        iVar2 = DAT_00dde0ec;
++        uVar5 = (uint)(byte)(&DAT_00de5f54)[DAT_00de5f24];
++        DAT_00de5f24 = DAT_00de5f24 + 1;
++      } while ((uVar6 == uVar5) || ((&DAT_00de5f30)[uVar5] != '\x01'));
++      DAT_005c629c = uVar5;
++      (&DAT_02ed16e0)[DAT_00dde0ec * 0x26] = (uint)(byte)(&DAT_005c62a4)[uVar5];
++      (&DAT_02ed16e4)[iVar2 * 0x26] = (uint)(byte)(&DAT_00de5f78)[uVar5];
++      (&DAT_02ed16e8)[iVar2 * 0x26] = 1;
++      (&DAT_02ed16ec)[iVar2 * 0x26] = 1;
++      (&DAT_02ed171c)[iVar2 * 0x26] = 0;
++      if (local_8 != 0) {
++        (&DAT_02ed1730)[iVar2 * 0x26] = 1;
++        (&DAT_02ed1734)[iVar2 * 0x26] = ((&DAT_02ed1748)[iVar2 * 0x26] & 0xffff) << 10;
++      }
++      uVar6 = DAT_005c6294;
++      DAT_005c62a0 = uVar5;
++    }
++  }
++  if (!bVar3) {
++    if (bVar8 || bVar7) {
++      return;
++    }
++    DAT_005c6294 = 0xff;
++    return;
++  }
++  if (!bVar8 && !bVar7) {
++    if (uVar5 == 0xff) {
++      DAT_005c6294 = uVar5;
++      return;
++    }
++    uVar6 = uVar5;
++    DAT_005c6294 = uVar5;
++    _DAT_005c6298 = uVar5;
++  }
++  if (uVar6 == 0xff) {
++    DAT_005c6294 = uVar5;
++    return;
++  }
++  return;
++}
++
++
++// ===== FUN_0042e700 @ 0042e700
++
++void FUN_0042e700(void)
++
++{
++  undefined1 uVar1;
++  uint uVar2;
++  int iVar3;
++  int iVar4;
++  
++  uVar2 = 0;
++  do {
++    (&DAT_00de5f54)[uVar2] = (signed char)uVar2;
++    uVar2 = uVar2 + 1;
++  } while (uVar2 < 0x22);
++  iVar4 = 0x22;
++  do {
++    uVar2 = 0;
++    do {
++      iVar3 = FUN_0042f970(0x22);
++      uVar1 = (&DAT_00de5f54)[uVar2];
++      (&DAT_00de5f54)[uVar2] = (&DAT_00de5f54)[iVar3];
++      uVar2 = uVar2 + 1;
++      (&DAT_00de5f54)[iVar3] = uVar1;
++    } while (uVar2 < 0x22);
++    iVar4 = iVar4 + -1;
++  } while (iVar4 != 0);
++  return;
++}
++
++
+ // ===== FUN_0042e750 @ 0042e750
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+@@ -3416,16 +5633,16 @@ void FUN_004579e0(void)
+         FUN_004504c0(Cv(*(undefined4 *)(DAT_02ee7660 + 0x2194)));
+         return;
+       case 9:
+-        FUN_0042c830(0x100);
++        FUN_0042c830(Cv(0x100));
+         return;
+       case 10:
+-        FUN_0042d770(0x100);
++        FUN_0042d770(Cv(0x100));
+         return;
+       case 0xb:
+         FUN_00451810(0x100);
+         break;
+       case 0xc:
+-        FUN_0042bf10(0x100);
++        FUN_0042bf10();
+         return;
+       }
+     }
+diff --git a/src/games/sg0/phoneemu.h b/src/games/sg0/phoneemu.h
+index e155f06cff881db6e408619b15cbbd9ef9541905..6b03b18baf607c91b8257c2653c9126d501d84ac 100755
+--- a/src/games/sg0/phoneemu.h
++++ b/src/games/sg0/phoneemu.h
+@@ -7,6 +7,9 @@
+ #include <cstdlib>
+ #include <cstring>
+ #include <type_traits>
++#include <utility>
++#include <deque>
++#include <vector>
+ 
+ #include "../../mem.h"
+ 
+@@ -56,6 +59,9 @@ struct EmuPtr {
+   }
+   bool operator==(const void* p) const { return p == nullptr ? A == 0 : (const void*)At(A) == p; }
+   bool operator!=(const void* p) const { return !(*this == p); }
++  // Ghidra types these tables undefined *: arithmetic in bytes
++  EmuPtr operator+(intptr_t n) const { return EmuPtr{(uint32_t)(A + n)}; }
++  EmuPtr operator-(intptr_t n) const { return EmuPtr{(uint32_t)(A - n)}; }
+ };
+ 
+ // A global of the original that holds a pointer (32 bit there): any pointer type in and out
+@@ -81,6 +87,38 @@ struct AnyPtr {
+ };
+ // the pointer globals at address (tables of up to 4096)
+ AnyPtr* PtrSlot(uint32_t address);
++// a pointer global of one type, which the original also sets to 0 / 1 as a flag
++template <typename T>
++struct PtrVar {
++  T* P = nullptr;
++  template <typename U>
++  PtrVar& operator=(U* p) {
++    P = (T*)p;
++    return *this;
++  }
++  PtrVar& operator=(int v) {
++    P = (T*)(intptr_t)v;
++    return *this;
++  }
++  operator T*() const { return P; }
++  T& operator*() const { return *P; }
++  T* operator+(intptr_t n) const { return P + n; }
++  T* operator-(intptr_t n) const { return P - n; }
++  bool operator==(int v) const { return P == (T*)(intptr_t)v; }
++  bool operator!=(int v) const { return P != (T*)(intptr_t)v; }
++  template <typename U>
++  bool operator==(U* p) const {
++    return (const void*)P == (const void*)p;
++  }
++};
++template <typename T>
++PtrVar<T>* TypedSlot(uint32_t address) {
++  static std::deque<std::pair<uint32_t, PtrVar<T>>> slots;
++  for (auto& s : slots)
++    if (s.first == address) return &s.second;
++  slots.emplace_back(address, PtrVar<T>{});
++  return &slots.back().second;
++}
+ // a script string handle (FUN_0047f1f0) as the pointer of its text
+ const uint8_t* HandlePtr(uint32_t handle);
+ 
+@@ -187,6 +225,8 @@ uint8_t* TipsBits();
+ // ... and its CG flags (0x2ee71a4: a byte per CG; MO6TWPC::SaveSystem::EvBytes)
+ uint8_t* EvBytes();
+ #define DAT_02ee71a4 ((uintptr_t)PhoneCode::EvBytes())
++// ... and its BGM flags (0x2ee7120: a byte per track; MO6TWPC::SaveSystem::BgmBytes)
++uint8_t* BgmBytes();
+ 
+ // Game.exe functions the phone calls (phoneshim.cpp). Floats are passed as Arg (Ghidra prints float immediates as
+ // their bit pattern); coordinates of the sprite functions are in 1920x1080 units, those of the text in 1280x720.
+@@ -220,7 +260,7 @@ void FUN_0046b4a0();
+ uint32_t FUN_0047f170(Arg buffer, Arg label, Arg = 0, Arg = 0);  // offset of a label in its script buffer
+ uint32_t FUN_0047f1f0(Arg buffer, Arg str);  // handle of a script string (the original: its address)
+ int FUN_00490e60();  // language (0 JP, 1 EN, 2 ZHC, 3 ZHT)
+-int FUN_004919d0(Arg flag);
++int FUN_004919d0(Arg flag, Arg = 0);  // (a second argument in a few calls: stack junk)
+ void FUN_00491b90(Arg flag, Arg value);
+ void FUN_004c65a0(Arg, Arg);
+ void FUN_004d3170(Arg dst, Arg src, Arg n);  // memcpy
+@@ -231,9 +271,6 @@ void FUN_0044b3a0();
+ void FUN_0044b3b0();
+ void FUN_00489c20(Arg = 0);
+ void FUN_00489c30(Arg = 0);
+-void FUN_0042bf10(Arg);
+-void FUN_0042c830(Arg);
+-void FUN_0042d770(Arg);
+ void FUN_00451810(Arg);
+ 
+ void FUN_004906f0();  // config.cpp
+@@ -248,6 +285,10 @@ void FUN_0047a380(Arg type, Arg i, Arg locked);
+ uint32_t FUN_004645a0(Arg t, Arg n);
+ // 0x4b1280: window pixels per design pixel (1 here); 0x4b1770: the mouse capture of a scroll bar drag
+ inline float FUN_004b1280() { return 1.0f; }
++inline float FUN_004b1270() { return 1.0f; }  // 0x2efc1e8: the same horizontally
++// 0x449780 / 0x4497e0: the width / height of surface n in design units (0 when nothing is loaded)
++int FUN_00449780(Arg surface);
++int FUN_004497e0(Arg surface);
+ inline void FUN_004b1770(Arg) {}
+ [[noreturn]] inline void ___report_rangecheckfailure() { std::abort(); }
+ void FUN_00448e00();
+@@ -262,6 +303,14 @@ void FUN_00448fa0(Arg = 0);
+ void FUN_004d2bf0(Arg dst, Arg src, Arg n);
+ int FID_conflict___itoa_s(Arg value, Arg buf, Arg size, Arg radix);
+ int _strcat_s(Arg dst, Arg size, Arg src);
++int _strcpy_s(Arg dst, Arg size, Arg src);
++// the movie of the movie library: position / length (0x42f0a0 / 0x42ebb0, 0x7fffffff: none), its frame (0x42ef20)
++uint32_t FUN_0042f0a0();
++uint32_t FUN_0042ebb0();
++void FUN_0042ef20(Arg color, Arg alpha);
++// 0x487a30: audio channel n plays; 0x42f970: a random number below n
++bool FUN_00487a30(Arg channel);
++int FUN_0042f970(Arg n);
+ void FUN_00448fc0(Arg font, Arg sx, Arg sy, Arg sw, Arg sh, Arg x0, Arg y0, Arg x1, Arg y1, Arg color, Arg alpha);
+ void FUN_0044dd00(Arg slot, Arg sx, Arg sy, Arg w, Arg h, Arg dx, Arg dy, Arg color, Arg alpha, Arg mode, Arg angle,
+                   Arg scale);
+diff --git a/src/games/sg0/phoneglobals.h b/src/games/sg0/phoneglobals.h
+index 13e31e7dee9abdc45c212ba15e95e3bfd2741e62..8e71c28de66cfdb5674a7b6a9e870ffd2086b744 100755
+--- a/src/games/sg0/phoneglobals.h
++++ b/src/games/sg0/phoneglobals.h
+@@ -3,7 +3,12 @@
+ // (emulated memory, phoneemu.h) and the declarations of the translated functions.
+ #include "phoneemu.h"
+ 
++#define DAT_00545454 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00545454)))
++#define DAT_00549434 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549434)))
++#define DAT_00549438 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549438)))
+ #define DAT_0054943c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054943c)))
++#define DAT_00549444 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549444)))
++#define DAT_00549448 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549448)))
+ #define DAT_00549550 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549550)))
+ #define DAT_00549580 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549580)))
+ #define DAT_005495b0 (*reinterpret_cast<float*>(Sg0Emu::At(0x005495b0)))
+@@ -22,14 +27,25 @@
+ #define DAT_0054a6c0 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6c0)))
+ #define DAT_0054a7f4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a7f4)))
+ #define DAT_0054a804 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a804)))
++#define DAT_005ba4a0 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba4a0)))
+ #define DAT_005ba4d8 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba4d8)))
+ #define DAT_005ba560 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba560)))
+ #define DAT_005ba610 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba610)))
+ #define DAT_005ba6e0 (*reinterpret_cast<uint64_t*>(Sg0Emu::At(0x005ba6e0)))
+ #define DAT_005ba790 (*reinterpret_cast<double*>(Sg0Emu::At(0x005ba790)))
++#define DAT_005c5f1c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c5f1c)))
++#define DAT_005c6260 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c6260)))
++#define DAT_005c6274 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c6274)))
++#define DAT_005c6288 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6288)))
++#define DAT_005c628c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c628c)))
+ #define DAT_005c6290 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6290)))
+ #define DAT_005c6294 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6294)))
+ #define DAT_005c629c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c629c)))
++#define DAT_005c62a0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c62a0)))
++#define DAT_005c62a4 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c62a4)))
++#define DAT_005c62a5 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c62a5)))
++#define DAT_005c6e68 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6e68)))
++#define DAT_005c6e6c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6e6c)))
+ #define DAT_005c8cc0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc0)))
+ #define DAT_005c8cc4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc4)))
+ #define DAT_005c8cc8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc8)))
+@@ -177,14 +193,80 @@
+ #define DAT_005cba08 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005cba08)))
+ #define DAT_005cba0c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005cba0c)))
+ #define DAT_005cbae0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005cbae0)))
++#define DAT_00dde0ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde0ec)))
+ #define DAT_00dde0f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde0f0)))
+ #define DAT_00dde17c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde17c)))
++#define DAT_00de5e90 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5e90)))
++#define DAT_00de5e94 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5e94)))
++#define DAT_00de5e98 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5e98)))
++#define DAT_00de5e9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5e9c)))
++#define DAT_00de5ea0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5ea0)))
++#define DAT_00de5ea1 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5ea1)))
++#define DAT_00de5ea2 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5ea2)))
++#define DAT_00de5ea3 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5ea3)))
++#define DAT_00de5ea4 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5ea4)))
++#define DAT_00de5eb8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5eb8)))
++#define DAT_00de5ebc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ebc)))
+ #define DAT_00de5ec4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ec4)))
+ #define DAT_00de5ed0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ed0)))
++#define DAT_00de5f24 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f24)))
++#define DAT_00de5f28 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f28)))
++#define DAT_00de5f2c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f2c)))
++#define DAT_00de5f30 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5f30)))
++#define DAT_00de5f31 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5f31)))
++#define DAT_00de5f54 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5f54)))
++#define DAT_00de5f78 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de5f78)))
++#define DAT_00de5f9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f9c)))
++#define DAT_00de5fa0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5fa0)))
++#define DAT_00de5fac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5fac)))
++#define DAT_00de5fb0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5fb0)))
+ #define DAT_00de61c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de61c4)))
++#define DAT_00de61c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de61c8)))
+ #define DAT_00de63dc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de63dc)))
++#define DAT_00de63e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de63e0)))
++#define DAT_00de65f4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de65f4)))
++#define DAT_00de65f8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de65f8)))
+ #define DAT_00de7a9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de7a9c)))
++#define DAT_00de8f44 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f44)))
++#define DAT_00de8f48 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f48)))
++#define DAT_00de8f54 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f54)))
++#define DAT_00de8f58 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f58)))
++#define DAT_00de8f5c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f5c)))
++#define DAT_00de8f60 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f60)))
++#define DAT_00de8f64 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f64)))
++#define DAT_00de8f68 (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f68)))
++#define DAT_00de8f6c (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f6c)))
++#define DAT_00de8f70 (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f70)))
++#define DAT_00de8f74 (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f74)))
++#define DAT_00de8f78 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8f78)))
++#define DAT_00de8f7c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f7c)))
++#define DAT_00de8f80 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8f80)))
++#define DAT_00de8f84 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f84)))
++#define DAT_00de8f88 (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f88)))
++#define DAT_00de8f8c (*reinterpret_cast<float*>(Sg0Emu::At(0x00de8f8c)))
++#define DAT_00de8f90 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f90)))
++#define DAT_00de8f94 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f94)))
++#define DAT_00de8f98 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8f98)))
++#define DAT_00de8f9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f9c)))
++#define DAT_00de8fa0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fa0)))
++#define DAT_00de8fa4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fa4)))
++#define DAT_00de8fa8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fa8)))
++#define DAT_00de8fac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fac)))
++#define DAT_00de8fb0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fb0)))
++#define DAT_00de8fb4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fb4)))
++#define DAT_00de8fb8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fb8)))
++#define DAT_00de8fbc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fbc)))
++#define DAT_00de8fc0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fc0)))
++#define DAT_00de8fc4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fc4)))
++#define DAT_00de8fc8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fc8)))
++#define DAT_00de8fcc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fcc)))
++#define DAT_00de8fd0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x00de8fd0)))
++#define DAT_00de8fd4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fd4)))
++#define DAT_00de8fd8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fd8)))
++#define DAT_00de8fdc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fdc)))
++#define DAT_00de8fe0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fe0)))
+ #define DAT_00de8fe4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fe4)))
++#define DAT_00de8fe8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fe8)))
+ #define DAT_016d7764 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7764)))
+ #define DAT_016d7768 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7768)))
+ #define DAT_016d776c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d776c)))
+@@ -548,6 +630,12 @@
+ #define DAT_02ed16e4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16e4)))
+ #define DAT_02ed16e8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16e8)))
+ #define DAT_02ed16ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16ec)))
++#define DAT_02ed1700 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1700)))
++#define DAT_02ed1718 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1718)))
++#define DAT_02ed171c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed171c)))
++#define DAT_02ed1730 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1730)))
++#define DAT_02ed1734 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1734)))
++#define DAT_02ed1748 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed1748)))
+ #define DAT_02edac92 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02edac92)))
+ #define DAT_02ee5384 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5384)))
+ #define DAT_02ee5386 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5386)))
+@@ -557,6 +645,66 @@
+ #define DAT_02ee5538 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5538)))
+ #define DAT_02ee55c0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee55c0)))
+ #define DAT_02ee565c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee565c)))
++#define DAT_02ee7120 (PhoneCode::BgmBytes()[0x0])
++#define DAT_02ee7121 (PhoneCode::BgmBytes()[0x1])
++#define DAT_02ee7122 (PhoneCode::BgmBytes()[0x2])
++#define DAT_02ee7123 (PhoneCode::BgmBytes()[0x3])
++#define DAT_02ee7124 (PhoneCode::BgmBytes()[0x4])
++#define DAT_02ee7125 (PhoneCode::BgmBytes()[0x5])
++#define DAT_02ee7126 (PhoneCode::BgmBytes()[0x6])
++#define DAT_02ee7127 (PhoneCode::BgmBytes()[0x7])
++#define DAT_02ee7128 (PhoneCode::BgmBytes()[0x8])
++#define DAT_02ee7129 (PhoneCode::BgmBytes()[0x9])
++#define DAT_02ee712a (PhoneCode::BgmBytes()[0xa])
++#define DAT_02ee712b (PhoneCode::BgmBytes()[0xb])
++#define DAT_02ee712c (PhoneCode::BgmBytes()[0xc])
++#define DAT_02ee712d (PhoneCode::BgmBytes()[0xd])
++#define DAT_02ee712e (PhoneCode::BgmBytes()[0xe])
++#define DAT_02ee712f (PhoneCode::BgmBytes()[0xf])
++#define DAT_02ee7130 (PhoneCode::BgmBytes()[0x10])
++#define DAT_02ee7131 (PhoneCode::BgmBytes()[0x11])
++#define DAT_02ee7132 (PhoneCode::BgmBytes()[0x12])
++#define DAT_02ee7133 (PhoneCode::BgmBytes()[0x13])
++#define DAT_02ee7134 (PhoneCode::BgmBytes()[0x14])
++#define DAT_02ee7135 (PhoneCode::BgmBytes()[0x15])
++#define DAT_02ee7136 (PhoneCode::BgmBytes()[0x16])
++#define DAT_02ee7137 (PhoneCode::BgmBytes()[0x17])
++#define DAT_02ee7138 (PhoneCode::BgmBytes()[0x18])
++#define DAT_02ee7139 (PhoneCode::BgmBytes()[0x19])
++#define DAT_02ee713a (PhoneCode::BgmBytes()[0x1a])
++#define DAT_02ee713b (PhoneCode::BgmBytes()[0x1b])
++#define DAT_02ee713c (PhoneCode::BgmBytes()[0x1c])
++#define DAT_02ee713d (PhoneCode::BgmBytes()[0x1d])
++#define DAT_02ee713e (PhoneCode::BgmBytes()[0x1e])
++#define DAT_02ee713f (PhoneCode::BgmBytes()[0x1f])
++#define DAT_02ee7140 (PhoneCode::BgmBytes()[0x20])
++#define DAT_02ee7141 (PhoneCode::BgmBytes()[0x21])
++#define DAT_02ee7142 (PhoneCode::BgmBytes()[0x22])
++#define DAT_02ee7143 (PhoneCode::BgmBytes()[0x23])
++#define DAT_02ee7144 (PhoneCode::BgmBytes()[0x24])
++#define DAT_02ee7145 (PhoneCode::BgmBytes()[0x25])
++#define DAT_02ee7146 (PhoneCode::BgmBytes()[0x26])
++#define DAT_02ee7147 (PhoneCode::BgmBytes()[0x27])
++#define DAT_02ee7148 (PhoneCode::BgmBytes()[0x28])
++#define DAT_02ee7149 (PhoneCode::BgmBytes()[0x29])
++#define DAT_02ee714a (PhoneCode::BgmBytes()[0x2a])
++#define DAT_02ee714b (PhoneCode::BgmBytes()[0x2b])
++#define DAT_02ee714c (PhoneCode::BgmBytes()[0x2c])
++#define DAT_02ee714d (PhoneCode::BgmBytes()[0x2d])
++#define DAT_02ee714e (PhoneCode::BgmBytes()[0x2e])
++#define DAT_02ee714f (PhoneCode::BgmBytes()[0x2f])
++#define DAT_02ee7150 (PhoneCode::BgmBytes()[0x30])
++#define DAT_02ee7151 (PhoneCode::BgmBytes()[0x31])
++#define DAT_02ee7152 (PhoneCode::BgmBytes()[0x32])
++#define DAT_02ee7153 (PhoneCode::BgmBytes()[0x33])
++#define DAT_02ee7154 (PhoneCode::BgmBytes()[0x34])
++#define DAT_02ee7155 (PhoneCode::BgmBytes()[0x35])
++#define DAT_02ee7156 (PhoneCode::BgmBytes()[0x36])
++#define DAT_02ee7157 (PhoneCode::BgmBytes()[0x37])
++#define DAT_02ee7158 (PhoneCode::BgmBytes()[0x38])
++#define DAT_02ee715a (PhoneCode::BgmBytes()[0x3a])
++#define DAT_02ee715b (PhoneCode::BgmBytes()[0x3b])
++#define DAT_02ee7165 (PhoneCode::BgmBytes()[0x45])
+ #define DAT_02ee7670 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7670)))
+ #define DAT_02ee7678 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7678)))
+ #define DAT_02ee767c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee767c)))
+@@ -576,8 +724,10 @@
+ #define DAT_032fc7a8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7a8)))
+ #define DAT_032fc7e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7e0)))
+ #define DAT_032fc7ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7ec)))
++#define DAT_032fc7f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7f0)))
+ #define DAT_032fc808 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc808)))
+ #define PTR_DAT_005c5f18 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c5f18)))
++#define PTR_DAT_005c5f20 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c5f20)))
+ #define PTR_DAT_005c92e0 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92e0)))
+ #define PTR_DAT_005c92f8 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92f8)))
+ #define PTR_DAT_005c9310 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9310)))
+@@ -594,6 +744,7 @@
+ #define PTR_DAT_005c9418 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9418)))
+ #define PTR_DAT_005c9430 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9430)))
+ #define PTR_DAT_005c944c (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c944c)))
++#define _DAT_00549440 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549440)))
+ #define _DAT_0054944c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054944c)))
+ #define _DAT_0054a4b8 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a4b8)))
+ #define _DAT_0054a650 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a650)))
+@@ -626,11 +777,27 @@
+ #define _DAT_0054a800 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a800)))
+ #define _DAT_0054a808 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a808)))
+ #define _DAT_005ba6c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6c0)))
++#define _DAT_005c6298 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6298)))
++#define _DAT_00de5ec0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ec0)))
++#define _DAT_00de5ecc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ecc)))
+ #define _DAT_00de5ed4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ed4)))
+ #define _DAT_00de5f18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f18)))
+ #define _DAT_00de5f1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f1c)))
+ #define _DAT_00de5f20 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f20)))
++#define _DAT_00de5fa4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5fa4)))
++#define _DAT_00de5fa8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5fa8)))
++#define _DAT_00de8f4c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f4c)))
+ #define _DAT_00de8f50 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f50)))
++#define _DAT_00de8f78 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f78)))
++#define _DAT_00de8f80 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f80)))
++#define _DAT_00de8f98 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f98)))
++#define _DAT_00de8fa0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fa0)))
++#define _DAT_00de8fa8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fa8)))
++#define _DAT_00de8fb0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fb0)))
++#define _DAT_00de8fb8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fb8)))
++#define _DAT_00de8fc0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fc0)))
++#define _DAT_00de8fc8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fc8)))
++#define _DAT_00de8fd0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fd0)))
+ #define _DAT_016d7748 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7748)))
+ #define _DAT_016d774c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d774c)))
+ #define _DAT_016d7778 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7778)))
+@@ -671,6 +838,7 @@
+ #define _DAT_0197a1c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c0)))
+ #define _DAT_0197a1c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c4)))
+ #define _DAT_0197a1c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c8)))
++#define _DAT_0197a204 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a204)))
+ #define _DAT_0197a208 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a208)))
+ #define _DAT_0197a230 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a230)))
+ #define _DAT_0197a234 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a234)))
+@@ -836,8 +1004,34 @@ namespace Impacto {
+ namespace SG0 {
+ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
++void FUN_0042a3e0(undefined4 param_1);
+ uint FUN_0042a410(int *param_1,uint *param_2);
+ void FUN_0042a4f0(void);
++void FUN_0042a650(void);
++void FUN_0042a7d0(undefined4 param_1,int param_2,uint param_3,int param_4);
++void FUN_0042ae40(void);
++void FUN_0042b260(int param_1);
++void FUN_0042b330(int param_1);
++void FUN_0042b500(undefined4 param_1);
++void FUN_0042bae0(int param_1);
++void FUN_0042bbe0(undefined4 param_1);
++void FUN_0042bc70(float param_1);
++void FUN_0042bdf0(void);
++void FUN_0042bf10(void);
++void FUN_0042c530(void);
++void FUN_0042c630(void);
++void FUN_0042c830(uint param_1);
++void FUN_0042cda0(void);
++void FUN_0042ce10(void);
++void FUN_0042d0b0(void);
++void FUN_0042d220(void);
++void FUN_0042d3c0(void);
++void FUN_0042d770(undefined4 param_1);
++void FUN_0042dc30(undefined4 param_1,int param_2);
++undefined4 FUN_0042e040(void);
++void FUN_0042e2b0(void);
++void FUN_0042e390(void);
++void FUN_0042e700(void);
+ void FUN_0042e750(void);
+ byte * FUN_0042ffc0(byte *param_1);
+ void FUN_004504c0(uint param_1);
+diff --git a/src/games/sg0/phoneshim.cpp b/src/games/sg0/phoneshim.cpp
+index 4283b183d5fccfaa9f4d2a73a0ecf695a7120abf..880e6f3d0956806038a9a89130fc380fea126780 100755
+--- a/src/games/sg0/phoneshim.cpp
++++ b/src/games/sg0/phoneshim.cpp
+@@ -18,6 +18,7 @@
+ #include "../../profile/sprites.h"
+ #include "../../renderer/renderer.h"
+ #include "../../spritesheet.h"
++#include "../../background2d.h"
+ #include "../../vm/expression.h"
+ #include "../../vm/interface/input.h"
+ #include "../../vm/thread.h"
+@@ -108,6 +109,17 @@ int Framebuffer(int target) { return target == 8 ? 0 : target; }
+ // a sprite of the part (sx, sy, w, h) of surface `slot`, false if the surface has nothing loaded
+ Sprite ScreenCap;  // render target 8 (the screen) as far as drawn, taken by CaptureScreen
+ 
++// a surface's sheet, also a picture the script loaded with LoadPic from the bg archive (the CG library's CG): an
++// engine background buffer
++const SpriteSheet* AnySheet(int slot) {
++  if (!Renderer->SurfToId.contains(slot)) {
++    auto bgIt = Backgrounds2D.find(slot);
++    if (bgIt != Backgrounds2D.end() && bgIt->second && bgIt->second->Status == LoadStatus::Loaded)
++      return &bgIt->second->BgSprite.Sheet;
++  }
++  return SurfaceSheet(slot);
++}
++
+ bool SurfaceSprite(int slot, float sx, float sy, float w, float h, Sprite& out, SpriteSheet& fbSheet) {
+   if (slot == 208) {
+     if (ScreenCap.Sheet.Texture == 0) return false;
+@@ -134,7 +146,7 @@ bool SurfaceSprite(int slot, float sx, float sy, float w, float h, Sprite& out,
+     out = Sprite(fbSheet, sx * k.x, sy * k.y, w * k.x, h * k.y, 1.0f / k);
+     return true;
+   }
+-  const SpriteSheet* sheet = SurfaceSheet(slot);
++  const SpriteSheet* sheet = AnySheet(slot);
+   if (!sheet) return false;
+   out = Sprite(*sheet, sx, sy, w, h);
+   return true;
+@@ -797,12 +809,27 @@ const uint8_t* Sg0Emu::HandlePtr(uint32_t handle) {
+ }
+ namespace PhoneCode {
+ 
++int FUN_00449780(Arg surface) {
++  const SpriteSheet* sheet = AnySheet(surface.I());
++  return sheet ? (int)sheet->DesignWidth : 0;
++}
++int FUN_004497e0(Arg surface) {
++  const SpriteSheet* sheet = AnySheet(surface.I());
++  return sheet ? (int)sheet->DesignHeight : 0;
++}
++
+ uint8_t* EvBytes() {
+   static uint8_t none[1200];
+   auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
+   return save ? save->EvBytes() : none;
+ }
+ 
++uint8_t* BgmBytes() {
++  static uint8_t none[200];
++  auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
++  return save ? save->BgmBytes() : none;
++}
++
+ uint8_t* TipsBits() {
+   static uint8_t none[0x400];
+   auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
+@@ -817,7 +844,7 @@ uint32_t FUN_0047f1f0(Arg buffer, Arg str) {
+ 
+ int FUN_00490e60() { return Phone::Language; }
+ 
+-int FUN_004919d0(Arg flag) { return GetFlag(flag.U()) ? 1 : 0; }
++int FUN_004919d0(Arg flag, Arg) { return GetFlag(flag.U()) ? 1 : 0; }
+ 
+ void FUN_00491b90(Arg flag, Arg value) { SetFlag(flag.U(), value.U() != 0); }
+ 
+diff --git a/src/games/sg0/savemenu.cpp b/src/games/sg0/savemenu.cpp
+index 930154ddff35ff45480406aa02327f8ac8a5a4e0..b07a3bcaee18db1995a3f71c9aa2d757b1315b46 100755
+--- a/src/games/sg0/savemenu.cpp
++++ b/src/games/sg0/savemenu.cpp
+@@ -115,6 +115,10 @@ int FID_conflict___itoa_s(Arg value, Arg buf, Arg size, Arg radix) {
+   std::snprintf(buf.P<char>(), size.U(), radix.I() == 16 ? "%x" : "%d", value.I());
+   return 0;
+ }
++int _strcpy_s(Arg dst, Arg size, Arg src) {
++  std::snprintf(dst.P<char>(), size.U(), "%s", src.P<const char>());
++  return 0;
++}
+ int _strcat_s(Arg dst, Arg size, Arg src) {
+   char* d = dst.P<char>();
+   const size_t len = std::strlen(d);
+diff --git a/src/games/sg0/sysmenu.cpp b/src/games/sg0/sysmenu.cpp
+index 3b1bfd6d12315ee56648ed54772305d30beb110e..f2ad3a7271db692b54c986d4b33688366521a8e3 100755
+--- a/src/games/sg0/sysmenu.cpp
++++ b/src/games/sg0/sysmenu.cpp
+@@ -9,6 +9,13 @@
+ #include "phoneglobals.h"
+ #include "../../data/savesystem.h"
+ #include "../../game.h"
++#include "../../audio/audiochannel.h"
++#include "../../audio/audiosystem.h"
++#include "../../video/videosystem.h"
++#include "../../video/videoplayer.h"
++#include "../../profile/scriptvars.h"
++
++#include <cstdlib>
+ #include "../../renderer/renderer.h"
+ #include "../../vm/interface/input.h"
+ #include "../../vm/thread.h"
+@@ -22,6 +29,22 @@ namespace {
+ int Sw(int offset) { return *reinterpret_cast<int*>(DAT_02ee7660 + offset); }
+ }  // namespace
+ 
++// the movie library's movie: the engine plays and draws it (its frame counter for the seek bar)
++uint32_t FUN_0042f0a0() { return (uint32_t)std::max(0, ScrWork[Profile::ScriptVars::SW_MOVIEFRAME]); }
++uint32_t FUN_0042ebb0() {
++  const int total = ScrWork[Profile::ScriptVars::SW_MOVIETOTALFRAME];
++  return total > 0 ? (uint32_t)total : 0x7fffffffu;
++}
++// 0x42ef20: the movie's frame (the engine's player) over the whole render target, which the movie library shows in
++// its screen
++void FUN_0042ef20(Arg, Arg alpha) {
++  if (Video::Players[0] && Video::Players[0]->IsPlaying) Video::Players[0]->Render(alpha.I() / 256.0f);
++}
++// 0x487a30 (only the sound library's update 0x42e390 asks it): a flag of the original's voice (0x2ed1d04 + channel *
++// 0x1c40) that makes the library go to the next track like +0x3c of the request; BridgeLibraryAudio sets +0x3c
++bool FUN_00487a30(Arg) { return false; }
++int FUN_0042f970(Arg n) { return (int)(((uint32_t)std::rand() & 0x7fff) * n.U() >> 15); }
++
+ // 0x479090: 1 while there is no quick save (QUICK LOAD is greyed out)
+ int FUN_00479090() {
+   for (int i = 0; i < SaveSystem::MaxSaveEntries; i++)
+@@ -37,9 +60,6 @@ void FUN_00489c20(Arg) {}
+ void FUN_00489c30(Arg) {}
+ 
+ // The screens of the system menu layer (0x4579e0): drawn by the engine's menus.
+-void FUN_0042bf10(Arg) {}
+-void FUN_0042c830(Arg) {}
+-void FUN_0042d770(Arg) {}
+ void FUN_00451810(Arg) {}
+ void FUN_0045c1b0() {}
+ 
+@@ -177,6 +197,70 @@ void ClearListInstruction(Vm::Sc3VmThread* thread) {
+   }
+ }
+ 
++// The sound library plays through the BGM channel request of the original (0x2ed16e0 + channel * 0x98, channel
++// DAT_00dde0ec): +0 track (-1 stops), +4 loop, +0xc play request; the audio thread of the original answers with +0x38
++// (1 while playing) and +0x3c (the track played through, the library then picks the next one). Here the track plays
++// on the engine's BGM channel once (the library repeats it itself).
++void BridgeLibraryAudio() {
++  const uint32_t ch = *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x00dde0ec)) & 1;
++  int32_t* req = reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16e0 + ch * 0x98));
++  Audio::AudioChannel* channel = Audio::Channels[Audio::AC_BGM0 + ch].get();
++  static bool started = false;
++  if (req[3] != 0) {
++    req[3] = 0;
++    if (req[0] >= 0) {
++      channel->Play("bgm", (uint32_t)req[0], false, 0.0f);
++      started = true;
++      req[0xe] = 1;
++      req[0xf] = 0;
++    }
++  } else if (req[0] == -1 && started) {
++    channel->Stop(0.0f);
++    started = false;
++    req[0xe] = 0;
++  }
++  if (started && channel->GetState() != Audio::ACS_Playing) {
++    started = false;
++    req[0xe] = 0;
++    req[0xf] = 1;
++  }
++}
++
++// 10:1F (0x485b00) CG: 0 init 0x42c530, 1 update 0x42c630, 3 0x42e2b0; 10:1D (0x485aa0) sound: 0 0x42d220, 1
++// 0x42d3c0; 10:20 (0x485b40) movie: 0 0x42cda0, 1 0x42ce10
++void LibraryInstruction(Vm::Sc3VmThread* thread, int opcode) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset++;
++  const bool update = type == 1;
++  if (update) BridgeInput();
++  switch (opcode) {
++    case 0x1f:
++      if (type == 0) {
++        FUN_0042a4f0();
++        FUN_0042c530();
++      } else if (type == 1) {
++        FUN_0042c630();
++      } else if (type == 3) {
++        FUN_0042e2b0();
++      }
++      break;
++    case 0x1d:
++      if (type == 0) FUN_0042d220();
++      else if (type == 1) FUN_0042d3c0();
++      break;
++    case 0x20:
++      if (type == 0) FUN_0042cda0();
++      else if (type == 1) FUN_0042ce10();
++      break;
++  }
++  BridgeLibraryAudio();
++  if (update) {
++    Vm::Interface::PADinputButtonWentDown = *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x01979f10));
++    ClearMouse();
++  }
++}
++
+ // 00:44 (0x482760)
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread) {
+   thread->IpOffset += 2;
+diff --git a/src/vm/inst_sg0.h b/src/vm/inst_sg0.h
+index 58511e5b814f44e944c24f96ae1d9e6474c46c79..486f4e64d248d736990311c3b2ab45c5f8816ba7 100644
+--- a/src/vm/inst_sg0.h
++++ b/src/vm/inst_sg0.h
+@@ -183,6 +183,11 @@ inline void InstSg0SystemMes(Sc3VmThread* thread, float dt) {
+ // 10:21 (0x485b80): the clear list of S;G0 (games/sg0/sysmenu.cpp)
+ inline void InstSg0ClearList(Sc3VmThread* thread, float dt) { SG0::Phone::ClearListInstruction(thread); }
+ 
++// 10:1F / 10:1D / 10:20: the CG, sound and movie libraries of S;G0 (games/sg0/sysmenu.cpp)
++inline void InstSg0CgLibrary(Sc3VmThread* thread, float dt) { SG0::Phone::LibraryInstruction(thread, 0x1f); }
++inline void InstSg0SoundLibrary(Sc3VmThread* thread, float dt) { SG0::Phone::LibraryInstruction(thread, 0x1d); }
++inline void InstSg0MovieLibrary(Sc3VmThread* thread, float dt) { SG0::Phone::LibraryInstruction(thread, 0x20); }
++
+ // 01:0E (0x47ce10): SetMesModeFormat, and its table for the original text layout of the S;G0 TIPS text
+ inline void InstSg0SetMesModeFormat(Sc3VmThread* thread, float dt) {
+   SG0::Phone::MesModeFormat(thread);
+diff --git a/src/vm/opcodetables_sg0.h b/src/vm/opcodetables_sg0.h
+index e8485b1f195c91e76e3ab474575ded0dfda34afb..3cd69d8b73030970d9bba8341a1f201a0827efa1 100644
+--- a/src/vm/opcodetables_sg0.h
++++ b/src/vm/opcodetables_sg0.h
+@@ -33,6 +33,9 @@ inline void Configure_SG0() {
+   OpcodeTableGraph_SG0[0x0d] = InstSg0MesMain;
+   OpcodeTableGraph_SG0[0x0e] = InstSg0SetMesModeFormat;  // also kept for the original text layout  // MesMain, plus the phone flag 1611
+   OpcodeTableUser1_SG0[0x13] = InstSg0Config;  // the S;G0 CONFIG screen
++  OpcodeTableUser1_SG0[0x1d] = InstSg0SoundLibrary;  // the S;G0 sound library
++  OpcodeTableUser1_SG0[0x1f] = InstSg0CgLibrary;  // the S;G0 CG library
++  OpcodeTableUser1_SG0[0x20] = InstSg0MovieLibrary;  // the S;G0 movie library
+   OpcodeTableUser1_SG0[0x21] = InstSg0ClearList;  // the S;G0 clear list
+   OpcodeTableUser1_SG0[0x23] = InstSg0SaveMenu;  // the S;G0 save / load menu
+   OpcodeTableUser1_SG0[0x33] = InstSg0Tips;  // the S;G0 TIPS screen

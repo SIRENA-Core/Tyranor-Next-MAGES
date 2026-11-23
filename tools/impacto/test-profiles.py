@@ -37,6 +37,28 @@ class ProfilesJsonTest(unittest.TestCase):
             self.assertTrue(p["detect"]["allOf"])
             for name in p["detect"]["allOf"] + [p["detect"].get("textArchive")] * ("textArchive" in p["detect"]):
                 self.assert_entry(name)
+            # optional: entries that must not exist (apps that do not know the field ignore it)
+            none_of = p["detect"].get("noneOf", [])
+            self.assertIsInstance(none_of, list, p["id"])
+            for name in none_of:
+                self.assert_entry(name)
+            self.assertFalse(set(none_of) & set(p["detect"]["allOf"]), p["id"])
+
+    def test_no_two_games_match_the_same_folder(self):
+        # The app treats a folder matched by two unrelated profiles as ambiguous and recognises neither. A folder
+        # holding exactly the entries of B also matches A when A needs a subset of B's entries and none of A's
+        # excluded entries is among them; that only works for language variants of one game.
+        profiles = load()
+        family = {p["id"]: p.get("variantOf", p["id"]) for p in profiles}
+        for a in profiles:
+            for b in profiles:
+                if a is b or family[a["id"]] == family[b["id"]]:
+                    continue
+                folder = set(b["detect"]["allOf"]) | {b["detect"].get("textArchive")} - {None}
+                da = a["detect"]
+                needed = set(da["allOf"]) | {da.get("textArchive")} - {None}
+                hit = needed <= folder and not set(da.get("noneOf", [])) & folder
+                self.assertFalse(hit, f"a {b['id']} folder also matches {a['id']}")
 
     def assert_entry(self, name):
         # relative, at most one directory level, no empty / dot segments: the app's scanner looks one level deep
@@ -92,6 +114,21 @@ class PatchedSourceTest(unittest.TestCase):
             self.assertRegex(definitions, r'(?m)^\s*(?:\["%s"\]|%s)\s*=\s*\{' % (re.escape(p["id"]), re.escape(p["id"])),
                              p["id"])
             self.assertTrue((SOURCE / "profiles" / p["id"] / "game.lua").is_file(), p["id"])
+
+    def test_profiles_match_their_snapshots(self):
+        # Games stay ported without their data at hand: every profile, as the engine resolves it, has to equal its
+        # committed snapshot (tools/impacto/profile-snapshot.py; --update after an intended change).
+        import importlib.util
+        import io
+        import shutil
+        if not (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")):
+            self.skipTest("no C compiler for the Lua runner")
+        spec = importlib.util.spec_from_file_location("profile_snapshot", ROOT / "tools/impacto/profile-snapshot.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        report = io.StringIO()
+        differing = module.check(SOURCE, module.profile_ids(), out=report)
+        self.assertEqual(differing, [], report.getvalue())
 
 
 if __name__ == "__main__":

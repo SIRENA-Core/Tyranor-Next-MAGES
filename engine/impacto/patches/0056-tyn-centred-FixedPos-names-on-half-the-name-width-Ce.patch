@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 09:50:21 -0800
+Subject: [PATCH] tyn: centred FixedPos names on half the name width,
+ CenteredTwoPiece nametag
+
+Two optional Dialogue profile fields, off by default (no other game changes):
+
+- FixedNameCenterOnHalfWidth: a FixedPos name aligned to the centre is
+  centred on NamePos.x + MaxNameWidth / 2 instead of NamePos.x +
+  MaxNameWidth. STEINS;GATE 0 (mode 0 of _SYSTEM: FixedPos, centred, NamePos
+  (200, 678), MaxNameWidth 880 in 1280x720 units) shows its name in the middle
+  of the screen: Game.exe draws the name plate around x 641 (0x45fd4b /
+  0x45fda9, plus the offset ScrWork[2784] that no script sets), while the
+  upstream formula put the name at x 1620 (1080p).
+- NametagType.CenteredTwoPiece: two sprites on both sides of the drawn name,
+  centred on NametagPosition.x: left at x - NametagSideOffsets.x - (name width
+  + NametagSidePadding) / 2, right at x + NametagSideOffsets.y + (name width +
+  NametagSidePadding) / 2, both at NametagPosition.y. The name width is the
+  extent of the laid out name glyphs.
+
+Generic; can go upstream.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device): sg0-pc
+names of one to four characters centred at the bottom of the message window
+between the two brush strokes of MESWIN, prologue to SG0_B01_12; sg-pc names
+unchanged (bottom right).
+
+diff --git a/src/hud/nametagdisplay.cpp b/src/hud/nametagdisplay.cpp
+index f7817af0b59639a04db3585a28db16c9ade19f5c..039e5cede921ad1b3d4a4eb8b659b511c13ab353 100644
+--- a/src/hud/nametagdisplay.cpp
++++ b/src/hud/nametagdisplay.cpp
+@@ -5,6 +5,7 @@
+ #include "cc/nametagdisplay.h"
+ #include "../log.h"
+ 
++#include <algorithm>
+ #include <numeric>
+ 
+ namespace Impacto {
+@@ -34,6 +35,9 @@ std::unique_ptr<NametagDisplay> NametagDisplay::Create() {
+ 
+     case NametagType::CC:
+       return std::make_unique<CC::NametagDisplay>();
++
++    case NametagType::CenteredTwoPiece:
++      return std::make_unique<CenteredTwoPieceNametagDisplay>();
+   }
+ }
+ 
+@@ -86,4 +90,28 @@ void ThreePieceNametagDisplay::Render(const NameInfo& nameInfo,
+                                   RendererOutlineMode::Full);
+ }
+ 
++void CenteredTwoPieceNametagDisplay::Render(const NameInfo& nameInfo,
++                                            const glm::vec4 tint) {
++  if (Hidden || !nameInfo.RenderWindow || nameInfo.Name.empty()) return;
++
++  float left = nameInfo.Name.front().DestRect.X;
++  float right = left;
++  for (const ProcessedTextGlyph& glyph : nameInfo.Name) {
++    left = std::min(left, glyph.DestRect.X);
++    right = std::max(right, glyph.DestRect.X + glyph.DestRect.Width);
++  }
++  const float half = (right - left + NametagSidePadding) / 2.0f;
++  Renderer->DrawSprite(
++      NametagLeftSprite,
++      {NametagPosition.x - NametagSideOffsets.x - half, NametagPosition.y},
++      tint);
++  Renderer->DrawSprite(
++      NametagRightSprite,
++      {NametagPosition.x + NametagSideOffsets.y + half, NametagPosition.y},
++      tint);
++
++  DialogueFont->DrawProcessedText(nameInfo.Name, tint.a,
++                                  RendererOutlineMode::Full);
++}
++
+ }  // namespace Impacto
+diff --git a/src/hud/nametagdisplay.h b/src/hud/nametagdisplay.h
+index 6b6c6056703a14d2470d0959e1b2a351bbf41245..0253515f9a6b476ffa470ac7fb9885e23aabfc28 100644
+--- a/src/hud/nametagdisplay.h
++++ b/src/hud/nametagdisplay.h
+@@ -47,4 +47,11 @@ class ThreePieceNametagDisplay : public NametagDisplay {
+   void Reset() override {}
+ };
+ 
++class CenteredTwoPieceNametagDisplay : public NametagDisplay {
++ public:
++  void Render(const NameInfo& nameInfo, glm::vec4 tint) override;
++  void Update(float dt) override {}
++  void Reset() override {}
++};
++
+ }  // namespace Impacto
+diff --git a/src/profile/dialogue.cpp b/src/profile/dialogue.cpp
+index 959fc9af6d55ee068834a51efaa2c787825c913a..e0722c27663391cfefaca4de2e726a9bdb796b8e 100644
+--- a/src/profile/dialogue.cpp
++++ b/src/profile/dialogue.cpp
+@@ -17,6 +17,8 @@ static void ConfigureNametag() {
+   OldNametagPositioning =
+       TryGetMember<bool>("OldNametagPositioning").value_or(false);
+   NameInsideNametag = TryGetMember<bool>("NameInsideNametag").value_or(false);
++  FixedNameCenterOnHalfWidth =
++      TryGetMember<bool>("FixedNameCenterOnHalfWidth").value_or(false);
+   NametagCurrentType = EnsureGetMember<NametagType>("NametagCurrentType");
+ 
+   switch (NametagCurrentType) {
+@@ -46,6 +48,14 @@ static void ConfigureNametag() {
+       CHLCC::DialogueBox::ConfigureNametag();
+       break;
+ 
++    case NametagType::CenteredTwoPiece:
++      NametagPosition = EnsureGetMember<glm::vec2>("NametagPosition");
++      NametagLeftSprite = EnsureGetMember<Sprite>("NametagLeftSprite");
++      NametagRightSprite = EnsureGetMember<Sprite>("NametagRightSprite");
++      NametagSideOffsets = EnsureGetMember<glm::vec2>("NametagSideOffsets");
++      NametagSidePadding = EnsureGetMember<float>("NametagSidePadding");
++      break;
++
+     case NametagType::CC:
+       CC::DialogueBox::ConfigureNametag();
+       break;
+diff --git a/src/profile/dialogue.h b/src/profile/dialogue.h
+index 04b94a0987b89f045f851c9d46928bc5e281215c..2854192e14c14c7c8ddba1580afe18bbf68305e3 100644
+--- a/src/profile/dialogue.h
++++ b/src/profile/dialogue.h
+@@ -56,6 +56,10 @@ enum class NametagType : int {
+   ThreePiece,
+   CHLCC,
+   CC,
++  // Two sprites on both sides of the name, centred on NametagPosition.x (STEINS;GATE 0 PC, Game.exe 0x45fd4b):
++  // left at x - NametagSideOffsets.x - (name width + NametagSidePadding) / 2, right at x + NametagSideOffsets.y +
++  // (name width + NametagSidePadding) / 2, both at NametagPosition.y.
++  CenteredTwoPiece,
+ };
+ inline size_t REVMessageModeIdx;
+ inline int REVColor;
+@@ -108,6 +112,9 @@ inline bool OldNametagPositioning = false;
+ // FixedPos names with ModeInfo.UseNameLengthL are drawn inside the three piece
+ // nametag (right after the left cap) instead of at NamePos + MaxNameWidth.
+ inline bool NameInsideNametag = false;
++// FixedPos names aligned to the centre are centred on NamePos.x + MaxNameWidth / 2 (STEINS;GATE 0 PC) instead of on
++// NamePos.x + MaxNameWidth.
++inline bool FixedNameCenterOnHalfWidth = false;
+ inline NametagType NametagCurrentType = NametagType::None;
+ 
+ inline glm::vec2 NametagPosition{};
+@@ -116,6 +123,8 @@ inline Sprite NametagLeftSprite;
+ inline Sprite NametagMiddleSprite;
+ inline Sprite NametagRightSprite;
+ inline float NametagMiddleBaseWidth = 0.0f;
++inline glm::vec2 NametagSideOffsets{};
++inline float NametagSidePadding = 0.0f;
+ 
+ inline bool HasSpeakerPortraits = false;
+ inline float SpeakerPortraitBaseOffsetX = 250.0f;
+diff --git a/src/text/textparser.cpp b/src/text/textparser.cpp
+index 23d4290564a40b3568fad5a00db6843dc52ce447..1a30c1f18eec1e1c58305109ec2cc7c02f8bcd9b 100644
+--- a/src/text/textparser.cpp
++++ b/src/text/textparser.cpp
+@@ -461,6 +461,9 @@ void TextParser::FinishName() {
+                         (Profile::Dialogue::NametagMiddleSprite.ScaledHeight() -
+                          ModeInfo.NameGlyphSize.y) /
+                             2.0f);
++      } else if (Profile::Dialogue::FixedNameCenterOnHalfWidth &&
++                 ModeInfo.NameAlignment == Center) {
++        pos.x = ModeInfo.NamePos.x + (ModeInfo.MaxNameWidth - nameWidth) / 2.0f;
+       } else if (OldNametagPositioning) {
+         switch (ModeInfo.NameAlignment) {
+           case Left:

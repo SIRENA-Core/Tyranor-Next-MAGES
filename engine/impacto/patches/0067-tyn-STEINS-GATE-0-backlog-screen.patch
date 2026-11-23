@@ -1,0 +1,845 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 20:48:43 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 backlog screen
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/profiles/sg0-pc/hud/backlogmenu.lua b/profiles/sg0-pc/hud/backlogmenu.lua
+index e8bcd6849c08c368b793547d921551b7ad871b25..cdb06525201c40d345f5c07194dc57431f59e9a5 100644
+--- a/profiles/sg0-pc/hud/backlogmenu.lua
++++ b/profiles/sg0-pc/hud/backlogmenu.lua
+@@ -1,35 +1,41 @@
+--- STEINS;GATE (Steam) backlog. Sprite bounds measured on BACKLOG.DDS (2048x1080): the dark panel with the BACKLOG
+--- header spans x 95..1789, its scrollbar track x 1790..1823 (full height), the scrollbar thumb is at (1940, 58, 12x103),
+--- the voice icon at (1974, 6, 59x54); columns 0..91 are transparent. The sheet has no highlight or controls strip: those
+--- use a transparent patch. BLOGMASK.DDS (1920x1080) masks the text to the middle of the panel.
++-- STEINS;GATE 0 backlog. The screen itself (the SYSM_SAVEMENU background, the BACKLOG panel faded in through its
++-- mask, the BACKLOG corner mark) is drawn by the game code ported from Game.exe (0x451fe0, games/sg0/sysmenu.cpp,
++-- under the engine's menus); this engine backlog class draws the entries and the scroll bar over it, with the
++-- original's geometry (0x451fe0 / 0x464b90, 1280x720 units drawn at x1.5):
++--   * text from x 240 (360), the window of the entries y 46..646 (69..969), first entry at y 84 (126);
++--   * voice icon: BACKLOG.DDS (1926, 114, 66 x 54), 22.5 left of and 3.5 below the entry;
++--   * scroll bar thumb: BACKLOG.DDS (1926, 0, 42 x 108) at x 1776, y 60 .. 60 + 804.
++-- The panel does not scroll: the engine's background, header and track are a transparent strip of the sheet
++-- (columns 0..80 of BACKLOG.DDS are empty).
+ root.BacklogMenu = {
+     Type = BacklogMenuType.CC,
+     DrawType = DrawComponentType.SystemMenu,
+ 
+-    BacklogBackgroundSprite = "BacklogBackground",
++    BacklogBackgroundSprite = "BacklogNone",
+ 
+-    BacklogHeaderSprite = "BacklogHeader",
++    BacklogHeaderSprite = "BacklogNone",
+     BacklogHeaderPosition = { X = 0, Y = 0 },
+ 
+-    BacklogControlsSprite = "BacklogControls",
+-    BacklogControlsPosition = { X = 0, Y = 988 },
++    BacklogControlsSprite = "BacklogNone",
++    BacklogControlsPosition = { X = 0, Y = 0 },
+ 
+-    EntryHighlightSprite = "EntryHighlight",
++    EntryHighlightSprite = "BacklogNone",
+     EntryHighlightLocation = EntryHighlightLocationType.AllLinesLeftOfScreen,
+     EntryHighlightOffset = { X = 0, Y = 0 },
+     EntryHighlightPadding = 16.0,
+ 
+     VoiceIconSprite = "VoiceIcon",
+-    VoiceIconOffset = { X = -7, Y = 3 },
++    VoiceIconOffset = { X = -22.5, Y = 3.5 },
+ 
+     ScrollbarTrackSprite = "ScrollbarTrack",
+     ScrollbarThumbSprite = "ScrollbarThumb",
+-    ScrollbarPosition = { X = 1790, Y = 0 },
+-    ScrollbarThumbLength = 103,
++    ScrollbarPosition = { X = 1776, Y = 60 },
++    ScrollbarThumbLength = 108,
+ 
+-    EntriesStart = { X = 12, Y = 150 },
+-    RenderingBounds = { X = 95, Y = 135, Width = 1695, Height = 840 },
+-    EntryYPadding = 26,
++    -- the entries are laid out in message mode 9 (REVMessageModeIdx), which starts 240 to the right
++    EntriesStart = { X = 120, Y = 126 },
++    RenderingBounds = { X = 0, Y = 69, Width = 1920, Height = 900 },
++    EntryYPadding = 27,
+ 
+     FadeInDuration = 0.5,
+     FadeOutDuration = 0.5,
+@@ -39,42 +45,25 @@ root.BacklogMenu = {
+     ScrollingSpeed = 900,
+     PageUpDownHeight = 765,
+ 
+-    BacklogMask = "BacklogMask",
+-    HoverBounds = { X = 95, Y = 135, Width = 1695, Height = 840 }
++    HoverBounds = { X = 300, Y = 69, Width = 1440, Height = 900 }
+ };
+ 
+-root.Sprites["BacklogBackground"] = {
++root.Sprites["BacklogNone"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 0, Y = 0, Width = 1790, Height = 1080 },
+-    -- Height does *not* include the repeat overlap
+-};
+-
+-root.Sprites["BacklogHeader"] = {
+-    Sheet = "Backlog",
+-    Bounds = { X = 0, Y = 0, Width = 1790, Height = 118 },
+-};
+-
+-root.Sprites["BacklogControls"] = {
+-    Sheet = "Backlog",
+-    Bounds = { X = 10, Y = 300, Width = 60, Height = 60 },
++    Bounds = { X = 0, Y = 0, Width = 80, Height = 1080 },
+ };
+ 
+ root.Sprites["VoiceIcon"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1974, Y = 6, Width = 59, Height = 54 },
+-};
+-
+-root.Sprites["EntryHighlight"] = {
+-    Sheet = "Backlog",
+-    Bounds = { X = 10, Y = 300, Width = 60, Height = 60 }
++    Bounds = { X = 1926, Y = 114, Width = 66, Height = 54 },
+ };
+ 
+ root.Sprites["ScrollbarThumb"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1940, Y = 58, Width = 12, Height = 103 },
++    Bounds = { X = 1926, Y = 0, Width = 42, Height = 108 },
+ };
+ 
+ root.Sprites["ScrollbarTrack"] = {
+     Sheet = "Backlog",
+-    Bounds = { X = 1790, Y = 0, Width = 34, Height = 1080 },
++    Bounds = { X = 0, Y = 0, Width = 42, Height = 912 },
+ };
+diff --git a/profiles/sg0-pc/sprites.lua b/profiles/sg0-pc/sprites.lua
+index 2bb7a49025e3eb1eae7531436b8269403488b69a..e2b14d6a8b83f3087d129419f623e88baecc0bf8 100644
+--- a/profiles/sg0-pc/sprites.lua
++++ b/profiles/sg0-pc/sprites.lua
+@@ -42,6 +42,7 @@ root.SpriteSheets = {
+     -- ported screens comes from the fonts as the scripts load them (76 FONT_A, 78 FONT2_A)
+     ["SysSaveMenu"] = sheet(22, 3072, 1848, true),
+     ["ConfigChip"] = sheet(3, 3072, 2496, true),
++    ["SysBacklog"] = sheet(1, 2048, 2208, true),
+     ["SysTips"] = sheet(23, 3072, 1928, true),
+     ["SaveMenuChip"] = sheet(21, 3072, 2048, true),
+     ["SysFontA"] = sheet(9, 3072, 3840, true),
+diff --git a/src/games/sg0/phone.cpp b/src/games/sg0/phone.cpp
+index 26233237ade2ae53588e429be85b3289fb47ff31..e9b377d4e9204d4d4a0f757e5ac65b42d97bcfbd 100755
+--- a/src/games/sg0/phone.cpp
++++ b/src/games/sg0/phone.cpp
+@@ -8,6 +8,8 @@
+ #include "../../log.h"
+ #include "../../debugtools.h"
+ #include "../../game.h"
++#include "../../ui/backlogmenu.h"
++#include "../../ui/ui.h"
+ #include "../../mem.h"
+ #include "../../profile/scriptvars.h"
+ #include "../../renderer/renderer.h"
+@@ -32,6 +34,8 @@ bool InputTaken() { return LoopFrames > 0; }
+ // a click on it or the middle button presses the phone button (PADcustom[22]) for the scripts.
+ void UpdateInput() {
+   BeginFrame();
++  // flag 1837: the backlog is empty (the original sets it from its backlog every frame, 0x48a6d0)
++  if (UI::BacklogMenuPtr) SetFlag(0x72d, UI::BacklogMenuPtr->IsEmpty());
+   CaptureInput();
+   if (InputTaken()) {  // the phone's clicks and wheel are not the scene's
+     LoopFrames--;
+diff --git a/src/games/sg0/phone.h b/src/games/sg0/phone.h
+index 357b1cb56c85d766a27912868c10c56fa28b4c49..74a1bced31b2952168346c8d3eeb13a11516e773 100755
+--- a/src/games/sg0/phone.h
++++ b/src/games/sg0/phone.h
+@@ -54,7 +54,7 @@ void Reset();
+ 
+ // The system menu (sysmenu.cpp): instruction 00:44 and its layer (draw component SystemMenu).
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread);
+-void RenderSystemMenuLayer();
++void RenderSystemMenuLayer(bool afterMenus);
+ // The save / load menu (savemenu.cpp): instruction 10:23; drawn on the system menu layer.
+ void SaveMenuInstruction(Vm::Sc3VmThread* thread);
+ // The CONFIG screen (config.cpp): instruction 10:13; drawn on the system menu layer.
+diff --git a/src/games/sg0/phonecode.cpp b/src/games/sg0/phonecode.cpp
+index 1e255f81886de5e51ed03bc9fd16a1405dcd125a..81bec4161391e24eb7e72f7fc8a2bfb8f53593cb 100755
+--- a/src/games/sg0/phonecode.cpp
++++ b/src/games/sg0/phonecode.cpp
+@@ -19,6 +19,7 @@ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
+ 
+ const Sg0Emu::RdataChunk RdataChunks[] = {
++    {0x00549430, {0x2f,0x00,0x00,0x00,0x0a,0xd7,0xa3,0x3c,0x00,0x00,0x20,0x42,0x00,0x00,0x84,0x42}},
+     {0x00549440, {0x00,0x00,0x70,0x43,0x00,0x00,0x87,0x44,0x00,0x00,0xf0,0x44,0x00,0x00,0x00,0x3c}},
+     {0x00549550, {0x00,0x00,0xc0,0x3f,0x00,0x00,0x40,0x40,0x00,0x00,0x20,0x41,0x00,0x00,0xa0,0x41}},
+     {0x005495c0, {0x00,0x00,0x80,0x42,0x00,0x00,0xb2,0x42,0x00,0x00,0xb4,0x42,0x00,0x00,0xc8,0x42}},
+@@ -32,6 +33,7 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x0054a680, {0x00,0x00,0x22,0x43,0x00,0x00,0x48,0x43,0x00,0x00,0x84,0x43,0x00,0x00,0x9c,0x43}},
+     {0x0054a690, {0x00,0x00,0xed,0x43,0x00,0x00,0x00,0x44,0x00,0xc0,0x05,0x44,0x00,0x00,0x19,0x44}},
+     {0x0054a6a0, {0x00,0x00,0x1c,0x44,0x00,0x00,0x1f,0x44,0x00,0x00,0x22,0x44,0xfe,0xff,0x33,0x44}},
++    {0x0054a6b0, {0x00,0x80,0x41,0x44,0x00,0x00,0x49,0x44,0x00,0x80,0x65,0x44,0x00,0x40,0x6a,0x44}},
+     {0x0054a6d0, {0x00,0x80,0xa8,0x44,0x00,0x00,0xe0,0x44,0x00,0x80,0x3b,0x45,0x00,0x00,0x70,0x45}},
+     {0x0054a6e0, {0x00,0x00,0xc0,0xbf,0x00,0x00,0xaa,0xc3,0xff,0x7f,0x5e,0xc4,0x00,0x00,0x00,0x00}},
+     {0x0054a6f0, {0x10,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x10,0x00,0x00,0x00}},
+@@ -503,6 +505,72 @@ void FUN_0042e750(void)
+ }
+ 
+ 
++// ===== FUN_00451fe0 @ 00451fe0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00451fe0(int param_1)
++
++{
++  int iVar1;
++  int iVar2;
++  uint uVar3;
++  int iVar4;
++  int iVar5;
++  
++  FUN_0044cba0(0x9b,0,0,0x44f00000,0x44870000,0,0,0xffffff,param_1,1);
++  FUN_0044c0b0(0x9a,0x9a,0,0,0x44f00000,0x44870000,0,0x4487c000,0,0,0xffffff,0x100,0,param_1 + 0x10,
++               0);
++  iVar1 = FUN_00464b90(0x4c,0x9a,0xf0,0x54,0x2e,600,param_1);
++  iVar4 = DAT_0197793c;
++  if ((DAT_018524d0 != 0) && (uVar3 = 0, DAT_018524d0 != 0)) {
++    do {
++      iVar5 = (&DAT_019785e8)[uVar3] - iVar4;
++      if ((0x2e < (&DAT_01977fa8)[uVar3] + iVar5 + 0x5c) && (iVar5 + 0x5c < 0x286)) {
++        if (DAT_01977920 == uVar3) {
++          iVar4 = (&DAT_01977fa8)[uVar3] + 0x12;
++          iVar2 = (int)((float)(iVar5 + 0x4a) * DAT_00549550);
++          FUN_0044f270(0x9a,0,0x45080000,0x44f00000,0x3f800000,0,(float)iVar2,0x44f00000,
++                       (float)(iVar2 - (int)((float)((double)iVar4 +
++                                                    (double)(&DAT_005ba790)[-(iVar4 >> 0x1f)]) *
++                                            _DAT_0054a6e0)),0xffffff,param_1,1);
++        }
++        FUN_00446f60(0x43930000,(float)(iVar5 + 0x4a) * DAT_00549550,0x44b74000,
++                     (float)((double)((&DAT_01977fa8)[uVar3] + 0x12) +
++                            (double)(&DAT_005ba790)[-((&DAT_01977fa8)[uVar3] + 0x12 >> 0x1f)]) *
++                     DAT_00549550,3,uVar3);
++        iVar4 = DAT_0197793c;
++      }
++      iVar5 = ((&DAT_019785e8)[uVar3] - iVar4) + 0x5e;
++      if (((0x2e < (&DAT_01977fa8)[uVar3] + iVar5) && (iVar5 < 0x286)) &&
++         (*(int *)(&DAT_018e4da0 + (&DAT_01977960)[uVar3] * 8) != -1)) {
++        FUN_0044cda0(0x9a,0x9a,0x44f0c000,0x42e40000,0x42840000,0x42580000,
++                     ((float)((double)(int)(&DAT_01978c28)[uVar3] +
++                             (double)(&DAT_005ba790)[-((int)(&DAT_01978c28)[uVar3] >> 0x1f)]) *
++                      DAT_00549550 - DAT_0054a660) - DAT_0054943c,
++                     ((float)((double)(int)(&DAT_01979268)[uVar3] +
++                             (double)(&DAT_005ba790)[-((int)(&DAT_01979268)[uVar3] >> 0x1f)]) *
++                      DAT_00549550 - DAT_0054a660) + _DAT_0054a65c,0x44f0c000,0x4487c000,0x41400000,
++                     0x44870000,0xffffff,param_1,1);
++        iVar4 = DAT_0197793c;
++      }
++      uVar3 = uVar3 + 1;
++    } while (uVar3 < DAT_018524d0);
++  }
++  if (iVar4 == 0) {
++    iVar4 = 0;
++  }
++  else {
++    iVar4 = (int)(((float)iVar4 /
++                  (float)((double)(DAT_01977958 - iVar1) +
++                         (double)(&DAT_005ba790)[-(DAT_01977958 - iVar1 >> 0x1f)])) * _DAT_0054a6b4)
++    ;
++  }
++  FUN_00456940(Cv(3),Cv(param_1));
++  return;
++}
++
++
+ // ===== FUN_004524a0 @ 004524a0
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+@@ -1234,7 +1302,7 @@ void FUN_00453d70(void)
+ {
+   uint *puVar1;
+   uint uVar2;
+-  char cVar3;
++  signed char cVar3;
+   uint uVar4;
+   int iVar5;
+   int iVar6;
+@@ -2159,12 +2227,12 @@ void FUN_00454f80(void)
+   int local_26c;
+   undefined *local_268;
+   int local_264;
+-  char local_260 [300];
+-  char local_134 [0x130];
+-  char &local_130 = local_134[4];
+-  char &local_12d = local_134[7];
+-  char &local_126 = local_134[0xe];
+-  char &local_123 = local_134[0x11];
++  signed char local_260 [300];
++  signed char local_134 [0x130];
++  signed char &local_130 = local_134[4];
++  signed char &local_12d = local_134[7];
++  signed char &local_126 = local_134[0xe];
++  signed char &local_123 = local_134[0x11];
+   undefined4 local_8;
+   iVar7 = *(int *)(DAT_02ee7660 + 0x218c);
+   puVar9 = (undefined *)(iVar7 * 0x10);
+@@ -2314,16 +2382,16 @@ void FUN_00454f80(void)
+         FUN_0048b6b0(Cv(*(undefined1 *)((intptr_t)psVar4 + 0xb)),Cv(local_260),Cv(2));
+         _strcat_s(local_134,0x100,local_260);
+         _strcat_s(local_134,0x100,"/");
+-        FUN_0048b6b0(Cv((char)psVar4[5]),Cv(local_260),Cv(2));
++        FUN_0048b6b0(Cv((signed char)psVar4[5]),Cv(local_260),Cv(2));
+         _strcat_s(local_134,0x100,local_260);
+         _strcat_s(local_134,0x100," ");
+-        FUN_0048b6b0(Cv((char)psVar4[7]),Cv(local_260),Cv(2));
++        FUN_0048b6b0(Cv((signed char)psVar4[7]),Cv(local_260),Cv(2));
+         _strcat_s(local_134,0x100,local_260);
+         _strcat_s(local_134,0x100,":");
+         FUN_0048b6b0(Cv(*(undefined1 *)((intptr_t)psVar4 + 0xd)),Cv(local_260),Cv(2));
+         _strcat_s(local_134,0x100,local_260);
+         _strcat_s(local_134,0x100,":");
+-        FUN_0048b6b0(Cv((char)psVar4[6]),Cv(local_260),Cv(2));
++        FUN_0048b6b0(Cv((signed char)psVar4[6]),Cv(local_260),Cv(2));
+         _strcat_s(local_134,0x100,local_260);
+         if (local_126 == ' ') {
+           local_126 = '0';
+@@ -2497,7 +2565,7 @@ void FUN_00455f90(int param_1)
+ void FUN_00456030(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   uint uVar3;
+   undefined4 uVar4;
+@@ -2962,7 +3030,7 @@ void FUN_004579e0(void)
+         FUN_00454f80();
+         return;
+       case 1:
+-        FUN_00451fe0(*(undefined4 *)(DAT_02ee7660 + 0x2194));
++        FUN_00451fe0(Cv(*(undefined4 *)(DAT_02ee7660 + 0x2194)));
+         return;
+       case 2:
+         FUN_00458d30(*(undefined4 *)(DAT_02ee7660 + 0x2194));
+@@ -3028,7 +3096,7 @@ void FUN_00457b80(void)
+ void FUN_00457bc0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   uint uVar3;
+   int iVar4;
+@@ -3105,8 +3173,8 @@ LAB_00457ca0:
+ int FUN_0045d5c0(undefined4 param_1,char *param_2,uint param_3,uint param_4)
+ 
+ {
+-  char cVar1;
+-  char cVar2;
++  signed char cVar1;
++  signed char cVar2;
+   undefined1 *puVar3;
+   int iVar4;
+   uint uVar5;
+@@ -3214,10 +3282,10 @@ void FUN_00463b20(int param_1,int param_2,int param_3,char *param_4,undefined4 p
+ {
+   uint uVar1;
+   int iVar2;
+-  char cVar3;
++  signed char cVar3;
+   uint uVar4;
+   uint uVar5;
+-  char cVar6;
++  signed char cVar6;
+   int iVar7;
+   byte bVar8;
+   uint uVar9;
+@@ -5438,7 +5506,7 @@ void FUN_00470a10(void)
+ void FUN_00470a50(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   uint uVar3;
+   
+@@ -5527,7 +5595,7 @@ void FUN_00470a50(void)
+ void FUN_00470c50(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   
+   iVar2 = 0;
+@@ -5599,7 +5667,7 @@ void FUN_00470c50(void)
+ void FUN_00470e10(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   
+   iVar2 = FUN_004919d0(0xabb);
+@@ -5635,7 +5703,7 @@ void FUN_00470e10(void)
+ void FUN_00470f20(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   uint uVar3;
+   
+@@ -5692,7 +5760,7 @@ void FUN_00470f20(void)
+ void FUN_004710d0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   
+   iVar2 = 0;
+@@ -5766,7 +5834,7 @@ void FUN_004710d0(void)
+ void FUN_004712a0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   int iVar3;
+   uint uVar4;
+@@ -5945,7 +6013,7 @@ LAB_004714e8:
+ void FUN_004717b0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   
+   iVar2 = 0;
+@@ -6018,7 +6086,7 @@ void FUN_00471970(void)
+ {
+   int iVar1;
+   uint uVar2;
+-  char cVar3;
++  signed char cVar3;
+   undefined4 uVar4;
+   uint uVar5;
+   uint uVar6;
+@@ -6125,7 +6193,7 @@ void FUN_00471c50(void)
+ {
+   int iVar1;
+   int iVar2;
+-  char cVar3;
++  signed char cVar3;
+   uint uVar4;
+   uint uVar5;
+   
+@@ -6233,7 +6301,7 @@ void FUN_00471c50(void)
+ void FUN_00471f70(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   
+   if ((((DAT_01979f10 & DAT_0197a218) != 0) || (cVar1 = FUN_0046b010(0x3e), cVar1 != '\0')) ||
+      ((DAT_032fc7a0 & 4) != 0)) {
+@@ -6292,7 +6360,7 @@ void FUN_00472010(void)
+ void FUN_00472130(int param_1)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   uint uVar2;
+   uint uVar3;
+   
+@@ -6355,7 +6423,7 @@ void FUN_00472130(int param_1)
+ void FUN_004722a0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   uint uVar3;
+   
+@@ -6439,7 +6507,7 @@ void FUN_004724c0(void)
+ 
+ {
+   intptr_t iVar1;
+-  char cVar2;
++  signed char cVar2;
+   intptr_t iVar3;
+   uint uVar4;
+   undefined4 *puVar5;
+@@ -6575,7 +6643,7 @@ void FUN_004727c0(void)
+ 
+ {
+   int iVar1;
+-  char cVar2;
++  signed char cVar2;
+   bool bVar3;
+   
+   if ((((DAT_01979f10 & DAT_0197a218) != 0) || (cVar2 = FUN_0046b010(0x3e), cVar2 != '\0')) ||
+@@ -6618,7 +6686,7 @@ void FUN_004727c0(void)
+ void FUN_004728e0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   uint uVar2;
+   undefined4 uVar3;
+   
+@@ -6683,7 +6751,7 @@ void FUN_004728e0(void)
+ void FUN_00472ab0(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   
+   if ((((DAT_01979f10 & DAT_0197a218) != 0) || (cVar1 = FUN_0046b010(0x3e), cVar1 != '\0')) ||
+      ((DAT_032fc7a0 & 4) != 0)) {
+@@ -6709,7 +6777,7 @@ void FUN_00472ab0(void)
+ void FUN_00472b50(void)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   int iVar2;
+   
+   FUN_00446ef0(0x14,0,1);
+@@ -8416,7 +8484,7 @@ void FUN_00476a00(void)
+ 
+ {
+   int iVar1;
+-  char cVar2;
++  signed char cVar2;
+   uint uVar3;
+   bool bVar4;
+   
+@@ -8589,12 +8657,12 @@ void FUN_00477310(undefined4 param_1,undefined4 param_2)
+ void FUN_0048b6b0(long param_1,undefined4 *param_2,uint param_3)
+ 
+ {
+-  char cVar1;
++  signed char cVar1;
+   uint uVar2;
+-  char *pcVar3;
++  signed char *pcVar3;
+   uint uVar4;
+   undefined4 *puVar5;
+-  char local_108 [256];
++  signed char local_108 [256];
+   undefined4 local_8;
+   FID_conflict___itoa_s(param_1,local_108,0x100,10);
+   pcVar3 = local_108;
+diff --git a/src/games/sg0/phoneemu.cpp b/src/games/sg0/phoneemu.cpp
+index 1a80f5f35df6e814b9162e97e523818949deddf2..6a8f1bb64d8ad49198c5b52cbda728891177d758 100755
+--- a/src/games/sg0/phoneemu.cpp
++++ b/src/games/sg0/phoneemu.cpp
+@@ -23,6 +23,8 @@ Region Regions[] = {
+     {0x00401000, 0x00600000, {}},
+     {0x00dc0000, 0x00e50000, {}},
+     {0x016d0000, 0x016e0000, {}},
++    {0x01850000, 0x01860000, {}},  // the backlog of the original (empty: the engine keeps it)
++    {0x018e0000, 0x018f0000, {}},
+     {0x01970000, 0x019b0000, {}},
+     {0x02ed0000, 0x02ef0000, {}},
+     {0x02efc000, 0x02efd000, {}},  // 0x2efc1cc: SIMD level of the CPU check (0: the plain loops)
+diff --git a/src/games/sg0/phoneemu.h b/src/games/sg0/phoneemu.h
+index 8df423c90837a8ee2dbd56017318bc9094645874..44d9780293ebcd9f3bc354ec8163de52885e952d 100755
+--- a/src/games/sg0/phoneemu.h
++++ b/src/games/sg0/phoneemu.h
+@@ -26,6 +26,8 @@ typedef long double float10;
+ typedef uint64_t ulonglong;
+ typedef int64_t longlong;
+ // Ghidra's carry of a 32 bit addition
++// Ghidra's concatenation of two bytes
++inline uint16_t CONCAT11(uint8_t hi, uint8_t lo) { return (uint16_t)(hi << 8 | lo); }
+ inline bool CARRY4(uint32_t a, uint32_t b) { return (uint64_t)a + b > 0xffffffffu; }
+ }  // namespace Types
+ 
+@@ -39,6 +41,8 @@ struct RdataChunk {
+ uint8_t* At(uint32_t address);
+ // address of a label / of string strNo in script buffer `buffer`
+ const uint8_t* LabelPtr(uint32_t buffer, uint32_t label);
++// 0x42fb00 on a script string (phoneshim.cpp)
++const uint8_t* EvalAt(const uint8_t* p, void* out);
+ const uint8_t* StrPtr(uint32_t buffer, uint32_t strNo);
+ void Reset();
+ 
+@@ -193,7 +197,7 @@ void FUN_0042c830(Arg);
+ void FUN_0042d770(Arg);
+ void FUN_004504c0(Arg);
+ void FUN_00451810(Arg);
+-void FUN_00451fe0(Arg);
++
+ void FUN_004906f0();  // config.cpp
+ void FUN_00458d30(Arg);
+ void FUN_0045c1b0();
+@@ -206,6 +210,12 @@ bool FUN_00479150(Arg type, Arg a, Arg b);
+ void FUN_0047a380(Arg type, Arg i, Arg locked);
+ uint32_t FUN_004645a0(Arg t, Arg n);
+ void FUN_00448e00();
++void FUN_00449180(Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg);
++void FUN_0044cee0(Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg = 0);
++int FUN_004644a0(Arg str, Arg maxGlyphs, Arg size = 0x1a);  // width of a line, table 0x5c9b58
++void FUN_00477b50(Arg, Arg = 0, Arg = 0);  // achievements: nothing here
++int FUN_00464b90(Arg, Arg, Arg, Arg, Arg, Arg, Arg);
++void FUN_0044cda0(Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg);
+ void FUN_00448e10();
+ void FUN_00448fa0(Arg = 0);
+ void FUN_004d2bf0(Arg dst, Arg src, Arg n);
+diff --git a/src/games/sg0/phoneglobals.h b/src/games/sg0/phoneglobals.h
+index a9899fedc01f89009a8c232fb4967e6b109ffecd..90f53c48ac0ee9377d1ac4697318e0dbc6432810 100755
+--- a/src/games/sg0/phoneglobals.h
++++ b/src/games/sg0/phoneglobals.h
+@@ -3,6 +3,7 @@
+ // (emulated memory, phoneemu.h) and the declarations of the translated functions.
+ #include "phoneemu.h"
+ 
++#define DAT_0054943c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054943c)))
+ #define DAT_00549550 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549550)))
+ #define DAT_005495c8 (*reinterpret_cast<float*>(Sg0Emu::At(0x005495c8)))
+ #define DAT_005495e8 (*reinterpret_cast<float*>(Sg0Emu::At(0x005495e8)))
+@@ -10,6 +11,7 @@
+ #define DAT_00549614 (*reinterpret_cast<float*>(Sg0Emu::At(0x00549614)))
+ #define DAT_0054a64c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a64c)))
+ #define DAT_0054a654 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a654)))
++#define DAT_0054a660 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a660)))
+ #define DAT_0054a664 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a664)))
+ #define DAT_0054a7f4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a7f4)))
+ #define DAT_0054a804 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a804)))
+@@ -182,6 +184,16 @@
+ #define DAT_016d8f7c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f7c)))
+ #define DAT_016d8f84 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f84)))
+ #define DAT_016d8f8c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f8c)))
++#define DAT_018524d0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x018524d0)))
++#define DAT_018e4da0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x018e4da0)))
++#define DAT_01977920 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01977920)))
++#define DAT_0197793c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197793c)))
++#define DAT_01977958 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01977958)))
++#define DAT_01977960 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01977960)))
++#define DAT_01977fa8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01977fa8)))
++#define DAT_019785e8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x019785e8)))
++#define DAT_01978c28 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01978c28)))
++#define DAT_01979268 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01979268)))
+ #define DAT_01979f10 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01979f10)))
+ #define DAT_01979f14 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01979f14)))
+ #define DAT_01979f18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x01979f18)))
+@@ -356,6 +368,7 @@
+ #define _DAT_0054944c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054944c)))
+ #define _DAT_0054a650 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a650)))
+ #define _DAT_0054a658 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a658)))
++#define _DAT_0054a65c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a65c)))
+ #define _DAT_0054a668 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a668)))
+ #define _DAT_0054a678 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a678)))
+ #define _DAT_0054a67c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a67c)))
+@@ -364,9 +377,11 @@
+ #define _DAT_0054a698 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a698)))
+ #define _DAT_0054a6a0 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6a0)))
+ #define _DAT_0054a6a4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6a4)))
++#define _DAT_0054a6b4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6b4)))
+ #define _DAT_0054a6d4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6d4)))
+ #define _DAT_0054a6d8 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6d8)))
+ #define _DAT_0054a6dc (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6dc)))
++#define _DAT_0054a6e0 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6e0)))
+ #define _DAT_0054a6f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a6f0)))
+ #define _DAT_0054a7c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7c0)))
+ #define _DAT_0054a7d0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7d0)))
+@@ -537,6 +552,7 @@ namespace SG0 {
+ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
+ void FUN_0042e750(void);
++void FUN_00451fe0(int param_1);
+ void FUN_004524a0(void);
+ void FUN_004524f0(void);
+ void FUN_00452500(int param_1);
+diff --git a/src/games/sg0/phoneshim.cpp b/src/games/sg0/phoneshim.cpp
+index 3549a07bd7bdba6b384f5bc415ae7b0404349ddf..376f790e11fa81a2cdf57161038f8e5b9e7f2401 100755
+--- a/src/games/sg0/phoneshim.cpp
++++ b/src/games/sg0/phoneshim.cpp
+@@ -26,6 +26,22 @@ namespace SG0 {
+ 
+ namespace Sg0Emu {
+ 
++// 0x42fb00 on a script string: the expression at p (a colour tag), its value into *out; the position after it
++const uint8_t* EvalAt(const uint8_t* p, void* out) {
++  for (uint32_t b = 0; b < Vm::MaxLoadedScripts; b++) {
++    const auto& buf = Vm::ScriptBuffers[b];
++    if (buf.empty() || p < buf.data() || p >= buf.data() + buf.size()) continue;
++    Vm::Sc3VmThread thread;
++    thread.ScriptBufferId = b;
++    thread.IpOffset = (uint32_t)(p - buf.data());
++    const int v = Vm::ExpressionEval(&thread);
++    if (out) std::memcpy(out, &v, 4);
++    return buf.data() + thread.IpOffset;
++  }
++  if (out) std::memset(out, 0, 4);
++  return p + 1;
++}
++
+ const uint8_t* LabelPtr(uint32_t buffer, uint32_t label) {
+   return Vm::ScriptBuffers[buffer].data() + Vm::ScriptGetLabelAddress(buffer, label);
+ }
+@@ -251,6 +267,13 @@ void BridgeInput() {
+       (Input::MouseButtonIsDown[SDL_BUTTON_RIGHT] ? 2u : 0u);
+   *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7ec)) = (int32_t)Input::CurMousePos.x;
+   *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7f0)) = (int32_t)Input::CurMousePos.y;
++  // the mouse moved since the left button went down (0x32fc804 / 0x32fc808)
++  static glm::vec2 down = Input::CurMousePos;
++  if (FrameMouse & 1) down = Input::CurMousePos;
++  *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc804)) = (int32_t)(Input::CurMousePos.x - down.x);
++  *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc808)) = (int32_t)(Input::CurMousePos.y - down.y);
++  // 0x2efc1ec: window pixels per design pixel (the original works in window pixels; here in design pixels)
++  *reinterpret_cast<float*>(Sg0Emu::At(0x02efc1ec)) = 1.0f;
+ }
+ 
+ // The mouse of this frame, taken before the scripts run (UpdateInput): while the phone is open the scene does not
+@@ -631,6 +654,32 @@ int FUN_004643a0(Arg str, Arg maxGlyphs, Arg size) {
+   return (int)w;
+ }
+ 
++// 0x4644a0: 0x4643a0 with the table 0x5c9b58 (the callers pass size 0x1a)
++int FUN_004644a0(Arg str, Arg maxGlyphs, Arg size) {
++  Str s = StrOf(str);
++  const uint32_t limit = maxGlyphs.U() ? maxGlyphs.U() : 0xff;
++  const uint32_t sz = size.U();
++  uint32_t w = 0, n = 0;
++  for (const uint8_t* p = s.P(); *p != 0xff && n <= limit; p = s.P()) {
++    if (*p & 0x80) {
++      const uint32_t code = ((*p & 0x7f) << 8) | p[1];
++      if (code < 0x15f)
++        w += Rd(0x5c9b58)[code] * sz >> 5;
++      else if (code >= 0x1ec0)
++        w += Rd(0x5c9b59)[0] * sz >> 5;
++      else
++        w += sz;
++      n++;
++      s.Offset += 2;
++    } else if (*p == 4) {
++      TagValue(s);
++    } else {
++      s.Offset++;
++    }
++  }
++  return (int)w;
++}
++
+ // 0x448fc0: a glyph cell (sx, sy, sw, sh in texture pixels) of font surface `font` stretched over (x0, y0)..(x1, y1)
+ void FUN_00448fc0(Arg font, Arg sx, Arg sy, Arg sw, Arg sh, Arg x0, Arg y0, Arg x1, Arg y1, Arg color, Arg alpha) {
+   const SpriteSheet* sheet = FontSheet(font.I());
+@@ -642,6 +691,49 @@ void FUN_00448fc0(Arg font, Arg sx, Arg sy, Arg sw, Arg sh, Arg x0, Arg y0, Arg
+ 
+ // 0x44dd00: part (sx, sy, w, h) of a surface centred on (dx + w / 2, dy + h / 2), scaled by scale / 256 and turned
+ // by angle (65536 = a full turn)
++// 0x449180: a glyph cell of font surface `font` (the next surface for the lower half of the font) stretched over
++// (x0, y0)..(x1, y1), times the alpha of surface `maskSlot` at (mx, y0 + my) (the TIPS text fading at the edges)
++void FUN_00449180(Arg font, Arg maskSlot, Arg sx, Arg sy, Arg sw, Arg sh, Arg x0, Arg y0, Arg x1, Arg y1, Arg mx,
++                  Arg my, Arg mw, Arg, Arg color, Arg alpha) {
++  if (alpha.I() <= 0) return;
++  int slot = font.I();
++  float fy = sy.Fl();
++  if (fy > *reinterpret_cast<const float*>(Sg0Emu::At(0x0054a4bc))) {
++    fy -= *reinterpret_cast<const float*>(Sg0Emu::At(0x0054a4bc));
++    slot++;
++  }
++  const SpriteSheet* sheet = FontSheet(slot);
++  if (!sheet) return;
++  Sprite glyph(*sheet, sx.Fl(), fy, sw.Fl(), sh.Fl());
++  const RectF dest(x0.Fl(), y0.Fl(), x1.Fl() - x0.Fl(), y1.Fl() - y0.Fl());
++  Sprite mask;
++  SpriteSheet fb;
++  if (!SurfaceSprite(maskSlot.I(), mx.Fl(), y0.Fl() + my.Fl(), mw.Fl(), dest.Height, mask, fb)) {
++    Renderer->DrawSprite(glyph, dest, Tint(color.U(), alpha.I()));
++    return;
++  }
++  const glm::vec4 tint = Tint(color.U(), alpha.I());
++  Renderer->DrawMaskedSpriteOverlay(glyph, mask, dest, dest, 256, 256, glm::mat4(1.0f), glm::mat4(1.0f), tint, false,
++                                    true);
++}
++
++// 0x44cee0: part (sx, sy, w, h) of surface `slot` at (dx, dy), times the alpha of surface `maskSlot` (mx, my, mw, mh)
++void FUN_0044cee0(Arg slot, Arg maskSlot, Arg sx, Arg sy, Arg w, Arg h, Arg mx, Arg my, Arg mw, Arg mh, Arg dx,
++                  Arg dy, Arg color, Arg alpha, Arg) {
++  if (alpha.I() <= 0) return;
++  Sprite sprite, mask;
++  SpriteSheet fb, fbMask;
++  if (!SurfaceSprite(slot.I(), sx.Fl(), sy.Fl(), w.Fl(), h.Fl(), sprite, fb)) return;
++  const RectF dest(dx.Fl(), dy.Fl(), w.Fl(), h.Fl());
++  const glm::vec4 tint = Tint(color.U(), alpha.I());
++  if (!SurfaceSprite(maskSlot.I(), mx.Fl(), my.Fl(), mw.Fl(), mh.Fl(), mask, fbMask)) {
++    Renderer->DrawSprite(sprite, dest, tint);
++    return;
++  }
++  Renderer->DrawMaskedSpriteOverlay(sprite, mask, dest, dest, 256, 256, glm::mat4(1.0f), glm::mat4(1.0f), tint, false,
++                                    true);
++}
++
+ void FUN_0044dd00(Arg slot, Arg sx, Arg sy, Arg w, Arg h, Arg dx, Arg dy, Arg color, Arg alpha, Arg, Arg angle,
+                   Arg scale) {
+   if (alpha.I() <= 0) return;
+diff --git a/src/games/sg0/savemenu.cpp b/src/games/sg0/savemenu.cpp
+index 9e39581b4ccca90e9f438be8be0aa5279b73b076..930154ddff35ff45480406aa02327f8ac8a5a4e0 100755
+--- a/src/games/sg0/savemenu.cpp
++++ b/src/games/sg0/savemenu.cpp
+@@ -98,6 +98,12 @@ uint32_t FUN_004645a0(Arg t, Arg n) {
+   return FUN_0047f1f0(entry.scriptBufferId, base + n.I());
+ }
+ 
++// the backlog text of the original (0x464b90) and its voice icon (0x44cda0): the engine backlog draws the entries
++int FUN_00464b90(Arg, Arg, Arg, Arg, Arg, Arg, Arg) { return 0; }
++void FUN_0044cda0(Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg, Arg) {}
++
++void FUN_00477b50(Arg, Arg, Arg) {}
++
+ // text state switches of the original's renderer (0x448e00, 0x448e10, 0x448fa0)
+ void FUN_00448e00() {}
+ void FUN_00448e10() {}
+diff --git a/src/games/sg0/sysmenu.cpp b/src/games/sg0/sysmenu.cpp
+index b92eee00bd986df3aa13eed233181750a8054015..3cfeeb19b59e34feec394e252a269e40fe84e71a 100755
+--- a/src/games/sg0/sysmenu.cpp
++++ b/src/games/sg0/sysmenu.cpp
+@@ -9,7 +9,6 @@
+ #include "phoneglobals.h"
+ #include "../../data/savesystem.h"
+ #include "../../game.h"
+-#include "../../log.h"
+ #include "../../renderer/renderer.h"
+ #include "../../vm/interface/input.h"
+ #include "../../vm/thread.h"
+@@ -42,8 +41,7 @@ void FUN_0042c830(Arg) {}
+ void FUN_0042d770(Arg) {}
+ void FUN_004504c0(Arg) {}
+ void FUN_00451810(Arg) {}
+-void FUN_00451fe0(Arg) {}
+-void FUN_00458d30(Arg) {}
++void FUN_00458d30(Arg) {}  // the TIPS screen: the engine's
+ void FUN_0045c1b0() {}
+ 
+ // 0x456f70 (hand ported, Ghidra lost the arguments of the last draw): the monitor. The game screen (render target
+@@ -91,19 +89,14 @@ void SystemMenuInstruction(Vm::Sc3VmThread* thread) {
+ 
+ // The system menu layer (draw component 10 of the original, 0x48bf90)
+ // The scene stops being drawn while the menu is open (the original keeps its last frame in render target 8): the
+-// screen is taken once, on the first frame of the menu.
+-void RenderSystemMenuLayer() {
++// screen is taken once, on the first frame of the menu. The backlog screen (ScrWork 0x2190 = 1) goes under the
++// engine's menus (the engine backlog draws the entries over it), the rest over them (the save screen over the title).
++void RenderSystemMenuLayer(bool afterMenus) {
++  const bool backlog = Sw(0x2190) == 1;
++  if (afterMenus == backlog) return;
+   static bool open = false;
+   if (Sw(0x217c) != 0) {
+-    if (!open) {
+-      CaptureScreen();
+-      std::string order;
+-      for (auto c : Game::DrawComponents) {
+-        if (c == Game::DrawComponentType::None) break;
+-        order += std::to_string((int)c) + " ";
+-      }
+-      ImpLog(LogLevel::Debug, LogChannel::General, "SG0 sysmenu open: components {}\n", order);
+-    }
++    if (!open) CaptureScreen();
+     open = true;
+     FUN_00456f70();
+   } else {

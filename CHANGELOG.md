@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.4（versionCode 11）
+
+- STEINS;GATE 0 Steam 版（`sg0-pc`）标记为已适配：主应用从宿主 versionCode 11 起识别并启动它。
+- 新增（补丁 0062，通用）：可选的渲染目标透明通道（`FramebufferAlpha`）。除屏幕外的渲染目标原来是 RGB；在渲染目标里拼好图再整体画到场景上的游戏（S;G0 的手机放大、系统菜单、存档画面）需要透明通道。默认关闭，其他游戏不变。
+- 新增（补丁 0063，通用的存档格式＋仅 SG0 的挂钩）：MO6TWPC 存档条目可以带额外游戏数据，有这种条目的文件写成版本 3（条目末尾 u32 长度＋数据）；没有额外数据的文件仍写版本 2、逐字节与以前相同，版本 1／2 照旧读取，`sg-pc`、`mo6tw-pc` 的存档不受影响。S;G0 把手机状态（0x3ee0 字节）存在这里，读档时恢复。
+- 新增（补丁 0064–0078，仅 TYN，除注明外）：S;G0 的系统画面按原版 Game.exe 移植，做法和手机一样（Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译，引擎桥接手写）：右键系统菜单（画面缩进显示器、12 个圆形按钮）、SAVE／LOAD／QUICK LOAD（0064）、CONFIG 四页及滑块和角色语音（0065）、BACKLOG（0066 的 `IsEmpty`、可选 CC 回想遮罩和系统菜单绘制挂钩为通用代码；0067）、TIPS 列表／分页／正文（原版文字排版，0069–0070）、系统消息框（退出、回标题、读档确认，0071 的系统消息层挂钩为通用代码；0072）、手机和系统文字的完整颜色表（0073）、剧情中的 Amadeus 来电画面（0074）、EXTRA 的 CLEAR LIST（0076）、CG／SOUND／MOVIE 鉴赏（0075、0077、0078）。CG、BGM、TIPS 的解锁状态读写引擎存档系统里的对应数据。`sg0-pc` 里引擎自带的系统菜单、存档、设置、回想、TIPS 类关闭，对应图集改为剧本载入。
+- 新增（补丁 0079，通用，可向上游提交；0080 仅 TYN）：可选的 profile 字段 `SaveData.WriteSystemDataOnBackground`。应用切到后台时（`SDL_EVENT_WILL_ENTER_BACKGROUND`，SDL 在主线程、两帧之间处理）同步写一次系统数据。手机上应用常在后台被直接杀掉，之前只存在系统数据里的内容（EXTRA 解锁之类的标志、游戏时间、设置、CG／BGM／TIPS 解锁）要等剧本下次写存档才落盘，被杀就丢了。有存档任务在跑时不写；存档里的系统数据还没被剧本应用（`LoadSystemData` 之前）时也不写，免得用初始状态覆盖掉玩家的存档。默认关闭，只有 `sg0-pc` 打开，其他游戏不变。MuMu 上验证：设标志 860 → 回桌面 → 强杀 → 重开，标题出现 EXTRA（修复前不出现）。
+- 新增（补丁 0068，通用）：调试模式文件命令 `flag <n> <0|1>`、`var <n> <值>`、`unlock`（解锁 CG、音乐、TIPS；引擎 TIPS 表为空时按 profile 的 TIPS 数量全部解锁）。
+- 工具：`tools/impacto/sg0/access_sizes.py`（capstone）扫描原版代码对每个全局变量的访问宽度，翻译脚本据此给 Ghidra 没定类型的全局补上类型；翻译脚本支持句柄与指针互转、指针全局、缺失参数补 0 等，修正表同步更新。
+- 验证（系统画面）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本），调试模式：系统菜单开关；SAVE 写入带缩略图、章节名、游戏时间、日期的存档，从系统菜单和标题读档并确认，读档后剧情继续、RINE 状态恢复；CONFIG 改 BGM 音量和语音跳过后重新打开仍保持；BACKLOG；TIPS 列表、分页、正文、滚动、点击和关闭；退出／回标题／读档确认框；B 线快进到“无限远点的牵牛星”结局和结局后的系统消息；Amadeus 来电（CONNECT）手机里显示红莉栖；CLEAR LIST；CG 鉴赏打开相册全屏看图、切图、返回；SOUND 解锁后播放、停止；MOVIE 播放 OP 全屏、右键返回。`profile-snapshot.py` 只有 `sg0-pc` 变化（BacklogMenu、OptionsMenu、SaveMenu、SystemMenu、Sprites、SpriteSheets，新增 FramebufferAlpha），其余 11 个 profile 不变。
+- 新增（补丁 0060，仅 TYN）：S;G0 的手机和 RINE。原版手机模块（Game.exe 0x46b600..0x478000，90 多个函数）用 Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译成 C++，原版全局变量放在模拟内存里保持原地址，绘图、文字排版、点击区域、输入等引擎接口在 `phoneshim.cpp` 实现，RINE 对话读取器（0x476d50、0x477040）和 `10:37` 指令手写移植。消息窗手机按钮打开，双指点击（右键）返回／关闭；RINE 回复可用箭头切换候选、点击发送；手机状态跟着调试快照保存。`sg0-pc` 的 GameSpecific 改为 `SG0`，手机图集登记为剧本载入的图集。
+- 新增（补丁 0061，通用，可向上游提交）：调试模式可以用存档目录里的 `debug-cmd.txt` 下命令（`load`／`save`／`speed`／`skip`／`pause`），自动化测试不用再在触屏上拖 ImGui 窗口。见 `docs/debug-mode.md`。
+- 验证（手机）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面；序章真由理的 RINE 从选择回复到对话结束，关闭手机后剧情继续；回复等待中拍的调试状态能恢复整段对话。Amadeus 来电、存读档里的手机状态未验证。`profile-snapshot.py` 只有 `sg0-pc` 的 GameSpecific、SpriteSheets 两段变化，其余 11 个 profile 不变。
+- 新增（补丁 0057–0059，S;G0 的数据与指令集仅 TYN，标题类的新字段为通用代码）：Steam 版 STEINS;GATE 0 的 profile `sg0-pc`（**适配中**，启动器里隐藏）。新指令集 `InstructionSet::SG0` 以 S;G 的指令表为基础，补上 S;G0 新增的条件调用、鼠标和键盘跳转（`00:53`–`00:59`）；标题画面按原版 Game.exe 移植（"0" Logo 动画、装饰、菜单、子菜单，SGHD 标题类加了一组可选字段，`sg-pc` 不使用）；对话框、名字和名牌按原版。存读档、设置等画面还没做。详见 `docs/steins-gate-0-steam.md`。
+- 新增（补丁 0056，通用，可向上游提交）：两个可选的对话框字段。`FixedNameCenterOnHalfWidth`：固定位置、居中的名字以 `NamePos.x + MaxNameWidth / 2` 为中心（S;G0 的名字在屏幕正中）；`NametagType.CenteredTwoPiece`：名字两侧各一张图、随名字宽度对称展开的名牌。默认关闭，其他游戏不变。
+- 修复（补丁 0055，通用）：内置 Bink 2 播放时设置 `SW_MOVIEFRAME` 和 `SW_MOVIETOTALFRAME`（FFmpeg 路径本来就设）。S;G0 靠比较这两个值判断视频快结束，之前总帧数是 0，开场 intro 刚开始就被截掉。
+- 修复（补丁 0054，通用）：调试模式。保存状态前先建存档目录（从没存过档的游戏没有这个目录，状态写不进去、重启就丢）；跳过视频时把 `SW_MOVIEFRAME` 推到最后一帧，靠轮询帧数等视频结束的剧本（S;G0 世界线变动后的 `MACROSYS2` 标签 310）不再一直等下去。
+- 识别规则：`profiles.json` 加 `sg0-pc`（`Game.exe`、`USRDIR/script.mpk`、`USRDIR/system.mpk`、`USRDIR/mpk_bg.lst`），`sg-pc` 加可选字段 `noneOf: ["USRDIR/mpk_bg.lst"]`，SG0 目录不再同时命中前作；`test-profiles.py` 检查 `noneOf` 的格式，并检查不同游戏的规则不会同时命中同一个目录。旧版主应用不认识 `noneOf`，会把 SG0 目录当作有歧义、不识别（不会再用 `sg-pc` 去启动它）。
+- 测试：不依赖游戏数据的回归。`tools/impacto/profile-snapshot.py` 用检出里引擎自带的 minilua 按引擎的方式加载每个 profile，按顶层配置段记录哈希（`tools/impacto/profile-snapshots/`，共约 50 KB）；`test-profiles.py --source` 在本地和 CI 里逐个比对，`--diff-against <另一份检出>` 列出具体变化的行，有意的改动用 `--update` 更新。加 S;G0 前后 11 个已有 profile 的快照完全相同；故意改动共享的 `common/overlay.lua` 时 `sg-pc`、`mo6tw-pc` 等都被报出。规则写进 `AGENTS.md`「不依赖游戏数据的回归」。
+- 工具：`tools/impacto/sghd/gen_widths.py` 多一个 profile 参数，可以给 `sg0-pc` 生成字宽表（S;G0 字体 `font_a.dds` 是 80 行）。
+- 验证：MuMu 模拟器（Android 15，不是真机）。`sg0-pc`（Steam 原版数据＋中文脚本）从标题、新游戏一路到 `SG0_B01_12`；`sg-pc`（Steam 原文件＋2018 汉化）回归标题、按下开始、菜单、LOAD 子菜单、新游戏、第一次世界线变动，与改动前一致。真机未测。
+
 ## 0.4.3（versionCode 10）
 
 - 新增（补丁 0051，通用）：内置 Bink 2 解码。`FFmpegPlayer` 遇到 Bink 2（`KB2*`）文件交给新的 `Bink2Player`，用 [libbink2](https://github.com/raynorpat/libbink2)（LGPL-2.1+）解码视频与 Bink Audio 2 音频；KB2g 起的透明通道按 FFmpeg Bink 2 补丁补上；视频时钟以帧时间为准，有声音时跟随声音（声轨比画面短时不再卡在最后一帧）。`sg-pc` 只用游戏原文件就能播放全部视频，包括世界线变动的辉光管动画，不再需要 `convert_bink2.py` 转换。发行包的许可证合集附上 libbink2 的 LICENSE。

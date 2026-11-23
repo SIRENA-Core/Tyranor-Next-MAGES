@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 09:50:21 -0800
+Subject: [PATCH] tyn: debug mode: create the save folder, skipped movies end
+ at their last frame
+
+- Saving a state wrote debug-states.bin next to the save file without
+  creating its folder; a game that has never saved (fresh STEINS;GATE 0
+  install) has none, so the write failed and the state was lost at the next
+  start. The folder is created first now.
+- Skipping a movie (button or forced skip) stopped the player but left
+  SW_MOVIEFRAME where it was. STEINS;GATE 0 waits for movies by polling that
+  counter (MACROSYS2 label 310 waits for frame > 20 after the world line
+  change movie), so the script looped forever. A skipped movie on channel 0
+  now leaves the counter at its last frame (SW_MOVIETOTALFRAME - 1), as if it
+  had ended.
+
+Generic; can go upstream together with the debug mode.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc
+(Steam data, Chinese scripts): state saved at SG0_B01_06 #1516 and loaded from
+the title after a restart; x64 forced skip passes the world line change movie
+of SG0_B01_06 and goes on to SG0_B01_12. sg-pc: x64 forced skip through the
+first world line change of SG00_01.
+
+diff --git a/src/debugtools.cpp b/src/debugtools.cpp
+index 0fad2029c923e3a0d3df51342034c7febce19ef8..9b22689c86bd0fecd8e6d28187ab35a47ad2510f 100644
+--- a/src/debugtools.cpp
++++ b/src/debugtools.cpp
+@@ -244,6 +244,9 @@ bool GetVector(std::ifstream& f, std::vector<T>& v) {
+ constexpr uint32_t StatesMagic = 0x32534454;  // "TDS2"
+ 
+ void WriteStates() {
++  // the save folder only exists once the game has saved; a fresh install has none yet
++  std::error_code ec;
++  std::filesystem::create_directories(std::filesystem::path(StatesPath()).parent_path(), ec);
+   std::ofstream f(StatesPath(), std::ios::binary | std::ios::trunc);
+   if (!f) {
+     LastMessage = L("cannot write ", "无法写入 ") + StatesPath();
+@@ -299,6 +302,8 @@ void SkipMovies(bool keepLooping = false) {
+     const int mode = ScrWork[SW_MOVIE_PLAYMODE + 20 * i] % 20 % 8;
+     if (keepLooping && (mode == 2 || mode == 3 || mode == 5)) continue;
+     Video::Players[i]->Stop();
++    // STEINS;GATE 0 polls the frame counter (e.g. MACROSYS2 label 310 waits for frame 20)
++    if (i == 0) ScrWork[SW_MOVIEFRAME] = std::max(ScrWork[SW_MOVIETOTALFRAME] - 1, ScrWork[SW_MOVIEFRAME]);
+     SetFlag(SF_MOVIEPLAY + i, false);
+     SetFlag(SF_MOVIE_DRAWWAIT + i, false);  // scripts wait for the first frame before they wait for the end
+   }

@@ -218,6 +218,114 @@
       {
         "file": "0053-tyn-debug-mode-for-porting-speed-pause-rewind-saved-.patch",
         "sha256": "2aea6aa0a8f3d99933badb6ac95e79208e56a40e01c8be68b03dd73b495c3885"
+      },
+      {
+        "file": "0054-tyn-debug-mode-create-the-save-folder-skipped-movies.patch",
+        "sha256": "450e98128c7d3729fd73e25fcc330fc614dd612486ee5efa1ea62f27e6a5c131"
+      },
+      {
+        "file": "0055-tyn-Bink-2-movies-set-SW_MOVIEFRAME-SW_MOVIETOTALFRA.patch",
+        "sha256": "f02580af4a94080bb9323b7b363d4a8760f9e237ea5a286c0799dd86a855a4e0"
+      },
+      {
+        "file": "0056-tyn-centred-FixedPos-names-on-half-the-name-width-Ce.patch",
+        "sha256": "4e6524c556ff3133b617d9199d80a7859cab0e75f94ade6c42205c3bcc77fbbb"
+      },
+      {
+        "file": "0057-tyn-SGHD-title-menu-options-for-STEINS-GATE-0.patch",
+        "sha256": "ed25cca999e2985ea37a2543dd780d80e8eb7b7c05c899f522cc7633c49260c6"
+      },
+      {
+        "file": "0058-tyn-STEINS-GATE-0-instruction-set-InstructionSet-SG0.patch",
+        "sha256": "1dd39a7140bb1f6ffc874f374e8ba72106fa336e6a301a11bef7f0534a137e19"
+      },
+      {
+        "file": "0059-tyn-add-the-sg0-pc-profile-STEINS-GATE-0-Steam-hidde.patch",
+        "sha256": "310c28759b84ee07c142ddd2e17d8f3152113ef8e3c4b57f1fc394f403497d0c"
+      },
+      {
+        "file": "0060-tyn-STEINS-GATE-0-phone-and-RINE-SG0-Phone.patch",
+        "sha256": "bc999cb0e5a8d352e3b90f9d1a25385f67e0617e2c93ad65c98c0a05fa7a3324"
+      },
+      {
+        "file": "0061-tyn-debug-mode-commands-from-debug-cmd.txt.patch",
+        "sha256": "38e419bf040f502dd92e328e103d7a32a37021062c5e4e4008bbdbe2b5307070"
+      },
+      {
+        "file": "0062-tyn-optional-alpha-channel-in-the-render-targets-Fra.patch",
+        "sha256": "f3016983d57523a2b4187dc80c6d3ad67cd16c022def18c25d2ad5361e5458cb"
+      },
+      {
+        "file": "0063-tyn-MO6TWPC-save-file-extra-game-data-per-entry-file.patch",
+        "sha256": "52271d34ba240aeb79669cd31f6c48ae8f3a15d243087b44cb818c511c6e46f8"
+      },
+      {
+        "file": "0064-tyn-STEINS-GATE-0-system-menu-and-save-load-screen.patch",
+        "sha256": "bdc45d874e1e057218b1541071b056e1e00c4f024fc6abec800fd5b8e080133c"
+      },
+      {
+        "file": "0065-tyn-STEINS-GATE-0-CONFIG-screen.patch",
+        "sha256": "356d1350c69f3446646e898e200284fc5622c4ccb267faeb44b3023eb26c3bbf"
+      },
+      {
+        "file": "0066-tyn-backlog-IsEmpty-optional-CC-backlog-mask-system-.patch",
+        "sha256": "9f07ff9ffab2ce05a1a9b69292de19446ee64d89a10258d20b111b29cff7bd86"
+      },
+      {
+        "file": "0067-tyn-STEINS-GATE-0-backlog-screen.patch",
+        "sha256": "1078fdb9f8f1c0635f5e7d34cffafc78f561b8c8b31ff527b244845ae6015c8f"
+      },
+      {
+        "file": "0068-tyn-debug-mode-file-commands-flag-var-and-unlock.patch",
+        "sha256": "9135e2b5d77cd61706cf77cc96bbd6748cdbf17e9aef77ff2c4265a67c0ce517"
+      },
+      {
+        "file": "0069-tyn-MO6TWPC-save-system-TIPS-bits-accessor.patch",
+        "sha256": "7c2a9ec83efb34236f4b0f975d517b3c7a5bd9e55a35d29cbf692f80106f954b"
+      },
+      {
+        "file": "0070-tyn-STEINS-GATE-0-TIPS-screen.patch",
+        "sha256": "c15754d67166362c70004fcf1377287297023a0ba5510598cd8e542054aaf16c"
+      },
+      {
+        "file": "0071-tyn-game-specific-system-message-layer-hook.patch",
+        "sha256": "bd97db4dd80ee8d08903f7f0b21a6b78ea62bd48021b240e6990ccc9e957e36d"
+      },
+      {
+        "file": "0072-tyn-STEINS-GATE-0-system-message-box.patch",
+        "sha256": "4902530fecd794c8e56feb190c20fe52b3d3922e6cb85a3be9c34bc23e68a24f"
+      },
+      {
+        "file": "0073-tyn-STEINS-GATE-0-phone-system-text-the-whole-colour.patch",
+        "sha256": "c98c927d923f543eea7f150483b92f40346dba66e9e0ae51b878a2430d053f1e"
+      },
+      {
+        "file": "0074-tyn-STEINS-GATE-0-Amadeus-call-picture.patch",
+        "sha256": "4e37ee6400c6d8223d161e23319c546d1af8b3de7506ec58f0d9af5cea16900b"
+      },
+      {
+        "file": "0075-tyn-MO6TWPC-save-system-CG-flag-bytes-accessor.patch",
+        "sha256": "44a47a8a8dd6772927ed13693c0f1cda21791a134cc8016f77bb2585d10e9919"
+      },
+      {
+        "file": "0076-tyn-STEINS-GATE-0-clear-list.patch",
+        "sha256": "61a32ba4e0d09bfd436fab4d289e80d4e28e166adb069064d5b243eeeddd5700"
+      },
+      {
+        "file": "0077-tyn-MO6TWPC-save-system-BGM-flag-bytes-accessor.patch",
+        "sha256": "b81b7fed9ef7dca20bcf37ea91eda92637a3eb818a915ecda44fb86a097805a3"
+      },
+      {
+        "file": "0078-tyn-STEINS-GATE-0-CG-sound-and-movie-libraries.patch",
+        "sha256": "464d146b8c6abfc1c585b6c542adc3fd585db29e60a33ecb654e814e292fae41"
+      },
+      {
+        "file": "0079-tyn-optional-system-data-write-when-the-app-goes-to-.patch",
+        "sha256": "49f5859f0249b7dfa5ab6dba7c92fcfe245c275368268ee3aed18ca87ef30a55"
+      },
+      {
+        "file": "0080-tyn-sg0-pc-writes-its-system-data-when-going-to-the-.patch",
+        "sha256": "6bd2db27a83a9da8aadbd4c0753f674464fafc74e5bd2e8f5948ddc8f9c876b7"
       }
     ]
   },

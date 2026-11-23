@@ -1,0 +1,505 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:52:38 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 clear list
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/sg0/phone.h b/src/games/sg0/phone.h
+index 83e7d82a3eaead82cf7a23cba666d5696d97e77e..8aed690baf368187997a2326af6b2cbadf4288a0 100755
+--- a/src/games/sg0/phone.h
++++ b/src/games/sg0/phone.h
+@@ -56,6 +56,8 @@ void Reset();
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread);
+ // The system message box (instruction 00:43, 0x4824d0): true when the thread waits (the instruction runs again)
+ bool SystemMesInstruction(Vm::Sc3VmThread* thread);
++// The clear list (instruction 10:21, 0x485b80): drawn on the system menu layer (screen 7)
++void ClearListInstruction(Vm::Sc3VmThread* thread);
+ // its draw (draw component 0xb of the original: 0x458200 at the alpha ScrWork 0x3430)
+ void RenderSystemMessage();
+ void RenderSystemMenuLayer(bool afterMenus);
+diff --git a/src/games/sg0/phonecode.cpp b/src/games/sg0/phonecode.cpp
+index e31ef75d6938b799054d0cea14bdc7e1e1e37eb3..dd0549054d7d559be2be0179e59921b79179a1c2 100755
+--- a/src/games/sg0/phonecode.cpp
++++ b/src/games/sg0/phonecode.cpp
+@@ -75,8 +75,13 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x005ba770, {0x00,0x00,0x00,0x00,0x00,0x00,0x59,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x59,0x40}},
+     {0x005ba780, {0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41}},
+     {0x005ba790, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x41}},
++    {0x005c5f10, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xc8,0x62,0x5c,0x00,0x00,0x00,0x00,0x00}},
+     {0x005c6290, {0x02,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00}},
+     {0x005c8cc0, {0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}},
++    {0x005c8cd0, {0x86,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x48,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8ce0, {0x2c,0x01,0x00,0x00,0x36,0x00,0x00,0x00,0x23,0x03,0x00,0x00,0x10,0x00,0x00,0x00}},
++    {0x005c8cf0, {0xac,0x08,0x00,0x00,0x00,0x00,0x00,0x00,0x6e,0x01,0x00,0x00,0x32,0x01,0x00,0x00}},
++    {0x005c8d00, {0x38,0x01,0x00,0x00,0x62,0x01,0x00,0x00,0x22,0x03,0x00,0x00,0x0c,0x00,0x00,0x00}},
+     {0x005c8d90, {0x05,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x0f,0x00,0x00,0x00}},
+     {0x005c8da0, {0x05,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x06,0x00,0x00,0x00}},
+     {0x005c8db0, {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
+@@ -541,6 +546,77 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+ };
+ const size_t RdataChunkCount = sizeof(RdataChunks) / sizeof(RdataChunks[0]);
+ 
++// ===== FUN_0042a410 @ 0042a410
++
++uint FUN_0042a410(int *param_1,uint *param_2)
++
++{
++  int iVar1;
++  int *piVar2;
++  uint uVar3;
++  uint uVar4;
++  int iVar5;
++  int iVar6;
++  uint local_8;
++  
++  uVar3 = 0;
++  iVar5 = 0;
++  local_8 = 0;
++  if (DAT_00de61c4 != 0) {
++    do {
++      piVar2 = (int *)(&PTR_DAT_005c5f18)[local_8 * 2];
++      if (piVar2 != (int *)0x0) {
++        uVar4 = 0;
++        iVar6 = iVar5;
++        do {
++          iVar1 = *piVar2;
++          iVar5 = iVar6;
++          if (iVar1 == 0xffff) break;
++          uVar3 = uVar3 + 1;
++          piVar2 = piVar2 + 6;
++          uVar4 = uVar4 + 1;
++          iVar5 = iVar6 + 1;
++          if (*(signed char *)(iVar1 + DAT_02ee71a4) == '\0') {
++            iVar5 = iVar6;
++          }
++          iVar6 = iVar5;
++        } while (uVar4 < 10);
++      }
++      local_8 = local_8 + 1;
++    } while (local_8 < DAT_00de61c4);
++  }
++  *param_1 = iVar5;
++  *param_2 = uVar3;
++  if (uVar3 == 0) {
++    return 0;
++  }
++  return (uint)(iVar5 * 100) / uVar3;
++}
++
++
++// ===== FUN_0042a4f0 @ 0042a4f0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042a4f0(void)
++
++{
++  undefined *puVar1;
++  
++  DAT_00de61c4 = 0;
++  DAT_00de8fe4 = 1;
++  _DAT_00de8f50 = 0;
++  DAT_00de7a9c = 0;
++  puVar1 = (decltype(puVar1))(PTR_DAT_005c5f18);
++  while (puVar1 != (undefined *)0x0) {
++    DAT_00de61c4 = DAT_00de61c4 + 1;
++    puVar1 = (decltype(puVar1))((&PTR_DAT_005c5f18)[DAT_00de61c4 * 2]);
++  }
++  DAT_00de63dc = DAT_00de61c4 + 3U >> 2;
++  return;
++}
++
++
+ // ===== FUN_0042e750 @ 0042e750
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+@@ -596,6 +672,213 @@ switchD_0042ffdb_caseD_0:
+ }
+ 
+ 
++// ===== FUN_004504c0 @ 004504c0
++
++void FUN_004504c0(uint param_1)
++
++{
++  int iVar1;
++  int iVar2;
++  int iVar3;
++  uint uVar4;
++  uint uVar5;
++  uint uVar6;
++  uint uVar7;
++  undefined4 uVar8;
++  undefined4 uVar9;
++  undefined1 local_108 [256];
++  undefined4 local_8;
++  uVar5 = *(uint *)(DAT_02ee7660 + 0x218c);
++  uVar4 = 0x18;
++  if (uVar5 < 0x18) {
++    uVar4 = uVar5;
++  }
++  FUN_0044c0b0(0xa4,0xa4,0,0,0x44f00000,0x44870000,0,0x4487c000,0,0,0xffffff,0x100,0,
++               (uVar4 * 0x110) / 0x18,0x10);
++  if (0x10 < uVar5) {
++    FUN_0044b390();
++    uVar4 = uVar5 - 0x10;
++    uVar6 = 0;
++    do {
++      iVar1 = FUN_004919d0(*(undefined4 *)((intptr_t)&DAT_005c8ce8 + uVar6));
++      if ((iVar1 != 0) && (*(uint *)((intptr_t)&DAT_005c8cec + uVar6) <= uVar4)) {
++        param_1 = ((uVar4 - *(uint *)((intptr_t)&DAT_005c8cec + uVar6)) * 0x100) / 0xc;
++        if (0x100 < param_1) {
++          param_1 = 0x100;
++        }
++        FUN_0044cba0(0xa4,(float)((double)*(int *)((intptr_t)&DAT_005c8cd0 + uVar6) +
++                                 (double)(&DAT_005ba790)
++                                         [-(*(int *)((intptr_t)&DAT_005c8cd0 + uVar6) >> 0x1f)]),
++                     (float)((double)*(int *)((intptr_t)&DAT_005c8cd4 + uVar6) +
++                            (double)(&DAT_005ba790)[-(*(int *)((intptr_t)&DAT_005c8cd4 + uVar6) >> 0x1f)]
++                            ),0x43930000,0x44688000,
++                     (float)((double)*(int *)((intptr_t)&DAT_005c8cd8 + uVar6) +
++                            (double)(&DAT_005ba790)[-(*(int *)((intptr_t)&DAT_005c8cd8 + uVar6) >> 0x1f)]
++                            ),0x42400000,0xffffff,param_1,1);
++      }
++      uVar6 = uVar6 + 0x20;
++    } while (uVar6 < 0xc0);
++    FUN_0044b3b0();
++    if (0x20 < uVar4) {
++      uVar5 = (uVar5 - 0x30) * param_1 >> 4;
++      uVar4 = 0;
++      do {
++        iVar1 = FUN_004919d0(*(undefined4 *)((intptr_t)&DAT_005c8ce8 + uVar4));
++        if (iVar1 != 0) {
++          FUN_0044cba0(0xa4,(float)((double)*(int *)((intptr_t)&DAT_005c8cdc + uVar4) +
++                                   (double)(&DAT_005ba790)
++                                           [-(*(int *)((intptr_t)&DAT_005c8cdc + uVar4) >> 0x1f)]),
++                       0x4507c000,
++                       (float)((double)*(int *)((intptr_t)&DAT_005c8ce0 + uVar4) +
++                              (double)(&DAT_005ba790)
++                                      [-(*(int *)((intptr_t)&DAT_005c8ce0 + uVar4) >> 0x1f)]),0x43810000,
++                       (float)((double)*(int *)((intptr_t)&DAT_005c8ce4 + uVar4) +
++                              (double)(&DAT_005ba790)
++                                      [-(*(int *)((intptr_t)&DAT_005c8ce4 + uVar4) >> 0x1f)]),0x44178000,
++                       0xffffff,uVar5,1);
++        }
++        uVar4 = uVar4 + 0x20;
++      } while (uVar4 < 0xc0);
++      FUN_0044cba0(0xa4,0x452fe000,0x429c0000,0x42a80000,0x42a80000,0x42cc0000,0x445b0000,0xffffff,
++                   uVar5,1);
++      iVar1 = FUN_00490e60();
++      if (iVar1 == 0) {
++        FUN_0044cba0(0xa4,0x452fe000,0x43280000,0x42a80000,0x42a80000,0x44538000,0x445b0000,0xffffff
++                     ,uVar5,1);
++        uVar9 = 0x445b0000;
++        uVar8 = 0x44ab0000;
++      }
++      else {
++        FUN_0044cba0(0xa4,0x452fe000,0x43280000,0x42a80000,0x42a80000,0x42cc0000,0x446b8000,0xffffff
++                     ,uVar5,1);
++        uVar9 = 0x446b8000;
++        uVar8 = 0x44388000;
++      }
++      FUN_0044cba0(0xa4,0x452fe000,0x43810000,0x42a80000,0x42a80000,uVar8,uVar9,0xffffff,uVar5,1);
++      FUN_0044cba0(0xa4,0x452fe000,0,0x434c0000,0x42900000,0x44d2c000,0x44730000,0xffffff,uVar5,1);
++      FUN_00448e10();
++      FUN_00448fa0(0x4c);
++      uVar8 = FUN_004645a0(0,7);
++      FUN_00462f30(0x4c,0x7b,599,300,uVar8,0,0,0x1a,uVar5);
++      FUN_00462f30(0x4c,0x7d,0x259,300,uVar8,0,0,0x1a,uVar5);
++      FUN_00462f30(0x4c,0x7c,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++      uVar4 = *(uint *)(DAT_02ee7660 + 0x1f44) / 0xe10;
++      uVar7 = *(uint *)(DAT_02ee7660 + 0x1f44) % 0xe10;
++      uVar6 = uVar7 / 0x3c;
++      uVar8 = FUN_004645a0(0,9);
++      iVar1 = FUN_004644a0(uVar8,0,0x1a);
++      iVar3 = -iVar1 + 0x228;
++      FUN_00462f30(0x4c,iVar3,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++      FUN_004648d0(Cv(uVar7 % 0x3c),Cv(local_108),Cv(2),Cv(0));
++      iVar2 = FUN_004644a0(local_108,0,0x1a);
++      FUN_00462f30(0x4c,iVar3 - (iVar2 + 2),600,300,local_108,0,0xffffff,0x1a,uVar5);
++      if ((uVar6 != 0) || (uVar4 != 0)) {
++        uVar8 = FUN_004645a0(0,8);
++        iVar2 = FUN_004644a0(uVar8,0,0x1a);
++        iVar2 = (-iVar1 + 0x1f8) - iVar2;
++        FUN_00462f30(0x4c,iVar2,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(uVar6),Cv(local_108),Cv(2),Cv(0));
++        iVar1 = FUN_004644a0(local_108,0,0x1a);
++        FUN_00462f30(0x4c,iVar2 - (iVar1 + 2),600,300,local_108,0,0xffffff,0x1a,uVar5);
++        if (uVar4 != 0) {
++          uVar8 = FUN_004645a0(0,10);
++          iVar1 = FUN_004644a0(uVar8,0,0x1a);
++          iVar1 = (iVar2 + -0x30) - iVar1;
++          FUN_00462f30(0x4c,iVar1,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++          FUN_004648d0(Cv(uVar4),Cv(local_108),Cv(0),Cv(0));
++          iVar2 = FUN_004644a0(local_108,0,0x1a);
++          FUN_00462f30(0x4c,iVar1 - (iVar2 + 2),600,300,local_108,0,0xffffff,0x1a,uVar5);
++        }
++      }
++      iVar1 = FUN_00490e60();
++      if (iVar1 == 0) {
++        uVar8 = FUN_004645a0(0,0x11);
++        FUN_00462f30(0x4c,0x26c,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(DAT_016d786c),Cv(local_108),Cv(3),Cv(0));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        FUN_00462f30(0x4c,0x37e - iVar2,600,300,local_108,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xd);
++        iVar1 = FUN_004644a0(uVar8,0,0x1a);
++        iVar1 = (0x37e - iVar2) - iVar1;
++        FUN_00462f30(0x4c,iVar1,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(DAT_016d7868),Cv(local_108),Cv(3),Cv(0));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        uVar8 = 600;
++      }
++      else {
++        uVar8 = FUN_004645a0(0,0x11);
++        FUN_00462f30(0x4c,0x7c,0x284,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(DAT_016d786c),Cv(local_108),Cv(3),Cv(0));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        FUN_00462f30(0x4c,0x1ca - iVar2,0x284,300,local_108,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xd);
++        iVar1 = FUN_004644a0(uVar8,0,0x1a);
++        iVar1 = (0x1ca - iVar2) - iVar1;
++        FUN_00462f30(0x4c,iVar1,0x284,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(DAT_016d7868),Cv(local_108),Cv(3),Cv(0));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        uVar8 = 0x284;
++      }
++      FUN_00462f30(0x4c,iVar1 - (iVar2 + 2),uVar8,300,local_108,0,0xffffff,0x1a,uVar5);
++      uVar4 = DAT_016d7870 / 100;
++      uVar6 = DAT_016d7870 % 100;
++      iVar1 = FUN_00490e60();
++      if (iVar1 == 0) {
++        uVar8 = FUN_004645a0(0,0x12);
++        FUN_00462f30(0x4c,0x3c8,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xc);
++        iVar1 = FUN_004644a0(uVar8,0,0x1a);
++        iVar3 = -iVar1 + 0x4c8;
++        FUN_00462f30(0x4c,iVar3,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(uVar6),Cv(local_108),Cv(2),Cv(1));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        FUN_00462f30(0x4c,iVar3 - (iVar2 + 2),600,300,local_108,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xb);
++        FUN_00462f30(0x4c,-iVar1 + 0x49a,600,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(uVar4),Cv(local_108),Cv(0),Cv(0));
++        iVar1 = FUN_004644a0(local_108,0,0x1a);
++        uVar8 = 600;
++      }
++      else {
++        uVar8 = FUN_004645a0(0,0x12);
++        FUN_00462f30(0x4c,0x222,0x284,300,uVar8,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xc);
++        iVar1 = FUN_004644a0(uVar8,0,0x1a);
++        iVar3 = -iVar1 + 0x3d4;
++        FUN_00462f30(0x4c,iVar3,0x284,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(uVar6),Cv(local_108),Cv(2),Cv(1));
++        iVar2 = FUN_004644a0(local_108,0,0x1a);
++        FUN_00462f30(0x4c,iVar3 - (iVar2 + 2),0x284,300,local_108,0,0xffffff,0x1a,uVar5);
++        uVar8 = FUN_004645a0(0,0xb);
++        FUN_00462f30(0x4c,-iVar1 + 0x3a6,0x284,300,uVar8,0,0xffffff,0x1a,uVar5);
++        FUN_004648d0(Cv(uVar4),Cv(local_108),Cv(0),Cv(0));
++        iVar1 = FUN_004644a0(local_108,0,0x1a);
++        uVar8 = 0x284;
++      }
++      FUN_00462f30(0x4c,(iVar3 - (iVar1 + 3)) + -0x2e,uVar8,300,local_108,0,0xffffff,0x1a,uVar5);
++      FUN_00448e00();
++    }
++  }
++  return;
++}
++
++
++// ===== FUN_00451000 @ 00451000
++
++void FUN_00451000(void)
++
++{
++  DAT_016d7870 = 99999;
++  FUN_0042a410(Cv(&DAT_016d7878),Cv(&DAT_016d7874));
++  if (DAT_016d7874 != 0) {
++    DAT_016d7870 = (undefined4)
++                   (((longlong)DAT_016d7878 * 10000 & 0xffffffffU) / (ulonglong)DAT_016d7874);
++  }
++  FUN_00458a30(Cv(&DAT_016d7868),Cv(&DAT_016d786c));
++  return;
++}
++
++
+ // ===== FUN_00451fe0 @ 00451fe0
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+@@ -3130,7 +3413,7 @@ void FUN_004579e0(void)
+         FUN_00452910();
+         return;
+       case 7:
+-        FUN_004504c0(*(undefined4 *)(DAT_02ee7660 + 0x2194));
++        FUN_004504c0(Cv(*(undefined4 *)(DAT_02ee7660 + 0x2194)));
+         return;
+       case 9:
+         FUN_0042c830(0x100);
+diff --git a/src/games/sg0/phoneemu.h b/src/games/sg0/phoneemu.h
+index 2ee95610fbad6d46ca246962431aa088549beeea..e155f06cff881db6e408619b15cbbd9ef9541905 100755
+--- a/src/games/sg0/phoneemu.h
++++ b/src/games/sg0/phoneemu.h
+@@ -184,6 +184,9 @@ extern const size_t RdataChunkCount;
+ // The original's TIPS bits (0x400 bytes, 3 per tip) are the engine save system's (MO6TWPC::SaveSystem::TipsBits).
+ uint8_t* TipsBits();
+ #define DAT_02ee7188 ((uintptr_t)PhoneCode::TipsBits())
++// ... and its CG flags (0x2ee71a4: a byte per CG; MO6TWPC::SaveSystem::EvBytes)
++uint8_t* EvBytes();
++#define DAT_02ee71a4 ((uintptr_t)PhoneCode::EvBytes())
+ 
+ // Game.exe functions the phone calls (phoneshim.cpp). Floats are passed as Arg (Ghidra prints float immediates as
+ // their bit pattern); coordinates of the sprite functions are in 1920x1080 units, those of the text in 1280x720.
+@@ -231,7 +234,6 @@ void FUN_00489c30(Arg = 0);
+ void FUN_0042bf10(Arg);
+ void FUN_0042c830(Arg);
+ void FUN_0042d770(Arg);
+-void FUN_004504c0(Arg);
+ void FUN_00451810(Arg);
+ 
+ void FUN_004906f0();  // config.cpp
+diff --git a/src/games/sg0/phoneglobals.h b/src/games/sg0/phoneglobals.h
+index a1f8cb56fc66c3034ee381ed66a03134daedcbe8..13e31e7dee9abdc45c212ba15e95e3bfd2741e62 100755
+--- a/src/games/sg0/phoneglobals.h
++++ b/src/games/sg0/phoneglobals.h
+@@ -34,6 +34,14 @@
+ #define DAT_005c8cc4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc4)))
+ #define DAT_005c8cc8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc8)))
+ #define DAT_005c8ccc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8ccc)))
++#define DAT_005c8cd0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cd0)))
++#define DAT_005c8cd4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cd4)))
++#define DAT_005c8cd8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cd8)))
++#define DAT_005c8cdc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cdc)))
++#define DAT_005c8ce0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8ce0)))
++#define DAT_005c8ce4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8ce4)))
++#define DAT_005c8ce8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8ce8)))
++#define DAT_005c8cec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cec)))
+ #define DAT_005c8d90 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8d90)))
+ #define DAT_005c8d9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8d9c)))
+ #define DAT_005c8da0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8da0)))
+@@ -173,6 +181,10 @@
+ #define DAT_00dde17c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde17c)))
+ #define DAT_00de5ec4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ec4)))
+ #define DAT_00de5ed0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ed0)))
++#define DAT_00de61c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de61c4)))
++#define DAT_00de63dc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de63dc)))
++#define DAT_00de7a9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de7a9c)))
++#define DAT_00de8fe4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8fe4)))
+ #define DAT_016d7764 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7764)))
+ #define DAT_016d7768 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7768)))
+ #define DAT_016d776c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d776c)))
+@@ -180,6 +192,11 @@
+ #define DAT_016d7774 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7774)))
+ #define DAT_016d777c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d777c)))
+ #define DAT_016d785c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d785c)))
++#define DAT_016d7868 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7868)))
++#define DAT_016d786c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d786c)))
++#define DAT_016d7870 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7870)))
++#define DAT_016d7874 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7874)))
++#define DAT_016d7878 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7878)))
+ #define DAT_016d7880 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7880)))
+ #define DAT_016d7884 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7884)))
+ #define DAT_016d7888 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7888)))
+@@ -560,6 +577,7 @@
+ #define DAT_032fc7e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7e0)))
+ #define DAT_032fc7ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7ec)))
+ #define DAT_032fc808 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc808)))
++#define PTR_DAT_005c5f18 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c5f18)))
+ #define PTR_DAT_005c92e0 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92e0)))
+ #define PTR_DAT_005c92f8 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92f8)))
+ #define PTR_DAT_005c9310 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9310)))
+@@ -612,6 +630,7 @@
+ #define _DAT_00de5f18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f18)))
+ #define _DAT_00de5f1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f1c)))
+ #define _DAT_00de5f20 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f20)))
++#define _DAT_00de8f50 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de8f50)))
+ #define _DAT_016d7748 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7748)))
+ #define _DAT_016d774c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d774c)))
+ #define _DAT_016d7778 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7778)))
+@@ -817,8 +836,12 @@ namespace Impacto {
+ namespace SG0 {
+ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
++uint FUN_0042a410(int *param_1,uint *param_2);
++void FUN_0042a4f0(void);
+ void FUN_0042e750(void);
+ byte * FUN_0042ffc0(byte *param_1);
++void FUN_004504c0(uint param_1);
++void FUN_00451000(void);
+ void FUN_00451fe0(int param_1);
+ void FUN_004524a0(void);
+ void FUN_004524f0(void);
+diff --git a/src/games/sg0/phoneshim.cpp b/src/games/sg0/phoneshim.cpp
+index 0d82d6fc5fe48bf6050e5866da802279d1daaef9..4283b183d5fccfaa9f4d2a73a0ecf695a7120abf 100755
+--- a/src/games/sg0/phoneshim.cpp
++++ b/src/games/sg0/phoneshim.cpp
+@@ -797,6 +797,12 @@ const uint8_t* Sg0Emu::HandlePtr(uint32_t handle) {
+ }
+ namespace PhoneCode {
+ 
++uint8_t* EvBytes() {
++  static uint8_t none[1200];
++  auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
++  return save ? save->EvBytes() : none;
++}
++
+ uint8_t* TipsBits() {
+   static uint8_t none[0x400];
+   auto* save = dynamic_cast<MO6TWPC::SaveSystem*>(SaveSystem::Implementation);
+diff --git a/src/games/sg0/sysmenu.cpp b/src/games/sg0/sysmenu.cpp
+index b02aa03721575d9844734519d2c30961c3458f4f..3b1bfd6d12315ee56648ed54772305d30beb110e 100755
+--- a/src/games/sg0/sysmenu.cpp
++++ b/src/games/sg0/sysmenu.cpp
+@@ -40,7 +40,6 @@ void FUN_00489c30(Arg) {}
+ void FUN_0042bf10(Arg) {}
+ void FUN_0042c830(Arg) {}
+ void FUN_0042d770(Arg) {}
+-void FUN_004504c0(Arg) {}
+ void FUN_00451810(Arg) {}
+ void FUN_0045c1b0() {}
+ 
+@@ -167,6 +166,17 @@ void RenderSystemMessage() {
+   if (alpha != 0) FUN_00458200(alpha);
+ }
+ 
++// 10:21 (0x485b80): 0 / 3 count what was seen (0x451000)
++void ClearListInstruction(Vm::Sc3VmThread* thread) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset++;
++  if (type == 0 || type == 3) {
++    FUN_0042a4f0();  // the album table (the original counts it at the start, 0x42a4f0)
++    FUN_00451000();
++  }
++}
++
+ // 00:44 (0x482760)
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread) {
+   thread->IpOffset += 2;
+diff --git a/src/vm/inst_sg0.h b/src/vm/inst_sg0.h
+index 08a68eede7bdcc824e392d5d762d3fe4529934e0..58511e5b814f44e944c24f96ae1d9e6474c46c79 100644
+--- a/src/vm/inst_sg0.h
++++ b/src/vm/inst_sg0.h
+@@ -180,6 +180,9 @@ inline void InstSg0SystemMes(Sc3VmThread* thread, float dt) {
+   if (SG0::Phone::SystemMesInstruction(thread)) BlockCurrentScriptThread = true;
+ }
+ 
++// 10:21 (0x485b80): the clear list of S;G0 (games/sg0/sysmenu.cpp)
++inline void InstSg0ClearList(Sc3VmThread* thread, float dt) { SG0::Phone::ClearListInstruction(thread); }
++
+ // 01:0E (0x47ce10): SetMesModeFormat, and its table for the original text layout of the S;G0 TIPS text
+ inline void InstSg0SetMesModeFormat(Sc3VmThread* thread, float dt) {
+   SG0::Phone::MesModeFormat(thread);
+diff --git a/src/vm/opcodetables_sg0.h b/src/vm/opcodetables_sg0.h
+index f84e40e5aacc83377bab1a8505e1186161891215..e8485b1f195c91e76e3ab474575ded0dfda34afb 100644
+--- a/src/vm/opcodetables_sg0.h
++++ b/src/vm/opcodetables_sg0.h
+@@ -33,6 +33,7 @@ inline void Configure_SG0() {
+   OpcodeTableGraph_SG0[0x0d] = InstSg0MesMain;
+   OpcodeTableGraph_SG0[0x0e] = InstSg0SetMesModeFormat;  // also kept for the original text layout  // MesMain, plus the phone flag 1611
+   OpcodeTableUser1_SG0[0x13] = InstSg0Config;  // the S;G0 CONFIG screen
++  OpcodeTableUser1_SG0[0x21] = InstSg0ClearList;  // the S;G0 clear list
+   OpcodeTableUser1_SG0[0x23] = InstSg0SaveMenu;  // the S;G0 save / load menu
+   OpcodeTableUser1_SG0[0x33] = InstSg0Tips;  // the S;G0 TIPS screen
+   OpcodeTableUser1_SG0[0x37] = InstSg0Group1037;  // RINE / phone group (SGHD: the S;G phone)

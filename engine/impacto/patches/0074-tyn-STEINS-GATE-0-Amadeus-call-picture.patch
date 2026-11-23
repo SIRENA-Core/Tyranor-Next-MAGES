@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 22:43:53 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 Amadeus call picture
+
+0x4361e0: the background and characters the scripts give the Amadeus app are
+drawn into render target 6, which the phone shows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/sg0/phone.cpp b/src/games/sg0/phone.cpp
+index aea88cf251370dd35b4ad23832c89c1c1492beaa..ee32c474ff2d55bf120eaf55333a76ea40afbd43 100755
+--- a/src/games/sg0/phone.cpp
++++ b/src/games/sg0/phone.cpp
+@@ -12,6 +12,9 @@
+ #include "../../ui/ui.h"
+ #include "../../mem.h"
+ #include "../../vm/vm.h"
++#include "../../background2d.h"
++#include "../../character2d.h"
++#include "../../profile/scriptvars.h"
+ #include "../../profile/scriptvars.h"
+ #include "../../renderer/renderer.h"
+ #include "../../vm/interface/input.h"
+@@ -58,9 +61,63 @@ void UpdateInput() {
+   }
+ }
+ 
++namespace {
++
++// draw an engine background / character of the scene whatever its layer and display flag (the original draws the
++// buffer itself, 0x436bf0 / 0x43a340)
++template <typename T>
++void DrawAnyLayer(T& obj) {
++  const bool show = obj.Show;
++  const auto layers = obj.Layers;
++  obj.Show = true;
++  obj.Layers = {-0x7fff, -0x7fff};
++  obj.Render(-0x7fff);
++  obj.Show = show;
++  obj.Layers = layers;
++}
++
++// 0x4361e0: the Amadeus call: the background ScrWork 0x67c0 and the characters 0x67c4 / 0x67c8 (buffer + 1, 2..8)
++// drawn into render target 6, which the phone shows (0x46c450)
++void DrawAmadeus() {
++  if (!FUN_0046b660()) return;
++  const int b = Sw(0x67c0);
++  const uint32_t bg = ((uint32_t)b - 2u < 7 && !GetFlag(b + 0x4f5)) ? (uint32_t)b - 1 : 0xff;
++  auto chara = [](int v) -> uint32_t {
++    const uint32_t i = (uint32_t)v - 1;
++    return ((uint32_t)v - 2u > 6 || Sw((int)i * 0xa0 + 0x4fd4) == 0xffff) ? 0xff : i;
++  };
++  uint32_t c1 = chara(Sw(0x67c4)), c2 = chara(Sw(0x67c8));
++  FUN_0044b5a0(6);
++  FUN_00446e90(0);
++  if (bg < 8) {
++    Background2D* b2d = Backgrounds2D[ScrWork[Profile::ScriptVars::SW_BG1SURF + bg]];
++    if (b2d && b2d->Status == LoadStatus::Loaded) DrawAnyLayer(*b2d);
++  }
++  auto drawChara = [](uint32_t c) {
++    Character2D& ch = Characters2D[ScrWork[Profile::ScriptVars::SW_CHA1SURF + c]];
++    if (ch.Status != LoadStatus::Loaded) return;
++    ch.UpdateState((int)c);
++    DrawAnyLayer(ch);
++  };
++  if (c1 < 8 && c2 < 8 && c1 != c2) {
++    // the lower priority (ScrWork 0x4fd8 of the character) first
++    if (Sw((int)c2 * 0xa0 + 0x4fd8) < Sw((int)c1 * 0xa0 + 0x4fd8)) std::swap(c1, c2);
++    drawChara(c1);
++    drawChara(c2);
++  } else if (c1 < 8) {
++    drawChara(c1);
++  } else if (c2 < 8) {
++    drawChara(c2);
++  }
++  FUN_0044b5a0(8);
++}
++
++}  // namespace
++
+ void RenderEarly() {
+   FUN_004709d0();
+   FUN_0046b870();
++  DrawAmadeus();
+ }
+ 
+ namespace {

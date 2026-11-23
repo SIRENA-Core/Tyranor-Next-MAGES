@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 09:50:21 -0800
+Subject: [PATCH] tyn: Bink 2 movies set SW_MOVIEFRAME / SW_MOVIETOTALFRAME at
+ start
+
+The FFmpeg path clears SW_MOVIEFRAME and sets SW_MOVIETOTALFRAME when a movie
+opens; the built-in Bink 2 path did neither, so the total stayed 0.
+STEINS;GATE 0 ends its startup movie loop once the total is within 6 frames of
+the current frame (_STARTUP_WIN label 47: GlobalVars[6345] <= GlobalVars[6343]
++ 6), so intro.bk2 was cut right after it started. The Bink 2 path now sets
+both, the total from the file header.
+
+Generic; can go upstream together with the Bink 2 decoder.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device): sg0-pc
+intro.bk2 plays to the end before the title; sg-pc startup movies, title and
+the first world line change movie of SG00_01 as before.
+
+diff --git a/src/video/bink2player.h b/src/video/bink2player.h
+index 4ca58b6b7eeaf61fc42bbdbf36598ee7a86f0e1b..4ea1fbc245a69191e2c1098bf076caa1bc9d616a 100644
+--- a/src/video/bink2player.h
++++ b/src/video/bink2player.h
+@@ -38,6 +38,7 @@ class Bink2Player {
+   bool Playing() const { return IsPlaying; }
+   // the frame on screen, -1 before the first one
+   long ShownFrame() const { return Shown; }
++  unsigned long FrameCount() const { return Frames; }
+ 
+  private:
+   struct Frame {
+diff --git a/src/video/ffmpegplayer.cpp b/src/video/ffmpegplayer.cpp
+index 85154469ec371e80541aa3033206ef3d0faffb9b..396dd5c4a03d9afac8d3ca4c6ac5fa6004c51dc1 100644
+--- a/src/video/ffmpegplayer.cpp
++++ b/src/video/ffmpegplayer.cpp
+@@ -318,6 +318,9 @@ void FFmpegPlayer::Play(Io::Stream* stream, bool looping, bool alpha) {
+     Bink2 = std::make_unique<Bink2Player>();
+     if (Bink2->Play(stream, looping)) {
+       IsPlaying = true;
++      // as the FFmpeg path: STEINS;GATE 0 polls the frame counter against the total (e.g. _STARTUP_WIN label 47)
++      ScrWork[SW_MOVIEFRAME] = 0;
++      ScrWork[SW_MOVIETOTALFRAME] = (int)Bink2->FrameCount();
+     } else {
+       Bink2.reset();
+     }
