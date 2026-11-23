@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 18:16:18 -0800
+Subject: [PATCH] tyn: debug mode: commands from debug-cmd.txt
+
+Driving the porting tools through the ImGui window on a touch screen at
+15 FPS is slow and unreliable (scroll drags miss). In debug mode the game now
+runs the commands of a debug-cmd.txt next to the saves (written with adb)
+once and deletes it: "load <n>" (saved state n), "save [name]",
+"speed <1..64>", "skip <0|1>" (forced skip), "pause <0|1>".
+
+Generic; can go upstream together with the debug mode.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+load / save / speed / skip through the file while the game runs.
+
+diff --git a/src/debugtools.cpp b/src/debugtools.cpp
+index 242c56a68df52af8ac5ec10786afcd78c3a13b1a..0888565aeea607267663c73609f5188639f66ddd 100644
+--- a/src/debugtools.cpp
++++ b/src/debugtools.cpp
+@@ -427,8 +427,54 @@ void BeforeVmUpdate() {
+   SkipMovies(true);
+ }
+ 
++// Automation of the porting tools (adb, scripts): a debug-cmd.txt next to the saves is run once and deleted. One
++// command per line: "load <n>" (saved state n, 1 = first), "save [name]", "speed <1..64>", "skip <0|1>" (the forced
++// skip), "pause <0|1>".
++void PollCommands() {
++  static int ticks = 0;
++  if (++ticks % 30 != 0) return;
++  const std::filesystem::path path = std::filesystem::path(StatesPath()).parent_path() / "debug-cmd.txt";
++  std::error_code ec;
++  if (!std::filesystem::exists(path, ec)) return;
++  std::vector<std::string> lines;
++  {
++    std::ifstream f(path);
++    for (std::string line; std::getline(f, line);) lines.push_back(line);
++  }
++  std::filesystem::remove(path, ec);
++  if (!SavedLoaded) ReadStates();
++  for (const std::string& line : lines) {
++    const size_t sp = line.find(' ');
++    const std::string cmd = line.substr(0, sp);
++    const std::string arg = sp == std::string::npos ? "" : line.substr(sp + 1);
++    const int n = std::atoi(arg.c_str());
++    if (cmd == "load" && n >= 1 && n <= (int)Saved.size()) {
++      PendingRestore = Saved[n - 1];
++    } else if (cmd == "save") {
++      Snapshot snap = History.empty() ? Capture("") : History.back();
++      if (!arg.empty()) snap.Label = arg;
++      Saved.push_back(std::move(snap));
++      WriteStates();
++    } else if (cmd == "speed") {
++      for (int v : Speeds)
++        if (v == n) Speed = v;
++    } else if (cmd == "skip") {
++      if (n != 0 && !ForceSkip) SkipReadBefore = Profile::ConfigSystem::SkipRead;
++      if (n == 0 && ForceSkip) {
++        SkipModeEnabled = false;
++        Profile::ConfigSystem::SkipRead = SkipReadBefore;
++      }
++      ForceSkip = n != 0;
++    } else if (cmd == "pause") {
++      Paused = n != 0;
++    }
++    ImpLog(LogLevel::Info, LogChannel::General, "debug command: {}\n", line);
++  }
++}
++
+ void AfterTick() {
+   if (!Enabled()) return;
++  PollCommands();
+   if (ForceSkip) {
+     // the engine skip mode (ChkMesSkip turns it into SF_MESSKIP / SF_MESALLSKIP every tick)
+     SkipModeEnabled = true;

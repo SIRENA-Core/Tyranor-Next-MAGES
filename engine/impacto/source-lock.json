@@ -242,6 +242,14 @@
       {
         "file": "0059-tyn-add-the-sg0-pc-profile-STEINS-GATE-0-Steam-hidde.patch",
         "sha256": "310c28759b84ee07c142ddd2e17d8f3152113ef8e3c4b57f1fc394f403497d0c"
+      },
+      {
+        "file": "0060-tyn-STEINS-GATE-0-phone-and-RINE-SG0-Phone.patch",
+        "sha256": "bc999cb0e5a8d352e3b90f9d1a25385f67e0617e2c93ad65c98c0a05fa7a3324"
+      },
+      {
+        "file": "0061-tyn-debug-mode-commands-from-debug-cmd.txt.patch",
+        "sha256": "38e419bf040f502dd92e328e103d7a32a37021062c5e4e4008bbdbe2b5307070"
       }
     ]
   },

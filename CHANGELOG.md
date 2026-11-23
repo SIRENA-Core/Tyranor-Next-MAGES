@@ -2,7 +2,10 @@
 
 ## 未发布
 
-- 新增（补丁 0057–0059，S;G0 的数据与指令集仅 TYN，标题类的新字段为通用代码）：Steam 版 STEINS;GATE 0 的 profile `sg0-pc`（**适配中**，启动器里隐藏）。新指令集 `InstructionSet::SG0` 以 S;G 的指令表为基础，补上 S;G0 新增的条件调用、鼠标和键盘跳转（`00:53`–`00:59`）；标题画面按原版 Game.exe 移植（"0" Logo 动画、装饰、菜单、子菜单，SGHD 标题类加了一组可选字段，`sg-pc` 不使用）；对话框、名字和名牌按原版。手机／RINE、存读档、设置等画面还没做。详见 `docs/steins-gate-0-steam.md`。
+- 新增（补丁 0060，仅 TYN）：S;G0 的手机和 RINE。原版手机模块（Game.exe 0x46b600..0x478000，90 多个函数）用 Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译成 C++，原版全局变量放在模拟内存里保持原地址，绘图、文字排版、点击区域、输入等引擎接口在 `phoneshim.cpp` 实现，RINE 对话读取器（0x476d50、0x477040）和 `10:37` 指令手写移植。消息窗手机按钮打开，双指点击（右键）返回／关闭；RINE 回复可用箭头切换候选、点击发送；手机状态跟着调试快照保存。`sg0-pc` 的 GameSpecific 改为 `SG0`，手机图集登记为剧本载入的图集。
+- 新增（补丁 0061，通用，可向上游提交）：调试模式可以用存档目录里的 `debug-cmd.txt` 下命令（`load`／`save`／`speed`／`skip`／`pause`），自动化测试不用再在触屏上拖 ImGui 窗口。见 `docs/debug-mode.md`。
+- 验证（手机）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面；序章真由理的 RINE 从选择回复到对话结束，关闭手机后剧情继续；回复等待中拍的调试状态能恢复整段对话。Amadeus 来电、存读档里的手机状态未验证。`profile-snapshot.py` 只有 `sg0-pc` 的 GameSpecific、SpriteSheets 两段变化，其余 11 个 profile 不变。
+- 新增（补丁 0057–0059，S;G0 的数据与指令集仅 TYN，标题类的新字段为通用代码）：Steam 版 STEINS;GATE 0 的 profile `sg0-pc`（**适配中**，启动器里隐藏）。新指令集 `InstructionSet::SG0` 以 S;G 的指令表为基础，补上 S;G0 新增的条件调用、鼠标和键盘跳转（`00:53`–`00:59`）；标题画面按原版 Game.exe 移植（"0" Logo 动画、装饰、菜单、子菜单，SGHD 标题类加了一组可选字段，`sg-pc` 不使用）；对话框、名字和名牌按原版。存读档、设置等画面还没做。详见 `docs/steins-gate-0-steam.md`。
 - 新增（补丁 0056，通用，可向上游提交）：两个可选的对话框字段。`FixedNameCenterOnHalfWidth`：固定位置、居中的名字以 `NamePos.x + MaxNameWidth / 2` 为中心（S;G0 的名字在屏幕正中）；`NametagType.CenteredTwoPiece`：名字两侧各一张图、随名字宽度对称展开的名牌。默认关闭，其他游戏不变。
 - 修复（补丁 0055，通用）：内置 Bink 2 播放时设置 `SW_MOVIEFRAME` 和 `SW_MOVIETOTALFRAME`（FFmpeg 路径本来就设）。S;G0 靠比较这两个值判断视频快结束，之前总帧数是 0，开场 intro 刚开始就被截掉。
 - 修复（补丁 0054，通用）：调试模式。保存状态前先建存档目录（从没存过档的游戏没有这个目录，状态写不进去、重启就丢）；跳过视频时把 `SW_MOVIEFRAME` 推到最后一帧，靠轮询帧数等视频结束的剧本（S;G0 世界线变动后的 `MACROSYS2` 标签 310）不再一直等下去。

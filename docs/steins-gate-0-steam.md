@@ -1,6 +1,6 @@
 # STEINS;GATE 0（Steam 版）适配记录（`sg0-pc`，进行中）
 
-`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。**目前还在适配中**：能从标题开始新游戏，一直玩到第 1 章之后的 β 世界线前几章；手机（RINE）、存读档、设置、回想等画面还没做。启动器里是隐藏的。
+`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。**目前还在适配中**：能从标题开始新游戏，一直玩到第 1 章之后的 β 世界线前几章；手机和 RINE 已经能用；存读档、设置、回想等画面还没做。启动器里是隐藏的。
 
 ## 游戏目录
 
@@ -18,7 +18,7 @@ USRDIR/movie/1920x1080/*.bk2
 
 | 部分 | 来源 | 说明 |
 | --- | --- | --- |
-| 指令集 `InstructionSet::SG0` | 指令表 0xdcc198（系统）、0xdcbfb0（图形）、0xdcc320（用户 1） | 以 S;G 的 SGHD 表为基础；`00:53`–`00:59`（条件调用／跳转、鼠标和键盘跳转）按原版实现；`10:37`、`10:38`（RINE／手机组）只读掉操作数 |
+| 指令集 `InstructionSet::SG0` | 指令表 0xdcc198（系统）、0xdcbfb0（图形）、0xdcc320（用户 1） | 以 S;G 的 SGHD 表为基础；`00:53`–`00:59`（条件调用／跳转、鼠标和键盘跳转）按原版实现；`10:37`（手机／RINE）见下文；`10:38` 只读掉操作数 |
 | 标题画面 | 0x45c1b0 及其调用的例程（主菜单 0x45bf90、CONTINUE 0x45ac90、EXTRA 0x45ba80／0x45b470、装饰 0x45b030、Logo 0x45be40、按下开始 0x45cbe0、输入 0x45c2f0） | "0" Logo 动画（`TITLE_LOGO1..3`，60 帧）、文字 Logo、装饰线和小方块、主菜单从右滑入并被两图之间的背景条遮住、子菜单先出指针再"擦开"；没有存档标志 860 时 EXTRA 不显示，下面的条目上移 |
 | 对话框 | 0x45fca9 | `MESWIN` (0, 882) 1920×324，画在 (0, 756)，遮罩 (0, 1212) |
 | 名字与名牌 | 0x45fd4b／0x45fda9、`_SYSTEM` 的文字模式 0 | 名字在对话框底部正中（以 `NamePos.x + MaxNameWidth / 2` 为中心），两侧是 `MESWIN` 的两笔橙色刷痕，随名字宽度展开 |
@@ -29,7 +29,7 @@ USRDIR/movie/1920x1080/*.bk2
 - 短的 EXTRA 列表（标志 860 之前）在原版里两个点击区都登记在 y 519（0x45bcad、0x45bd7d），鼠标点不到 CLEAR LIST；这里用 CLEAR LIST 实际画出的位置 471。
 - 标题模式 3 里按键说明例程（0x456940 类型 6）画的旋转装饰件没有移植。
 - 标题和菜单的系统音效（`sysse` 挂载点）还没找到来源，`sg-pc` 同样没有。
-- 手机／RINE、存读档、CONFIG、BACKLOG、TIPS、EXTRA 各画面：profile 里暂时沿用 `sg-pc` 的布局，只是为了让 HUD 能加载，没有检查过，不能当作已适配。
+- 存读档、CONFIG、BACKLOG、TIPS、EXTRA 各画面，以及右键打开的系统菜单：profile 里暂时沿用 `sg-pc` 的布局，只是为了让 HUD 能加载，没有检查过，不能当作已适配。
 - 标题子菜单在触屏上用返回键或双指轻点关不掉（`sg-pc` 同样，原来就有的问题）。
 - 标题"按下开始"在模式 1 之前（剧本最多等 420 帧）不接受点击，和 `sg-pc` 一样要等提示稳定后再点。
 
@@ -40,3 +40,13 @@ MuMu 模拟器（Android 15 x86_64，**不是真机**），Steam 原版数据加
 - 启动 Logo、intro 视频完整播放，标题、按下开始、菜单、NEW GAME（触摸）。
 - 序章到 `SG0_B01_12` 连续推进：对话框、名字和名牌、立绘、背景、全屏 NVL 文字、世界线变动视频 `IMV001` 和章节标题视频 `TIT_B02`。
 - 真机没有测试。
+
+## 手机和 RINE
+
+原版手机模块（Game.exe 0x46b600..0x478000，90 多个函数）不是逐个手写的，而是用 Ghidra 反编译后由 [`tools/impacto/sg0/translate_phone.py`](../tools/impacto/sg0/README.md) 机械翻译成 C++（引擎里的 `src/games/sg0/phonecode.cpp`，生成文件）。原版全局变量保留原地址，放在模拟内存里；它调用的引擎函数（绘图、文字排版、点击区域、旗标、输入）在 `phoneshim.cpp` 里实现；RINE 对话读取器直接读剧本字节，在 `phonerine.cpp` 里手写移植。
+
+- 打开：消息窗左上角的手机按钮（点击或鼠标中键），对应原版的 PADcustom[22]。原版只在文字等待玩家时才允许打开（旗标 1611，由 MesMain 置位），这里也一样。
+- 操作：点击等于鼠标左键，双指点击等于右键（返回／关闭），滚轮或拖动滚动聊天记录。
+- RINE 回复：在 RINE 里点左右箭头切换候选句，点其他地方发送；之后每点一下显示下一条消息。
+- 手机状态（0x3ee0 字节）跟着调试快照保存；正式存档要等存读档画面一起做。
+- 已在 MuMu 模拟器上验证（不是真机）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面，序章真由理的 RINE 从回复到对话结束、关闭手机后剧情继续。Amadeus 来电（CONNECT／CANCEL）还没在剧情里走到。

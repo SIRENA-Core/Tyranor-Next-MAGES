@@ -30,9 +30,25 @@
 3. 想直接看某一段剧本时用「跳转」；剧本不进入某个分支时，用「Debug Editer」改标志或变量后再跳。
 4. 视频相关的问题：「跳过当前视频」排除视频本身，或对照 `SF_MOVIEPLAY` 等标志看剧本在等什么。
 
+## 用文件下命令（自动化）
+
+触屏上拖 ImGui 窗口很不稳定。调试模式下，游戏每半秒检查一次存档目录里有没有 `debug-cmd.txt`；有就逐行执行，然后删掉它。可以用 adb 写入：
+
+```
+adb shell "run-as com.tyranor.next.impacto sh -c 'cat > files/games/<游戏目录>/saves/<profile>/debug-cmd.txt'" <<< $'speed 64\nskip 1'
+```
+
+| 命令 | 作用 |
+|---|---|
+| `load <n>` | 读取第 n 个保存的状态（从 1 数） |
+| `save [名称]` | 把当前这一句存成状态 |
+| `speed <1..64>` | 速度 |
+| `skip <0\|1>` | 强制快进开／关 |
+| `pause <0\|1>` | 暂停／继续 |
+
 ## 实现要点
 
-- 快照内容：`ScrWork`、`FlagWork`、完整的 VM 线程池（`Vm::SaveVmState`／`RestoreVmState`，链表指针按下标保存）、各缓冲区载入的剧本号、剧本用 `LoadPic` 载入的系统贴图（`SpriteLoader` 记下档案与文件号）、SGHD 的手机状态。
+- 快照内容：`ScrWork`、`FlagWork`、完整的 VM 线程池（`Vm::SaveVmState`／`RestoreVmState`，链表指针按下标保存）、各缓冲区载入的剧本号、剧本用 `LoadPic` 载入的系统贴图（`SpriteLoader` 记下档案与文件号）、SGHD 和 S;G0 的手机状态。
 - 快照在检查点指令执行完时拍，并把线程指回这条指令的开头：恢复后这条指令重新执行，台词重新显示、选项重新建立。
 - 恢复时停掉正在播的视频，清空对话框与选项，重载不一致的剧本与系统贴图，再按工作区重新同步背景、立绘与 BGM。不恢复音效与正在播放的语音。
 - `debug-states.bin` 的格式（`TDS2`）依赖 `Sc3VmThread` 的大小：引擎版本变化导致大小不同时整份忽略，不会读错。
