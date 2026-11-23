@@ -67,4 +67,4 @@ MuMu 模拟器（Android 15 x86_64，**不是真机**），Steam 原版数据加
 | `10:21` | 0x485b80 | CLEAR LIST |
 | `10:1F`／`10:1D`／`10:20` | 0x485b00／0x485aa0／0x485b40 | CG／SOUND／MOVIE 鉴赏；SOUND 通过原版 BGM 通道请求（0x2ed16e0）桥接到引擎 BGM 通道，MOVIE 画引擎的视频播放器 |
 
-CG、BGM、TIPS 的解锁状态直接读写引擎 MO6TWPC 存档系统里的数据（`EvBytes`／`BgmBytes`／`TipsBits`），不另存一份。
+CG、BGM、TIPS 的解锁状态直接读写引擎 MO6TWPC 存档系统里的数据（`EvBytes`／`BgmBytes`／`TipsBits`），不另存一份。`sg0-pc` 打开了 `SaveData.WriteSystemDataOnBackground`：应用切到后台时写一次系统数据，被系统杀掉也不会丢。

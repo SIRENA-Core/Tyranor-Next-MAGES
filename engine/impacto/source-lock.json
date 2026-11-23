@@ -318,6 +318,14 @@
       {
         "file": "0078-tyn-STEINS-GATE-0-CG-sound-and-movie-libraries.patch",
         "sha256": "464d146b8c6abfc1c585b6c542adc3fd585db29e60a33ecb654e814e292fae41"
+      },
+      {
+        "file": "0079-tyn-optional-system-data-write-when-the-app-goes-to-.patch",
+        "sha256": "49f5859f0249b7dfa5ab6dba7c92fcfe245c275368268ee3aed18ca87ef30a55"
+      },
+      {
+        "file": "0080-tyn-sg0-pc-writes-its-system-data-when-going-to-the-.patch",
+        "sha256": "6bd2db27a83a9da8aadbd4c0753f674464fafc74e5bd2e8f5948ddc8f9c876b7"
       }
     ]
   },

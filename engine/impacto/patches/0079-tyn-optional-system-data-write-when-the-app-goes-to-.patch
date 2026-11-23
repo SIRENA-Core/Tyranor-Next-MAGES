@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 03:17:07 -0800
+Subject: [PATCH] tyn: optional system data write when the app goes to the
+ background
+
+A mobile app is often killed in the background without the game being quit,
+so what only the system data keeps (flags such as the EXTRA unlock, play
+time, settings, CG / BGM / TIPS) was lost until the scripts next wrote the
+save file. With the optional SaveData field WriteSystemDataOnBackground the
+system data is serialised and the save file written synchronously on
+SDL_EVENT_WILL_ENTER_BACKGROUND (an event watch: SDL handles the lifecycle
+on the main thread, between frames). Nothing is written while a save file
+task runs or before the save file system data has been applied
+(SystemDataApplied, MO6TWPC: after LoadSystemData), so a fresh state never
+replaces the saved one. Default off: other games unchanged.
+
+Generic (can go upstream).
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+set flag 860, home, force stop, relaunch: EXTRA is on the title menu (it
+was not before).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/data/savesystem.cpp b/src/data/savesystem.cpp
+index d7b83cca60c02e75fbcd4d7dd92da29f75bd637c..fd32349782922d268e8a3c6675ad79538cf271fe 100644
+--- a/src/data/savesystem.cpp
++++ b/src/data/savesystem.cpp
+@@ -6,6 +6,8 @@
+ #include "../profile/vm.h"
+ #include "../mem.h"
+ 
++#include <SDL3/SDL_events.h>
++
+ #include <algorithm>
+ #include <cstdint>
+ #include <ctime>
+@@ -19,7 +21,16 @@ namespace SaveSystem {
+ using namespace Impacto::Profile::SaveSystem;
+ using namespace Impacto::Profile::ScriptVars;
+ 
+-void Init() { Impacto::Profile::SaveSystem::Configure(); }
++static bool SDLCALL OnAppEvent(void*, SDL_Event* event) {
++  if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND) WriteSystemDataNow();
++  return true;
++}
++
++void Init() {
++  Impacto::Profile::SaveSystem::Configure();
++  // SDL calls event watches of the application lifecycle on the main thread (the game is between frames)
++  if (WriteSystemDataOnBackground) SDL_AddEventWatch(OnAppEvent, nullptr);
++}
+ 
+ // Let's not report errors until we finalize the implementation. The PC release
+ // of MO6TW has a complete implementation and its scripts rely on the error
+@@ -192,6 +203,18 @@ void InitializeSystemData() {
+   if (Implementation) Implementation->InitializeSystemData();
+ }
+ 
++// Synchronous, and only while no save file task runs (a running write keeps its own copy; a queued one would not
++// start before the app is back). Nothing is written before the save file's system data has been applied.
++void WriteSystemDataNow() {
++  if (!Implementation || !Implementation->SystemDataApplied()) return;
++  if (RunningLoadStatus() == LoadStatus::Loading || !QueuedTasks.empty()) return;
++  Implementation->SaveSystemData();
++  Implementation->PrepareSaveFileWrite();
++  const SaveError result = Implementation->WriteSaveFile();
++  ImpLog(LogLevel::Info, LogChannel::IO, "System data written on going to the background: {:d}\n",
++         static_cast<int>(result));
++}
++
+ void SaveSystemData() {
+   if (Implementation) Implementation->SaveSystemData();
+ }
+diff --git a/src/data/savesystem.h b/src/data/savesystem.h
+index ec1f91afd3a2ff9a71dac50b9351f3232cfc7db2..a48080ec905966f52e1c6bef8b94490c82e539b0 100644
+--- a/src/data/savesystem.h
++++ b/src/data/savesystem.h
+@@ -115,6 +115,9 @@ class SaveSystemBase {
+   virtual void SaveSystemData() = 0;
+   virtual SaveError LoadSystemData() = 0;
+   virtual void InitializeSystemData() = 0;
++  // The system data of the save file has been applied to the game (LoadSystemData), so the game state is what
++  // the save file must keep: writing it before that would replace the saved system data with a fresh one.
++  virtual bool SystemDataApplied() const { return false; }
+ 
+   virtual void SaveThumbnailData() = 0;
+   // Called on the main thread right before WriteSaveFile/WriteQuickSaveFile are
+@@ -188,6 +191,9 @@ class SaveSystemBase {
+ inline SaveSystemBase* Implementation = nullptr;
+ 
+ void Init();
++// SaveData.WriteSystemDataOnBackground: the system data is written to the save file when the app goes to the
++// background (a mobile app is often killed there without the game being quit)
++void WriteSystemDataNow();
+ 
+ LoadStatus GetLoadStatus();
+ // Starts the next queued save file task once the running one has finished.
+diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
+index ea8aedebf449b3c459371fce26aade6347112a18..f7a933f75eed46bf3171b81c6c1a6a88042f09d8 100644
+--- a/src/games/mo6twpc/savesystem.cpp
++++ b/src/games/mo6twpc/savesystem.cpp
+@@ -343,7 +343,10 @@ void SaveSystem::SaveSystemData() {
+ }
+ 
+ SaveError SaveSystem::LoadSystemData() {
+-  if (SystemData.empty()) return SaveError::OK;
++  if (SystemData.empty()) {
++    Applied = true;
++    return SaveError::OK;
++  }
+   Reader r(SystemData.data(), SystemData.size());
+ 
+   // Everything is parsed into locals and applied only once the whole blob has
+@@ -434,6 +437,7 @@ SaveError SaveSystem::LoadSystemData() {
+   Audio::GroupVolumes = groupVolumes;
+   Cfg::VoiceMuted = muted;
+   Cfg::VoiceVolume = volume;
++  Applied = true;
+   return SaveError::OK;
+ }
+ 
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index d6a4122430f16041251854dd59d4bd08542fd633..9434cc8329a18a35d92acfc2275ca83d427a6064 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -63,6 +63,7 @@ class SaveSystem final : public SaveSystemBase {
+   SaveError MountSaveFile(std::vector<QueuedTexture>& textures) override;
+ 
+   SaveError LoadSystemData() override;
++  bool SystemDataApplied() const override { return Applied; }
+   void SaveSystemData() override;
+   void InitializeSystemData() override;
+ 
+@@ -121,6 +122,7 @@ class SaveSystem final : public SaveSystemBase {
+   std::unordered_set<uint32_t> ReadLines;
+   // Serialised system data, see SaveSystemData()
+   std::vector<uint8_t> SystemData;
++  bool Applied = false;
+   // The complete save file as PrepareSaveFileWrite() serialised it. Owned by
+   // the worker thread while a write runs.
+   std::vector<uint8_t> PendingFile;
+diff --git a/src/profile/data/savesystem.cpp b/src/profile/data/savesystem.cpp
+index 35d5f6c140fa4670b48235dc2686bd1568fd2504..2023a3e08894788791cb3144d8111890db2363c2 100644
+--- a/src/profile/data/savesystem.cpp
++++ b/src/profile/data/savesystem.cpp
+@@ -140,6 +140,7 @@ void Configure() {
+   }
+ 
+   SaveFilePath = EnsureGetMember<std::string>("SaveFilePath");
++  TryGetMember<bool>("WriteSystemDataOnBackground", WriteSystemDataOnBackground);
+ 
+   TryGetMember<std::vector<uint32_t>>("StoryScriptIDs", StoryScriptIDs);
+ 
+diff --git a/src/profile/data/savesystem.h b/src/profile/data/savesystem.h
+index be81b370fc3e160291d6bba499df08d1c8fec1fd..5dc1af9cd58fabb888dedce6f36d1ab215610f1f 100644
+--- a/src/profile/data/savesystem.h
++++ b/src/profile/data/savesystem.h
+@@ -20,6 +20,8 @@ inline std::optional<std::string> SystemDataPath;
+ inline std::optional<std::string> QuickDataPath;
+ 
+ inline std::string SaveFilePath;
++// optional: write the system data when the app goes to the background (SaveSystem::WriteSystemDataNow)
++inline bool WriteSystemDataOnBackground = false;
+ inline std::optional<std::string> ThumbnailFilePath;
+ inline std::vector<uint32_t> StoryScriptIDs;
+ inline std::vector<Impacto::SaveSystem::ScriptMessageDataPair>
