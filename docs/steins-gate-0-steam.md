@@ -1,6 +1,6 @@
-# STEINS;GATE 0（Steam 版）适配记录（`sg0-pc`，进行中）
+# STEINS;GATE 0（Steam 版）适配记录（`sg0-pc`，已适配）
 
-`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。**目前还在适配中**：能从标题开始新游戏，一直玩到第 1 章之后的 β 世界线前几章；手机和 RINE、右键系统菜单、存读档、CONFIG、BACKLOG、TIPS、系统消息框、EXTRA（CLEAR LIST、CG／SOUND／MOVIE 鉴赏）都已按原版移植。启动器里是隐藏的。
+`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。宿主 0.4.4 起**已适配**：标题、剧情（序章、β 世界线，B 线快进到结局）；手机和 RINE、右键系统菜单、存读档、CONFIG、BACKLOG、TIPS、系统消息框、EXTRA（CLEAR LIST、CG／SOUND／MOVIE 鉴赏）都已按原版移植。主应用从宿主 versionCode 11（0.4.4）起识别它。
 
 ## 游戏目录
 

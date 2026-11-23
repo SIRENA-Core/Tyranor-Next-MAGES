@@ -35,7 +35,7 @@
 | --- | --- | --- |
 | `mo6tw-pc`、`mo6tw-pc-zhs`、`mo6tw-pc-zht` | Windows／Steam 版 Memories Off 6 T-Wave（日／简／繁） | 能进游戏、对话、存读档（真机与模拟器）；选项、百科、返回标题确认框没有界面 |
 | `sg-pc` | Steam 版 STEINS;GATE（宿主 0.3.0 起，**已适配完成**，需要宿主 0.4.3） | 原版英文与汉化数据都能从头玩到真结局：标题、系统菜单、存读档、CONFIG、HELP、TIPS、消息框、手机（邮件、电话、用词回复、通讯录、附件）、时间跳跃的翻牌钟、世界线变动的色调，以及 EXTRA 的 CLEAR LIST／CG／SOUND／MOVIE 都按原版 Game.exe 还原；全部视频直接用游戏原文件播放：Bink 1 由 FFmpeg 解码，Bink 2（世界线变动的辉光管动画、标题、时间跳跃背景、闪电等带透明通道的叠加）由内置的 libbink2 解码，不需要任何转换。验证在 MuMu 模拟器上完成，真机未测（详见 [`docs/steins-gate-steam-sghd.md`](docs/steins-gate-steam-sghd.md)） |
-| `sg0-pc` | Steam 版 STEINS;GATE 0（**适配中**，启动器里隐藏） | 标题、新游戏、序章到 β 世界线前几章能连续推进；手机（RINE）、存读档、设置等画面还没做。需要支持 `noneOf` 的主应用才能识别（详见 [`docs/steins-gate-0-steam.md`](docs/steins-gate-0-steam.md)） |
+| `sg0-pc` | Steam 版 STEINS;GATE 0（宿主 0.4.4 起，**已适配**） | 标题、剧情、手机（RINE、Amadeus 来电）、右键系统菜单、存读档（含手机状态）、CONFIG、BACKLOG、TIPS、系统确认框，以及 EXTRA 的 CLEAR LIST／CG／SOUND／MOVIE 都按原版 Game.exe 还原，视频直接用游戏原文件（Bink 2）。需要支持 `noneOf` 的主应用才能识别。已知问题：TIPS 画面的键盘 Enter／Esc 无效（触屏正常）。验证在 MuMu 模拟器上完成，真机未测（详见 [`docs/steins-gate-0-steam.md`](docs/steins-gate-0-steam.md)） |
 | `chlcc`、`cclcc`、`cclcc-switch`、`mo6tw`、`darling`、`dash`、`rne` | 上游 impacto 自带 | 未在本宿主上逐一验证 |
 
 ## 与 Tyranor Next 的约定

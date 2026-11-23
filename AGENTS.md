@@ -80,7 +80,9 @@
 - `engine/impacto/patches/`：补丁系列与维护流程。
 - `engine/impacto/host-apk/`：宿主 APK（Java 入口、设置合并、屏幕按键）；`host-build/`：构建配置。
 - `engine/impacto/profiles.json`：可启动 profile 清单与识别规则（打包为宿主资产 `tyn/profiles.json`），见上节。
-- `tools/impacto/`：构建、补丁导出／应用、校验与测试脚本；`docs/`：专题文档（如 `steins-gate-steam-sghd.md`）。
+- `tools/impacto/`：构建、补丁导出／应用、校验与测试脚本；`docs/`：专题文档（如 `steins-gate-steam-sghd.md`、`steins-gate-0-steam.md`）。
+- 已适配：`sg-pc`（Steam 版 STEINS;GATE）、`sg0-pc`（Steam 版 STEINS;GATE 0，宿主 0.4.4 起）。这两个游戏的数据以后不一定还在，改动它们共用的 SGHD 代码时按「不依赖游戏数据的回归」检查。
+- `tools/impacto/sg0/`：S;G0 的原版界面模块（手机、系统菜单、存档、CONFIG、BACKLOG、TIPS、EXTRA）用 Ghidra 反编译后机械翻译成 C++ 的脚本与修正表。原版模块很大、手写移植容易出错时可以照这个做法；生成文件不手改，修正记在 `phone_fixes.py`。
 
 ## 检查与提交
 
