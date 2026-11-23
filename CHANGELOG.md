@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布
+## 0.4.5（versionCode 12）
 
 - 修复（补丁 0081，通用）：调试模式只由设置里的开关打开。之前 profile 带 `GameFeature::DebugMenu` 的游戏（`cclcc`、`chlcc`、`mo6tw-pc`、`mo6tw` 等上游 profile）在设置里关掉调试模式后，左上角仍显示调试状态栏，速度、快进、`debug-cmd.txt` 等调试功能也仍然生效。MuMu 模拟器（不是真机）上验证：`DebugMode = false` 时不显示，`true` 时显示。
 - 修复（补丁 0082，通用）：Bink 2 视频的声音。内置的 libbink2 把 KB2 文件的音轨按另一种格式（7 位量化表）解码，解出来是满幅杂音，而且比画面短。S;G0 的启动过场（`intro`）、OP、`anisama` 和 MOVIE 鉴赏，以及 S;G Steam 版里带声音的 Bink 2 视频（如 `IMV006`）都受影响。现在按 Bink 1 的音频格式解码，和 FFmpeg 的输出逐样本一致（`intro`、`OP`、`anisama`、S;G 的 `IMV006` 已比对）。Bink 1 视频走 FFmpeg，不受影响。设备上的声音待真机实听确认。
