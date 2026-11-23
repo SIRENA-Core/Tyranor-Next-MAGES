@@ -81,3 +81,4 @@
 0079-tyn-optional-system-data-write-when-the-app-goes-to-.patch
 0080-tyn-sg0-pc-writes-its-system-data-when-going-to-the-.patch
 0081-tyn-debug-mode-only-from-the-user-setting.patch
+0082-tyn-libbink2-decode-KB2-audio-as-Bink-1-audio.patch
