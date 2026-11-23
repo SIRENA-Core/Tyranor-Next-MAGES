@@ -10,7 +10,6 @@
 - 新增（补丁 0068，通用）：调试模式文件命令 `flag <n> <0|1>`、`var <n> <值>`、`unlock`（解锁 CG、音乐、TIPS；引擎 TIPS 表为空时按 profile 的 TIPS 数量全部解锁）。
 - 工具：`tools/impacto/sg0/access_sizes.py`（capstone）扫描原版代码对每个全局变量的访问宽度，翻译脚本据此给 Ghidra 没定类型的全局补上类型；翻译脚本支持句柄与指针互转、指针全局、缺失参数补 0 等，修正表同步更新。
 - 验证（系统画面）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本），调试模式：系统菜单开关；SAVE 写入带缩略图、章节名、游戏时间、日期的存档，从系统菜单和标题读档并确认，读档后剧情继续、RINE 状态恢复；CONFIG 改 BGM 音量和语音跳过后重新打开仍保持；BACKLOG；TIPS 列表、分页、正文、滚动、点击和关闭；退出／回标题／读档确认框；B 线快进到“无限远点的牵牛星”结局和结局后的系统消息；Amadeus 来电（CONNECT）手机里显示红莉栖；CLEAR LIST；CG 鉴赏打开相册全屏看图、切图、返回；SOUND 解锁后播放、停止；MOVIE 播放 OP 全屏、右键返回。`profile-snapshot.py` 只有 `sg0-pc` 变化（BacklogMenu、OptionsMenu、SaveMenu、SystemMenu、Sprites、SpriteSheets，新增 FramebufferAlpha），其余 11 个 profile 不变。
-- 已知问题（S;G0）：TIPS 画面键盘 Enter／Esc 无效（触屏正常）；部分电话场景不显示消息窗（未查明是否为剧本本意）；MOVIE 第一次点击只选中，再点一次才播放。真机未测。
 - 新增（补丁 0060，仅 TYN）：S;G0 的手机和 RINE。原版手机模块（Game.exe 0x46b600..0x478000，90 多个函数）用 Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译成 C++，原版全局变量放在模拟内存里保持原地址，绘图、文字排版、点击区域、输入等引擎接口在 `phoneshim.cpp` 实现，RINE 对话读取器（0x476d50、0x477040）和 `10:37` 指令手写移植。消息窗手机按钮打开，双指点击（右键）返回／关闭；RINE 回复可用箭头切换候选、点击发送；手机状态跟着调试快照保存。`sg0-pc` 的 GameSpecific 改为 `SG0`，手机图集登记为剧本载入的图集。
 - 新增（补丁 0061，通用，可向上游提交）：调试模式可以用存档目录里的 `debug-cmd.txt` 下命令（`load`／`save`／`speed`／`skip`／`pause`），自动化测试不用再在触屏上拖 ImGui 窗口。见 `docs/debug-mode.md`。
 - 验证（手机）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面；序章真由理的 RINE 从选择回复到对话结束，关闭手机后剧情继续；回复等待中拍的调试状态能恢复整段对话。Amadeus 来电、存读档里的手机状态未验证。`profile-snapshot.py` 只有 `sg0-pc` 的 GameSpecific、SpriteSheets 两段变化，其余 11 个 profile 不变。
