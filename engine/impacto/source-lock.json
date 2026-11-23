@@ -326,6 +326,14 @@
       {
         "file": "0080-tyn-sg0-pc-writes-its-system-data-when-going-to-the-.patch",
         "sha256": "6bd2db27a83a9da8aadbd4c0753f674464fafc74e5bd2e8f5948ddc8f9c876b7"
+      },
+      {
+        "file": "0081-tyn-debug-mode-only-from-the-user-setting.patch",
+        "sha256": "fe875d82dc606a71d13be3a740a90bf05202760f2300887c17b7c371184bdb31"
+      },
+      {
+        "file": "0082-tyn-libbink2-decode-KB2-audio-as-Bink-1-audio.patch",
+        "sha256": "25246b98020b05376530d51330fef53018ed7014546a58161e21ea6774f9d939"
       }
     ]
   },

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 05:39:46 -0800
+Subject: [PATCH] tyn: libbink2: decode KB2 audio as Bink 1 audio
+
+The sound of the Bink 2 movies of STEINS;GATE and STEINS;GATE 0 (Steam) is
+Bink audio with 8 bit band quantizers and run length coefficients, as
+FFmpeg decodes it. The decoder was created with the version 2 layout,
+which turned every movie sound into full scale noise and a shorter track.
+The PCM now matches FFmpeg sample for sample (intro, OP, anisama, IMV006).
+
+diff --git a/vendor/libbink2/README.impacto b/vendor/libbink2/README.impacto
+index 41f796d0deadc2aba6ee3fd52ccff2dc236f1019..9f855a23e06eed3ee81a186850150a21728dac49 100644
+--- a/vendor/libbink2/README.impacto
++++ b/vendor/libbink2/README.impacto
+@@ -2,3 +2,5 @@ libbink2 (https://github.com/raynorpat/libbink2, LGPL-2.1-or-later), the decoder
+ Local change: KB2g+ alpha streams are opened and their alpha plane is decoded like a second luma plane in
+ every block type (motion compensation and the residual of inter blocks, the DC averaging of intra blocks),
+ as in the FFmpeg Bink 2 patches by Paul B Mahol (bink2g.c).
++Local change: the audio tracks are decoded as Bink audio of Bink 1 (version_2 = 0), as FFmpeg does; the
++version 2 layout gives noise for the KB2 files of STEINS;GATE and STEINS;GATE 0.
+diff --git a/vendor/libbink2/src/bink2.c b/vendor/libbink2/src/bink2.c
+index dd39bd6fb50742e34ac8637c42c4b22b50009a73..d74264eabd69e016a886c2c2f54b34ab2c6bbbc4 100644
+--- a/vendor/libbink2/src/bink2.c
++++ b/vendor/libbink2/src/bink2.c
+@@ -122,9 +122,12 @@ static int parse_container(bink2 b, int report_alpha)
+         b->audio[t].bitdepth = 16;
+         if (b->audio[t].rate == 0)
+             return -1;
++        /* The sound of KB2 files is the Bink audio of Bink 1 files (8 bit
++         * band quantizers, run length coefficients), as FFmpeg decodes it:
++         * the version 2 layout turns it into full scale noise. */
+         if (bink2_audio_create(&b->audio[t].decoder, b->audio[t].rate,
+                                b->audio[t].channels,
+-                               (desc[3] & 0x10) ? 1 : 0, 1,
++                               (desc[3] & 0x10) ? 1 : 0, 0,
+                                b->audio[t].max_decoded) != 0)
+             return -1;
+         off += 4;
