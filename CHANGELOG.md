@@ -2,6 +2,13 @@
 
 ## 未发布
 
+- 新增（补丁 0062，通用）：可选的渲染目标透明通道（`FramebufferAlpha`）。除屏幕外的渲染目标原来是 RGB；在渲染目标里拼好图再整体画到场景上的游戏（S;G0 的手机放大、系统菜单、存档画面）需要透明通道。默认关闭，其他游戏不变。
+- 新增（补丁 0063，通用的存档格式＋仅 SG0 的挂钩）：MO6TWPC 存档条目可以带额外游戏数据，有这种条目的文件写成版本 3（条目末尾 u32 长度＋数据）；没有额外数据的文件仍写版本 2、逐字节与以前相同，版本 1／2 照旧读取，`sg-pc`、`mo6tw-pc` 的存档不受影响。S;G0 把手机状态（0x3ee0 字节）存在这里，读档时恢复。
+- 新增（补丁 0064–0078，仅 TYN，除注明外）：S;G0 的系统画面按原版 Game.exe 移植，做法和手机一样（Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译，引擎桥接手写）：右键系统菜单（画面缩进显示器、12 个圆形按钮）、SAVE／LOAD／QUICK LOAD（0064）、CONFIG 四页及滑块和角色语音（0065）、BACKLOG（0066 的 `IsEmpty`、可选 CC 回想遮罩和系统菜单绘制挂钩为通用代码；0067）、TIPS 列表／分页／正文（原版文字排版，0069–0070）、系统消息框（退出、回标题、读档确认，0071 的系统消息层挂钩为通用代码；0072）、手机和系统文字的完整颜色表（0073）、剧情中的 Amadeus 来电画面（0074）、EXTRA 的 CLEAR LIST（0076）、CG／SOUND／MOVIE 鉴赏（0075、0077、0078）。CG、BGM、TIPS 的解锁状态读写引擎存档系统里的对应数据。`sg0-pc` 里引擎自带的系统菜单、存档、设置、回想、TIPS 类关闭，对应图集改为剧本载入。
+- 新增（补丁 0068，通用）：调试模式文件命令 `flag <n> <0|1>`、`var <n> <值>`、`unlock`（解锁 CG、音乐、TIPS；引擎 TIPS 表为空时按 profile 的 TIPS 数量全部解锁）。
+- 工具：`tools/impacto/sg0/access_sizes.py`（capstone）扫描原版代码对每个全局变量的访问宽度，翻译脚本据此给 Ghidra 没定类型的全局补上类型；翻译脚本支持句柄与指针互转、指针全局、缺失参数补 0 等，修正表同步更新。
+- 验证（系统画面）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本），调试模式：系统菜单开关；SAVE 写入带缩略图、章节名、游戏时间、日期的存档，从系统菜单和标题读档并确认，读档后剧情继续、RINE 状态恢复；CONFIG 改 BGM 音量和语音跳过后重新打开仍保持；BACKLOG；TIPS 列表、分页、正文、滚动、点击和关闭；退出／回标题／读档确认框；B 线快进到“无限远点的牵牛星”结局和结局后的系统消息；Amadeus 来电（CONNECT）手机里显示红莉栖；CLEAR LIST；CG 鉴赏打开相册全屏看图、切图、返回；SOUND 解锁后播放、停止；MOVIE 播放 OP 全屏、右键返回。`profile-snapshot.py` 只有 `sg0-pc` 变化（BacklogMenu、OptionsMenu、SaveMenu、SystemMenu、Sprites、SpriteSheets，新增 FramebufferAlpha），其余 11 个 profile 不变。
+- 已知问题（S;G0）：TIPS 画面键盘 Enter／Esc 无效（触屏正常）；应用被杀时系统数据（标志 860、游戏时间）可能没写盘；部分电话场景不显示消息窗（未查明是否为剧本本意）；MOVIE 第一次点击只选中，再点一次才播放。真机未测。
 - 新增（补丁 0060，仅 TYN）：S;G0 的手机和 RINE。原版手机模块（Game.exe 0x46b600..0x478000，90 多个函数）用 Ghidra 反编译后由 `tools/impacto/sg0/translate_phone.py` 机械翻译成 C++，原版全局变量放在模拟内存里保持原地址，绘图、文字排版、点击区域、输入等引擎接口在 `phoneshim.cpp` 实现，RINE 对话读取器（0x476d50、0x477040）和 `10:37` 指令手写移植。消息窗手机按钮打开，双指点击（右键）返回／关闭；RINE 回复可用箭头切换候选、点击发送；手机状态跟着调试快照保存。`sg0-pc` 的 GameSpecific 改为 `SG0`，手机图集登记为剧本载入的图集。
 - 新增（补丁 0061，通用，可向上游提交）：调试模式可以用存档目录里的 `debug-cmd.txt` 下命令（`load`／`save`／`speed`／`skip`／`pause`），自动化测试不用再在触屏上拖 ImGui 窗口。见 `docs/debug-mode.md`。
 - 验证（手机）：MuMu 模拟器（Android 15，不是真机），`sg0-pc`（Steam 原版数据＋中文脚本）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面；序章真由理的 RINE 从选择回复到对话结束，关闭手机后剧情继续；回复等待中拍的调试状态能恢复整段对话。Amadeus 来电、存读档里的手机状态未验证。`profile-snapshot.py` 只有 `sg0-pc` 的 GameSpecific、SpriteSheets 两段变化，其余 11 个 profile 不变。

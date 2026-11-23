@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 21:39:35 -0800
+Subject: [PATCH] tyn: debug mode file commands flag, var and unlock
+
+flag <n> <0|1> and var <n> <value> set a flag / ScrWork entry, unlock unlocks
+CG, music and tips (all tips of the profile when the engine tips table is
+empty, as for a game whose TIPS screen is its own code).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/debugtools.cpp b/src/debugtools.cpp
+index 0888565aeea607267663c73609f5188639f66ddd..dab6cde709be2179328767d1fa1a7d575c5b288c 100644
+--- a/src/debugtools.cpp
++++ b/src/debugtools.cpp
+@@ -19,6 +19,7 @@
+ #include "character2d.h"
+ #include "data/savesystem.h"
+ #include "data/tipssystem.h"
++#include "profile/data/tipssystem.h"
+ #include "games/sghd/phone.h"
+ #include "games/sg0/phone.h"
+ #include "inputsystem.h"
+@@ -321,8 +322,11 @@ void UnlockAll() {
+   if (!save) return;
+   for (int i = 0; i < 1200; i++) save->SetEVStatus(i);
+   for (int i = 0; i < 200; i++) save->SetBgmFlag(i, true);
+-  if (auto* tips = TipsSystem::Implementation.get())
+-    for (size_t i = 0; i < tips->TipEntryCount; i++) save->SetTipStatus(i, false, false, false);
++  if (auto* tips = TipsSystem::Implementation.get()) {
++    // a game whose TIPS screen is its own code (STEINS;GATE 0) leaves the engine tips table empty
++    const size_t count = tips->TipEntryCount ? tips->TipEntryCount : Profile::TipsSystem::MaxTipsCount;
++    for (size_t i = 0; i < count; i++) save->SetTipStatus(i, false, false, false);
++  }
+   SaveSystem::SaveSystemData();
+   LastMessage = L("CG, music and tips unlocked", "已解锁 CG、音乐与 TIPS");
+ }
+@@ -429,7 +433,8 @@ void BeforeVmUpdate() {
+ 
+ // Automation of the porting tools (adb, scripts): a debug-cmd.txt next to the saves is run once and deleted. One
+ // command per line: "load <n>" (saved state n, 1 = first), "save [name]", "speed <1..64>", "skip <0|1>" (the forced
+-// skip), "pause <0|1>".
++// skip), "pause <0|1>", "flag <n> <0|1>", "var <n> <value>" (ScrWork),
++// "unlock" (CG, music and tips).
+ void PollCommands() {
+   static int ticks = 0;
+   if (++ticks % 30 != 0) return;
+@@ -467,6 +472,16 @@ void PollCommands() {
+       ForceSkip = n != 0;
+     } else if (cmd == "pause") {
+       Paused = n != 0;
++    } else if (cmd == "unlock") {
++      UnlockAll();
++    } else if (cmd == "flag" || cmd == "var") {
++      // "flag <n> <0|1>", "var <n> <value>" (ScrWork)
++      const size_t sp2 = arg.find(' ');
++      const int v = sp2 == std::string::npos ? 0 : std::atoi(arg.c_str() + sp2 + 1);
++      if (cmd == "flag")
++        SetFlag((uint32_t)n, v != 0);
++      else if (n >= 0 && n < (int)ScrWork.size())
++        ScrWork[n] = v;
+     }
+     ImpLog(LogLevel::Info, LogChannel::General, "debug command: {}\n", line);
+   }

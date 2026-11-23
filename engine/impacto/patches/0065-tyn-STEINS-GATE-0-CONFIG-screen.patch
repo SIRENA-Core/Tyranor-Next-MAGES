@@ -1,0 +1,2628 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 20:16:09 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 CONFIG screen
+
+The S;G0 CONFIG screen (BASIC / TEXT / SOUND / VOICE pages, sliders, the
+character voices) is ported from Game.exe like the system menu: the module
+0x4524a0..0x454e00 is translated from the Ghidra decompile, instruction
+10:13 (0x4858c0) runs it for InstructionSet::SG0, its page is drawn on the
+system menu layer (0x4579e0 case 5).
+
+- config.cpp: the settings stay in the original's variables (0x2ee7670..,
+  rows of Game.exe 0x5c92e0); they are filled from the engine's settings when
+  the screen opens and written back every frame (text / auto speed, skip
+  mode, trigger stops skip, TIPS notification, auto quick save, the four
+  volumes, voice sync / skip, the character voices). Full screen and the
+  resolution show full screen and 1920x1080 and do not change.
+- Translation fixes (tools/impacto/sg0): float to int conversions Ghidra
+  lost (the pulsing cursor, the slider knob), a page function taken for
+  __thiscall, Ghidra's sub pieces / CARRY4 / table pointers (EmuPtr), floats
+  passed to undefined4 parameters keep their bits, the mouse held and
+  position (0x32fc7a8 / 0x32fc7ec) bridged.
+- sg0-pc: the engine options menu is off (Type None), CONFIG as a script
+  handled sheet.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+the four pages; dragging the BGM slider and switching voice skip change the
+engine's settings and are still set when the screen is opened again.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aaf76e9280dbb06a0353d32e429acb08262c21e6..2e8b8205548b96d7a9b44cce1fefc71d4af38fdb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -287,6 +287,7 @@ set(Impacto_Src
+     src/games/sg0/phoneshim.cpp
+     src/games/sg0/sysmenu.cpp
+     src/games/sg0/savemenu.cpp
++    src/games/sg0/config.cpp
+     src/games/mo8/savemenu.cpp
+ 
+     src/games/darling/sysmesbox.cpp
+diff --git a/profiles/sg0-pc/hud/optionsmenu.lua b/profiles/sg0-pc/hud/optionsmenu.lua
+index 1cf14d4fde076c63d37d2b9ed43aed84d260ee52..c15b1e02abd5997124f35cfb175016b659a254e1 100644
+--- a/profiles/sg0-pc/hud/optionsmenu.lua
++++ b/profiles/sg0-pc/hud/optionsmenu.lua
+@@ -1,117 +1,8 @@
+--- STEINS;GATE (Steam) CONFIG screen, OptionsMenuType.SGHD. Everything below is taken from the original Game.exe:
+--- the page draw routines (page 0 basic / text 0x438ef0, page 1 sound 0x438240, page 2 character voices 0x438a60,
+--- common tabs 0x43b490; drawSprite 0x432230, stretched draw 0x432710), the input routine (0x439b00..) and the
+--- defaults (0x438030..). All art is on CONFIG.DDS (system.mpk id 5); its texts are part of the (localised) sheet.
+--- The game computes in 1280x720 units and draws at x1.5; values below are already in 1920x1080 units.
+---   * a background (0, 0, 1920 x 1080), per page a paper sheet (954 x 916) at (83, 95) and a button guide at (97, 987);
+---   * the focused row gets a red underline (sheet 1921.5, 1.5, 664.5 x 33, drawn stretched);
+---   * on / off values are text sprites 237 x 33 (sheet x 1921.5): y 156 yes, 192 no, 300 read only, 336 all,
+---     408 every scene;
+---   * slider knobs (2589, 1.5, 33 x 33): a half transparent one at the value the screen opened with, a solid one at
+---     the current value. Text speed 256..4096 (step 30 per frame), auto wait 256..2048 (step 14), volumes 0..128
+---     (step 1); knob x = (337 + (v - 256) * 240 / range) * 1.5 resp. (348 + v * 244 / 128) * 1.5;
+---   * page tabs at y 916, highlighted (+88 on the sheet) under the mouse, a check mark at (723 + 46 * page, 922);
+---   * pages slide sideways in 32 frames, 32 px per frame.
+--- Window mode and resolution have no meaning on this platform: they show the fixed state (full screen, 1920x1080).
+--- Row hit areas: the original's table (Game.exe .data, hit-area group 11); rows 3 / 4 of page 0 use the underline.
+-
+-root.SpriteSheets["Config"] = {
+-    Path = { Mount = "system", Id = 3 },
+-    DesignWidth = 3072,
+-    DesignHeight = 2496
+-};
+-
+-local function sprite(name, x, y, w, h)
+-    root.Sprites[name] = { Sheet = "Config", Bounds = { X = x, Y = y, Width = w, Height = h } };
+-    return name;
+-end
+-
+-local yes = sprite("ConfigYes", 1921.5, 156, 237, 33);
+-local no = sprite("ConfigNo", 1921.5, 192, 237, 33);
+-local readOnly = sprite("ConfigReadOnly", 1921.5, 300, 237, 33);
+-local all = sprite("ConfigAll", 1921.5, 336, 237, 33);
+-local everyScene = sprite("ConfigEveryScene", 1921.5, 408, 237, 33);
+-
+-local function underline(x1, y1, x2, y2) return { X = x1, Y = y1, Width = x2 - x1, Height = y2 - y1 }; end
+-
+-local function toggle(setting, x, y, trueSprite, falseSprite, ul, hit)
+-    return { Type = "Toggle", Setting = setting, Position = { X = x, Y = y }, TrueSprite = trueSprite,
+-             FalseSprite = falseSprite, Underline = ul, HitArea = hit };
+-end
+-
+-local function slider(setting, knobX, knobRange, knobY, min, max, step, ul, hit)
+-    return { Type = "Slider", Setting = setting, KnobX = knobX, KnobRange = knobRange, KnobY = knobY, Min = min,
+-             Max = max, Step = step, Underline = ul, HitArea = hit, DragArea = hit, DragInset = 16.5 };
+-end
+-
+--- page 0: basic / text settings
+-local page0Rows = {
+-    toggle("TriggerStopSkip", 766.5, 264, yes, no, underline(153, 279, 955.5, 312), { X = 153, Y = 263, Width = 742, Height = 33 }),
+-    toggle("ShowTipsNotification", 766.5, 325.5, yes, no, underline(153, 340.5, 955.5, 373.5), { X = 153, Y = 324, Width = 742, Height = 33 }),
+-    toggle("AutoQuickSaveScene", 766.5, 385.5, everyScene, no, underline(153, 402, 955.5, 435), { X = 153, Y = 384, Width = 742, Height = 33 }),
+-    { Type = "Choice", Setting = "WindowMode", FixedValue = 1, Sprite = sprite("ConfigWindowModeFocus", 1930, 576, 224, 88),
+-      Positions = { { X = 499, Y = 418 }, { X = 693, Y = 418 } },
+-      Underline = underline(153, 462, 955.5, 495), HitArea = underline(153, 462, 955.5, 495) },
+-    { Type = "Radio", Setting = "Resolution", FixedValue = 2, Sprite = sprite("ConfigResolution", 1930, 520, 394, 56),
+-      Position = { X = 518, Y = 435 }, Positions = { { X = 563, Y = 502.5 }, { X = 693, Y = 502.5 }, { X = 824, Y = 502.5 } },
+-      Underline = underline(153, 522, 955.5, 555), HitArea = underline(153, 522, 955.5, 555) },
+-    slider("TextSpeed", 505.5, 360, 672, 256, 4096, 30, underline(153, 690, 967.5, 723), { X = 504, Y = 664, Width = 393, Height = 49 }),
+-    slider("AutoSpeed", 505.5, 360, 727.5, 256, 2048, 14, underline(153, 744, 967.5, 777), { X = 504, Y = 719, Width = 393, Height = 49 }),
+-    toggle("SkipAll", 766.5, 787.5, all, readOnly, underline(153, 805.5, 967.5, 838.5), { X = 153, Y = 789, Width = 742, Height = 33 }),
+-};
+-
+--- page 1: sound settings (voice, BGM, sound effects, movie volume, voice sync, skip voice)
+-local page1Rows = {};
+-local volumes = { "VoiceVolume", "BGMVolume", "SEVolume", "MovieVolume" };
+-for i = 0, 3 do
+-    page1Rows[#page1Rows + 1] = slider(volumes[i + 1], 522, 366, 262.5 + 60 * i, 0, 128, 1,
+-        underline(153, 283.5 + 60 * i, 997.5, 316.5 + 60 * i), { X = 520, Y = 253 + 60 * i, Width = 399, Height = 49 });
+-end
+-page1Rows[#page1Rows + 1] = toggle("SyncVoice", 615, 502.5, yes, no, underline(153, 523.5, 997.5, 556.5), { X = 153, Y = 506, Width = 742, Height = 33 });
+-page1Rows[#page1Rows + 1] = toggle("SkipVoice", 615, 562.5, yes, no, underline(153, 583.5, 997.5, 616.5), { X = 153, Y = 566, Width = 742, Height = 33 });
+-
+--- page 2: character voices; row i edits the engine's (script mapped) character id below
+-local characterIds = { 0, 1, 4, 3, 5, 2, 6, 7, 8, 9, 10, 11 };
+-local page2Rows = {};
+-for i = 0, 11 do
+-    local y = (160 + 31 * i) * 1.5;
+-    local hitY = 256 + 46.5 * i;
+-    page2Rows[#page2Rows + 1] = {
+-        Type = "Voice", CharacterId = characterIds[i + 1],
+-        CursorSprite = sprite("ConfigVoiceCursor" .. i, 2265, 37.5, 66, 75), CursorPosition = { X = 159, Y = y },
+-        OnSprite = sprite("ConfigVoiceOn" .. i, 2334, 37.5, 72, 75), OnPosition = { X = 156, Y = y },
+-        KnobX = 526.5, KnobRange = 366, KnobY = (160 + 31 * i + 16) * 1.5, Min = 0, Max = 128, Step = 1,
+-        Underline = underline(204, (160 + 31 * i + 29) * 1.5, 1011, (160 + 31 * i + 51) * 1.5),
+-        HitArea = { X = 525, Y = hitY, Width = 399, Height = 49 }, DragArea = { X = 525, Y = hitY, Width = 399, Height = 49 },
+-        DragInset = 16.5, ToggleArea = { X = 172, Y = hitY, Width = 40, Height = 40 }
+-    };
+-end
+-
++-- STEINS;GATE 0 CONFIG screen: drawn and driven by the game code ported from Game.exe (games/sg0/config.cpp,
++-- instruction 10:13 and the system menu layer). The engine's options menu class is not used.
+ root.OptionsMenu = {
+-    Type = OptionsMenuType.SGHD,
++    Type = OptionsMenuType.None,
+     DrawType = DrawComponentType.SystemMenu,
+-    FadeInDuration = 16 / 60,
+-    FadeOutDuration = 16 / 60,
+-    BackgroundSprite = sprite("ConfigBackground", 0, 0, 1920, 1080),
+-    UnderlineSprite = sprite("ConfigUnderline", 1921.5, 1.5, 664.5, 33),
+-    KnobSprite = sprite("ConfigKnob", 2589, 1.5, 33, 33),
+-    TabCheckSprite = sprite("ConfigTabCheck", 2154, 628, 64, 36),
+-    PageSlideFrames = 32,
+-    PageSlideDistance = 1024,
+-    Pages = {
+-        { PaperSprite = sprite("ConfigPaper0", 1, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
+-          GuideSprite = sprite("ConfigGuide0", 1361, 1081, 1038, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page0Rows },
+-        { PaperSprite = sprite("ConfigPaper1", 957, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
+-          GuideSprite = sprite("ConfigGuide1", 1361, 1081, 1038, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page1Rows },
+-        { PaperSprite = sprite("ConfigPaper2", 1913, 1129, 954, 916), PaperPosition = { X = 83, Y = 95 },
+-          GuideSprite = sprite("ConfigGuide2", 1, 1081, 1358, 46), GuidePosition = { X = 97, Y = 987 }, Rows = page2Rows },
+-    },
+-    Tabs = {
+-        { Sprite = sprite("ConfigTab0", 2154, 576, 60, 52), HighlightedSprite = sprite("ConfigTab0H", 2154, 664, 60, 52),
+-          Position = { X = 721, Y = 916 }, CheckPosition = { X = 723, Y = 922 }, HitArea = { X = 721, Y = 916, Width = 60, Height = 52 } },
+-        { Sprite = sprite("ConfigTab1", 2214, 576, 48, 52), HighlightedSprite = sprite("ConfigTab1H", 2214, 664, 48, 52),
+-          Position = { X = 781, Y = 916 }, CheckPosition = { X = 769, Y = 922 }, HitArea = { X = 781, Y = 916, Width = 48, Height = 52 } },
+-        { Sprite = sprite("ConfigTab2", 2262, 576, 62, 52), HighlightedSprite = sprite("ConfigTab2H", 2262, 664, 62, 52),
+-          Position = { X = 829, Y = 916 }, CheckPosition = { X = 815, Y = 922 }, HitArea = { X = 829, Y = 916, Width = 62, Height = 52 } },
+-    }
++    FadeInDuration = 0.2,
++    FadeOutDuration = 0.2
+ };
+diff --git a/profiles/sg0-pc/sprites.lua b/profiles/sg0-pc/sprites.lua
+index 0419818ae1648b0898e10175282da053f0d1fc3d..2bb7a49025e3eb1eae7531436b8269403488b69a 100644
+--- a/profiles/sg0-pc/sprites.lua
++++ b/profiles/sg0-pc/sprites.lua
+@@ -41,6 +41,7 @@ root.SpriteSheets = {
+     -- the save menu (games/sg0/savemenu.cpp): surfaces 155 SYSM_SAVEMENU, 157 SYSM_TIPS, 159 SAVEMENU; the text of the
+     -- ported screens comes from the fonts as the scripts load them (76 FONT_A, 78 FONT2_A)
+     ["SysSaveMenu"] = sheet(22, 3072, 1848, true),
++    ["ConfigChip"] = sheet(3, 3072, 2496, true),
+     ["SysTips"] = sheet(23, 3072, 1928, true),
+     ["SaveMenuChip"] = sheet(21, 3072, 2048, true),
+     ["SysFontA"] = sheet(9, 3072, 3840, true),
+diff --git a/src/games/sg0/config.cpp b/src/games/sg0/config.cpp
+new file mode 100755
+index 0000000000000000000000000000000000000000..081fb0533aed19a066706beb57e4d4c35f80e684
+--- /dev/null
++++ b/src/games/sg0/config.cpp
+@@ -0,0 +1,134 @@
++// The CONFIG screen of STEINS;GATE 0: instruction 10:13 (0x4858c0: 0 / 10 = init 0x453620, 1 = the update of a frame
++// 0x453d70, 2 = 0x4524f0, 3 = BGM volume back, 4 = defaults of the page 0x4527b0) and its drawing (0x452910 on the
++// system menu layer) are translated with the phone (phonecode.cpp). The settings stay in the original's variables
++// (0x2ee7670..), which are filled from the engine's settings when the screen opens and written back to them every
++// frame. Rows (Game.exe 0x5c92e0: variable, mute variable, type, min, max):
++//   0 0x2ee76bc trigger stops skipping   1 0x2ee76b4 TIPS notification   2 0x2ee7694 auto quick save (bits: 1 trigger,
++//   2 scene)   3 0x2ee76c4 full screen   4 0x2ee76c8 resolution   5 0x2ee7684 text speed (0x100..0x1000)
++//   6 0x2ee7688 auto mode wait (0x100..0x800)   7 0x2ee7690 skip (0 read only, 1 all)   8 0x2ee76d0 message send LR
++//   9..12 0x2ee7670 / 74 / 78 / 80 voice, BGM, SE, movie volume (0..0x80)   13 0x2ee768c voice sync
++//   14 0x2ee76b0 voice skip   15.. 0x2ee55c0 + 4 i character voice volume, 0x2ee5538 + 4 i voice on
++// Full screen and resolution have no meaning here: the screen shows full screen, 1920x1080 and does not change them.
++#include "phone.h"
++
++#include <algorithm>
++
++#include "phoneglobals.h"
++#include "../../audio/audiosystem.h"
++#include "../../profile/configsystem.h"
++#include "../../vm/interface/input.h"
++#include "../../vm/thread.h"
++
++namespace Impacto {
++namespace SG0 {
++namespace PhoneCode {
++
++// 0x4906f0: the window size (the screen does not change it here)
++void FUN_004906f0() {}
++
++}  // namespace PhoneCode
++
++namespace Phone {
++
++using namespace PhoneCode;
++namespace Cfg = Impacto::Profile::ConfigSystem;
++
++namespace {
++
++int32_t& V(uint32_t address) { return *reinterpret_cast<int32_t*>(Sg0Emu::At(address)); }
++
++// 0x2ee5538 .. 0x2ee55c0: 34 characters (the engine keeps VoiceCount)
++constexpr int Voices = std::min(34, Profile::ConfigSystem::VoiceCount);
++
++void FixedScreen() {
++  V(0x02ee76c4) = V(0x02ee53c4) = 1;  // full screen
++  V(0x02ee76c8) = V(0x02ee53c8) = 2;  // 1920x1080
++  V(0x02ee5384) = 1;
++  V(0x02ee5388) = 2;
++}
++
++}  // namespace
++
++// the engine's settings into the original's variables
++void ConfigToOriginal() {
++  V(0x02ee76bc) = Cfg::TriggerStopSkip ? 1 : 0;
++  V(0x02ee76b4) = Cfg::ShowTipsNotification ? 1 : 0;
++  V(0x02ee7694) = Cfg::AutoQuickSave & 3;
++  V(0x02ee7684) = std::clamp((int)(Cfg::TextSpeed * 60.0f + 0.5f), 0x100, 0x1000);
++  V(0x02ee7688) = std::clamp((int)(Cfg::AutoSpeed * 60.0f + 0.5f), 0x100, 0x800);
++  V(0x02ee7690) = Cfg::SkipRead ? 0 : 1;
++  V(0x02ee76d0) = Cfg::AdvanceTextOnDirectionalInput ? 1 : 0;
++  V(0x02ee7670) = (int)(Audio::GroupVolumes[Audio::ACG_Voice] * 128.0f + 0.5f);
++  V(0x02ee7674) = (int)(Audio::GroupVolumes[Audio::ACG_BGM] * 128.0f + 0.5f);
++  V(0x02ee7678) = (int)(Audio::GroupVolumes[Audio::ACG_SE] * 128.0f + 0.5f);
++  V(0x02ee7680) = (int)(Audio::GroupVolumes[Audio::ACG_Movie] * 128.0f + 0.5f);
++  V(0x02ee768c) = Cfg::SyncVoice ? 1 : 0;
++  V(0x02ee76b0) = Cfg::SkipVoice ? 1 : 0;
++  for (int i = 0; i < Voices; i++) {
++    V(0x02ee55c0 + i * 4) = (int)(Cfg::VoiceVolume[i] * 128.0f + 0.5f);
++    V(0x02ee5538 + i * 4) = Cfg::VoiceMuted[i] ? 0 : 1;  // 1: the voice is on
++  }
++  FixedScreen();
++}
++
++// and back
++void ConfigFromOriginal() {
++  Cfg::TriggerStopSkip = V(0x02ee76bc) != 0;
++  Cfg::ShowTipsNotification = V(0x02ee76b4) != 0;
++  Cfg::AutoQuickSave = (uint8_t)(V(0x02ee7694) & 3);
++  Cfg::TextSpeed = V(0x02ee7684) / 60.0f;
++  Cfg::AutoSpeed = V(0x02ee7688) / 60.0f;
++  Cfg::SkipRead = V(0x02ee7690) == 0;
++  Cfg::AdvanceTextOnDirectionalInput = V(0x02ee76d0) != 0;
++  Audio::GroupVolumes[Audio::ACG_Voice] = V(0x02ee7670) / 128.0f;
++  Audio::GroupVolumes[Audio::ACG_BGM] = V(0x02ee7674) / 128.0f;
++  Audio::GroupVolumes[Audio::ACG_SE] = V(0x02ee7678) / 128.0f;
++  Audio::GroupVolumes[Audio::ACG_Movie] = V(0x02ee7680) / 128.0f;
++  Cfg::SyncVoice = V(0x02ee768c) != 0;
++  Cfg::SkipVoice = V(0x02ee76b0) != 0;
++  for (int i = 0; i < Voices; i++) {
++    Cfg::VoiceVolume[i] = V(0x02ee55c0 + i * 4) / 128.0f;
++    Cfg::VoiceMuted[i] = V(0x02ee5538 + i * 4) == 0;
++  }
++  FixedScreen();
++}
++
++// 10:13 (0x4858c0)
++void ConfigInstruction(Vm::Sc3VmThread* thread) {
++  thread->IpOffset += 2;
++  const uint8_t type = *thread->GetIp();
++  thread->IpOffset++;
++  switch (type) {
++    case 0:
++    case 10:
++      ConfigToOriginal();
++      FUN_00453620();
++      ClearMouse();
++      Vm::Interface::PADinputButtonWentDown = 0;
++      break;
++    case 1:
++      BridgeInput();
++      FUN_00453d70();
++      Vm::Interface::PADinputButtonWentDown = *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x01979f10));
++      ClearMouse();
++      ConfigFromOriginal();
++      break;
++    case 2:
++      FUN_004524f0();
++      ConfigFromOriginal();
++      break;
++    case 3:
++      V(0x02ee766c) = V(0x02ee7670);
++      break;
++    case 4:
++      FUN_004527b0();
++      ConfigFromOriginal();
++      break;
++    default:
++      break;
++  }
++}
++
++}  // namespace Phone
++}  // namespace SG0
++}  // namespace Impacto
+diff --git a/src/games/sg0/phone.h b/src/games/sg0/phone.h
+index 5c8389f6997c7f23c2a45fca476ed955871cbda0..357b1cb56c85d766a27912868c10c56fa28b4c49 100755
+--- a/src/games/sg0/phone.h
++++ b/src/games/sg0/phone.h
+@@ -57,6 +57,8 @@ void SystemMenuInstruction(Vm::Sc3VmThread* thread);
+ void RenderSystemMenuLayer();
+ // The save / load menu (savemenu.cpp): instruction 10:23; drawn on the system menu layer.
+ void SaveMenuInstruction(Vm::Sc3VmThread* thread);
++// The CONFIG screen (config.cpp): instruction 10:13; drawn on the system menu layer.
++void ConfigInstruction(Vm::Sc3VmThread* thread);
+ 
+ // The phone keeps 0x3ee0 bytes in every save (0x475ed0 / 0x470620).
+ constexpr size_t SaveDataSize = 0x3ee0;
+diff --git a/src/games/sg0/phonecode.cpp b/src/games/sg0/phonecode.cpp
+index 10b36de2d08032deb2d1e43ee83900bfb0816d74..1e255f81886de5e51ed03bc9fd16a1405dcd125a 100755
+--- a/src/games/sg0/phonecode.cpp
++++ b/src/games/sg0/phonecode.cpp
+@@ -19,6 +19,7 @@ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
+ 
+ const Sg0Emu::RdataChunk RdataChunks[] = {
++    {0x00549440, {0x00,0x00,0x70,0x43,0x00,0x00,0x87,0x44,0x00,0x00,0xf0,0x44,0x00,0x00,0x00,0x3c}},
+     {0x00549550, {0x00,0x00,0xc0,0x3f,0x00,0x00,0x40,0x40,0x00,0x00,0x20,0x41,0x00,0x00,0xa0,0x41}},
+     {0x005495c0, {0x00,0x00,0x80,0x42,0x00,0x00,0xb2,0x42,0x00,0x00,0xb4,0x42,0x00,0x00,0xc8,0x42}},
+     {0x005495e0, {0x00,0x00,0x41,0x43,0x00,0x00,0x52,0x43,0x00,0x00,0x7f,0x43,0x00,0x00,0x80,0x43}},
+@@ -28,6 +29,7 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x0054a650, {0x0a,0xd7,0x23,0x3d,0x00,0x00,0x80,0x3d,0x00,0x00,0x40,0x3f,0x00,0x00,0x60,0x40}},
+     {0x0054a660, {0x00,0x00,0xa0,0x40,0x00,0x00,0x40,0x41,0x00,0x00,0x90,0x41,0x00,0x00,0xc0,0x41}},
+     {0x0054a670, {0x00,0x00,0xc8,0x41,0x00,0x00,0x28,0x42,0x00,0x00,0xa8,0x42,0x00,0x00,0xf0,0x42}},
++    {0x0054a680, {0x00,0x00,0x22,0x43,0x00,0x00,0x48,0x43,0x00,0x00,0x84,0x43,0x00,0x00,0x9c,0x43}},
+     {0x0054a690, {0x00,0x00,0xed,0x43,0x00,0x00,0x00,0x44,0x00,0xc0,0x05,0x44,0x00,0x00,0x19,0x44}},
+     {0x0054a6a0, {0x00,0x00,0x1c,0x44,0x00,0x00,0x1f,0x44,0x00,0x00,0x22,0x44,0xfe,0xff,0x33,0x44}},
+     {0x0054a6d0, {0x00,0x80,0xa8,0x44,0x00,0x00,0xe0,0x44,0x00,0x80,0x3b,0x45,0x00,0x00,0x70,0x45}},
+@@ -51,10 +53,157 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+     {0x0054a7f0, {0x00,0x80,0x02,0xc4,0x00,0x00,0x10,0x41,0x00,0x00,0xcc,0x42,0x00,0x00,0x10,0x43}},
+     {0x0054a800, {0x00,0x00,0x34,0x43,0x00,0x00,0x10,0x44,0x00,0xc0,0x37,0x44,0x00,0x10,0x20,0x00}},
+     {0x005ba4d0, {0x7b,0x14,0xae,0x47,0xe1,0x7a,0x74,0x3f,0x00,0x00,0x80,0x3f,0x00,0x00,0x00,0x00}},
++    {0x005ba560, {0x00,0x00,0x00,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40}},
++    {0x005ba610, {0x00,0x00,0xc0,0x40,0xdb,0x0f,0xc9,0x40,0xa1,0x0e,0xea,0x40,0x00,0x00,0x00,0x00}},
++    {0x005ba6c0, {0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005ba6e0, {0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00}},
++    {0x005ba6f0, {0xd1,0x00,0x00,0x00,0xd1,0x00,0x00,0x00,0xd1,0x00,0x00,0x00,0xd1,0x00,0x00,0x00}},
++    {0x005ba700, {0xff,0x7f,0x00,0x00,0xff,0x7f,0x00,0x00,0xff,0x7f,0x00,0x00,0xff,0x7f,0x00,0x00}},
++    {0x005ba710, {0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x80,0x00,0x00}},
++    {0x005ba720, {0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00}},
++    {0x005ba730, {0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x3f,0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x3f}},
++    {0x005ba740, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40}},
++    {0x005ba750, {0x00,0x00,0x00,0x60,0xfb,0x21,0x09,0x40,0x00,0x00,0x00,0x60,0xfb,0x21,0x09,0x40}},
++    {0x005ba760, {0x00,0x00,0x00,0x00,0x00,0x00,0x3e,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x3e,0x40}},
++    {0x005ba770, {0x00,0x00,0x00,0x00,0x00,0x00,0x59,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x59,0x40}},
++    {0x005ba780, {0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41,0x00,0x00,0x20,0x41}},
+     {0x005ba790, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xf0,0x41}},
++    {0x005c6290, {0x02,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00,0xff,0x00,0x00,0x00}},
+     {0x005c8cc0, {0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}},
++    {0x005c8d90, {0x05,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x0f,0x00,0x00,0x00}},
++    {0x005c8da0, {0x05,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x06,0x00,0x00,0x00}},
++    {0x005c8db0, {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c8dc0, {0x02,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x05,0x00,0x00,0x00}},
++    {0x005c8dd0, {0x06,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x08,0x00,0x00,0x00,0x09,0x00,0x00,0x00}},
++    {0x005c8de0, {0x0a,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x0c,0x00,0x00,0x00,0x0d,0x00,0x00,0x00}},
++    {0x005c8df0, {0x0e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x02,0x00,0x00,0x00}},
++    {0x005c8e00, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x3e,0x04,0x7a,0x04,0x48,0x00}},
++    {0x005c8e10, {0xd0,0x02,0xf0,0x00,0x00,0x00,0x02,0x00,0x26,0x03,0x48,0x03,0x6c,0x00,0xc4,0x03}},
++    {0x005c8e20, {0xe4,0x03,0x7e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8e30, {0x86,0x07,0x86,0x04,0x7a,0x04,0x48,0x00,0xd0,0x02,0x80,0x01,0x00,0x00,0x02,0x00}},
++    {0x005c8e40, {0x26,0x03,0x48,0x03,0x6c,0x00,0xc4,0x03,0xe4,0x03,0x7e,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8e50, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0xce,0x04,0x7a,0x04,0x48,0x00}},
++    {0x005c8e60, {0xd0,0x02,0x10,0x02,0x00,0x00,0x04,0x00,0xe0,0x01,0xfe,0x01,0x7e,0x00,0x94,0x02}},
++    {0x005c8e70, {0xa0,0x02,0xa2,0x00,0x34,0x03,0x60,0x03,0x66,0x00,0xd0,0x03,0xe4,0x03,0x7e,0x00}},
++    {0x005c8e80, {0x86,0x07,0x1c,0x02,0x7a,0x04,0x48,0x00,0xd0,0x02,0xa0,0x02,0x00,0x00,0x02,0x00}},
++    {0x005c8e90, {0x92,0x02,0x5e,0x02,0x20,0x01,0xac,0x03,0x9c,0x03,0xc6,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8ea0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x64,0x02,0x7a,0x04,0x48,0x00}},
++    {0x005c8eb0, {0xd0,0x02,0x30,0x03,0x00,0x00,0x03,0x00,0x2e,0x02,0x2e,0x02,0xa2,0x00,0xee,0x02}},
++    {0x005c8ec0, {0xee,0x02,0xa2,0x00,0xae,0x03,0xae,0x03,0xb4,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8ed0, {0x86,0x07,0xa6,0x05,0x7a,0x04,0x48,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c8ee0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8ef0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0xee,0x05,0x7a,0x04,0x48,0x00}},
++    {0x005c8f00, {0xd0,0x02,0x80,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8f10, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8f20, {0x86,0x07,0x36,0x06,0x7a,0x04,0x48,0x00,0xd0,0x02,0x10,0x02,0x00,0x00,0x02,0x00}},
++    {0x005c8f30, {0x00,0x03,0x00,0x03,0xb4,0x00,0xd6,0x03,0xf6,0x03,0x6c,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8f40, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x7e,0x06,0x7a,0x04,0x48,0x00}},
++    {0x005c8f50, {0xd0,0x02,0xa0,0x02,0x00,0x00,0x02,0x00,0x26,0x03,0x48,0x03,0x6c,0x00,0xc4,0x03}},
++    {0x005c8f60, {0xe4,0x03,0x7e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8f70, {0x86,0x07,0xc6,0x06,0x7a,0x04,0x48,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x02,0x00}},
++    {0x005c8f80, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8f90, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x0e,0x07,0x7a,0x04,0x48,0x00}},
++    {0x005c8fa0, {0xd0,0x02,0x62,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8fb0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8fc0, {0x86,0x07,0x56,0x07,0x7a,0x04,0x48,0x00,0xd0,0x02,0xd4,0x01,0x01,0x00,0x00,0x00}},
++    {0x005c8fd0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c8fe0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x9e,0x07,0x7a,0x04,0x48,0x00}},
++    {0x005c8ff0, {0xd0,0x02,0x46,0x02,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9000, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9010, {0x86,0x07,0xe6,0x07,0x7a,0x04,0x48,0x00,0xd0,0x02,0xb8,0x02,0x00,0x00,0x02,0x00}},
++    {0x005c9020, {0x26,0x03,0x48,0x03,0x6c,0x00,0xc4,0x03,0xe4,0x03,0x7e,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9030, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x86,0x07,0x2e,0x08,0x7a,0x04,0x48,0x00}},
++    {0x005c9040, {0xd0,0x02,0x2a,0x03,0x00,0x00,0x02,0x00,0x26,0x03,0x48,0x03,0x6c,0x00,0xc4,0x03}},
++    {0x005c9050, {0xe4,0x03,0x7e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9060, {0x00,0x00,0x7c,0x08,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9070, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9080, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x70,0x02,0x7c,0x08,0x70,0x02,0x4e,0x00}},
++    {0x005c9090, {0xd0,0x02,0x62,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c90a0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c90b0, {0xe0,0x04,0x7c,0x08,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c90c0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c90d0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x50,0x07,0x7c,0x08,0x70,0x02,0x4e,0x00}},
++    {0x005c90e0, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c90f0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9100, {0x00,0x00,0xca,0x08,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9110, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9120, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x70,0x02,0xca,0x08,0x70,0x02,0x4e,0x00}},
++    {0x005c9130, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9140, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9150, {0xe0,0x04,0xca,0x08,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9160, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9170, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x50,0x07,0xca,0x08,0x70,0x02,0x4e,0x00}},
++    {0x005c9180, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9190, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c91a0, {0x00,0x00,0x18,0x09,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c91b0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c91c0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x70,0x02,0x18,0x09,0x70,0x02,0x4e,0x00}},
++    {0x005c91d0, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c91e0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c91f0, {0xe0,0x04,0x18,0x09,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9200, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9210, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x50,0x07,0x18,0x09,0x70,0x02,0x4e,0x00}},
++    {0x005c9220, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9230, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9240, {0x00,0x00,0x66,0x09,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9250, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9260, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x70,0x02,0x66,0x09,0x70,0x02,0x4e,0x00}},
++    {0x005c9270, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9280, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9290, {0xe0,0x04,0x66,0x09,0x70,0x02,0x4e,0x00,0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c92a0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c92b0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x50,0x07,0x66,0x09,0x70,0x02,0x4e,0x00}},
++    {0x005c92c0, {0xd0,0x02,0xf0,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c92d0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
+     {0x005c92e0, {0xbc,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
+     {0x005c92f0, {0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xb4,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c9300, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff}},
++    {0x005c9310, {0x94,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9320, {0x03,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xc4,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c9330, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff}},
++    {0x005c9340, {0xc8,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9350, {0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x84,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c9360, {0x01,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x10,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9370, {0x88,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x01,0x00,0x00}},
++    {0x005c9380, {0x00,0x08,0x00,0x00,0xff,0xff,0xff,0xff,0x90,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c9390, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c93a0, {0xd0,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c93b0, {0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0x70,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c93c0, {0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c93d0, {0x74,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c93e0, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x78,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c93f0, {0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9400, {0x80,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9410, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x8c,0x76,0xee,0x02,0x00,0x00,0x00,0x00}},
++    {0x005c9420, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff}},
++    {0x005c9430, {0xb0,0x76,0xee,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9440, {0x01,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xc0,0x55,0xee,0x02,0x38,0x55,0xee,0x02}},
++    {0x005c9450, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9460, {0xc4,0x55,0xee,0x02,0x3c,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9470, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xc8,0x55,0xee,0x02,0x40,0x55,0xee,0x02}},
++    {0x005c9480, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9490, {0xcc,0x55,0xee,0x02,0x44,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c94a0, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xd0,0x55,0xee,0x02,0x48,0x55,0xee,0x02}},
++    {0x005c94b0, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c94c0, {0xd4,0x55,0xee,0x02,0x4c,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c94d0, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xd8,0x55,0xee,0x02,0x50,0x55,0xee,0x02}},
++    {0x005c94e0, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c94f0, {0xdc,0x55,0xee,0x02,0x54,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9500, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xe0,0x55,0xee,0x02,0x58,0x55,0xee,0x02}},
++    {0x005c9510, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9520, {0xe4,0x55,0xee,0x02,0x5c,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9530, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xe8,0x55,0xee,0x02,0x60,0x55,0xee,0x02}},
++    {0x005c9540, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9550, {0xec,0x55,0xee,0x02,0x64,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9560, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xf0,0x55,0xee,0x02,0x68,0x55,0xee,0x02}},
++    {0x005c9570, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c9580, {0xf4,0x55,0xee,0x02,0x6c,0x55,0xee,0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c9590, {0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0xf8,0x55,0xee,0x02,0x70,0x55,0xee,0x02}},
++    {0x005c95a0, {0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c95b0, {0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x05,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c95c0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00}},
++    {0x005c95d0, {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
++    {0x005c95e0, {0x02,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x01,0x00,0x00,0x00}},
+     {0x005c95f0, {0x00,0x00,0x00,0x00,0x3e,0x04,0x00,0x00,0x7c,0xff,0xff,0xff,0xa0,0x02,0x00,0x00}},
+     {0x005c9600, {0x86,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0xc6,0x00,0x00,0x00}},
+     {0x005c9610, {0x9c,0x06,0x00,0x00,0x58,0x02,0x00,0x00,0x3e,0x04,0x00,0x00,0xfa,0x05,0x00,0x00}},
+@@ -334,6 +483,1554 @@ const Sg0Emu::RdataChunk RdataChunks[] = {
+ };
+ const size_t RdataChunkCount = sizeof(RdataChunks) / sizeof(RdataChunks[0]);
+ 
++// ===== FUN_0042e750 @ 0042e750
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_0042e750(void)
++
++{
++  DAT_00de5ec4 = 0;
++  DAT_00de5ed0 = 0;
++  _DAT_00de5ed4 = 0;
++  DAT_005c6290 = 0;
++  DAT_005c6294 = 0xff;
++  DAT_005c629c = 0xff;
++  _DAT_00de5f18 = 0;
++  _DAT_00de5f1c = 0;
++  _DAT_00de5f20 = 0;
++  return;
++}
++
++
++// ===== FUN_004524a0 @ 004524a0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_004524a0(void)
++
++{
++  DAT_016d7888 = 0;
++  DAT_016d788c = 0;
++  DAT_016d7890 = 0;
++  DAT_016d7894 = 0;
++  DAT_016d78a8 = 0;
++  _DAT_016d78ac = 0;
++  DAT_005c8cc0 = 0xffff;
++  FUN_0042e750();
++  return;
++}
++
++
++// ===== FUN_004524f0 @ 004524f0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_004524f0(void)
++
++{
++  _DAT_02ee766c = DAT_02ee7670;
++  return;
++}
++
++
++// ===== FUN_00452500 @ 00452500
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00452500(int param_1)
++
++{
++  uint *puVar1;
++  uint uVar2;
++  int iVar3;
++  bool bVar4;
++  uint local_c;
++  int iStack_8;
++  
++  uVar2 = 0;
++  if ((&DAT_016d8d0c)[param_1] == '\0') {
++    return;
++  }
++  iVar3 = *(int *)(&DAT_005c92e8 + param_1 * 0x18);
++  if (iVar3 == 0) {
++    if ((_DAT_0197a1c8 & DAT_01979f10) != 0) {
++      uVar2 = -(&DAT_005c92f4)[param_1 * 6];
++    }
++    if ((DAT_0197a1cc & DAT_01979f10) != 0) {
++      uVar2 = (&DAT_005c92f4)[param_1 * 6];
++    }
++LAB_004525cc:
++    if (uVar2 != 0) {
++      iStack_8 = 0;
++      local_c = *(uint *)(&PTR_DAT_005c92e0)[param_1 * 6];
++      if (param_1 == 2) {
++        if (local_c == 0) {
++          if (uVar2 == 1) {
++            local_c = 2;
++          }
++          else if (uVar2 == 0xffffffff) {
++            local_c = 3;
++            iStack_8 = 0;
++          }
++        }
++        else if (local_c == 1) {
++          if (uVar2 == 1) {
++            local_c = 3;
++          }
++          else if (uVar2 == 0xffffffff) {
++            local_c = 2;
++            iStack_8 = 0;
++          }
++        }
++        else if (local_c == 2) {
++          if (uVar2 == 1) {
++            local_c = 1;
++          }
++          else if (uVar2 == 0xffffffff) {
++            iStack_8 = 0;
++            local_c = 0;
++          }
++        }
++        else if (local_c == 3) {
++          if (uVar2 == 1) {
++            iStack_8 = 0;
++            local_c = 0;
++          }
++          else if (uVar2 == 0xffffffff) {
++            local_c = 1;
++            iStack_8 = 0;
++          }
++        }
++      }
++      else {
++        bVar4 = CARRY4(local_c,uVar2);
++        local_c = local_c + uVar2;
++        iStack_8 = ((int)uVar2 >> 0x1f) + (uint)bVar4;
++      }
++      iVar3 = *(int *)(&DAT_005c92e8 + param_1 * 0x18);
++      if (iVar3 == 0) {
++        uVar2 = (&DAT_005c92ec)[param_1 * 6];
++        if (((int)uVar2 >> 0x1f < iStack_8) ||
++           (((int)uVar2 >> 0x1f <= iStack_8 && (uVar2 <= local_c)))) {
++          iVar3 = (int)(&DAT_005c92f0)[param_1 * 6] >> 0x1f;
++          if ((iVar3 <= iStack_8) &&
++             ((iVar3 < iStack_8 || ((uint)(&DAT_005c92f0)[param_1 * 6] < local_c)))) {
++            local_c = uVar2;
++          }
++        }
++        else {
++          local_c = (&DAT_005c92f0)[param_1 * 6];
++        }
++      }
++      else if ((iVar3 == 1) || (iVar3 == 2)) {
++        uVar2 = (&DAT_005c92ec)[param_1 * 6];
++        if ((int)uVar2 >> 0x1f < iStack_8) {
++LAB_004526a8:
++          uVar2 = (&DAT_005c92f0)[param_1 * 6];
++          if ((iStack_8 < (int)uVar2 >> 0x1f) ||
++             ((iStack_8 <= (int)uVar2 >> 0x1f && (local_c <= uVar2)))) goto LAB_004526f4;
++        }
++        else if ((int)uVar2 >> 0x1f <= iStack_8) {
++          if (local_c < uVar2) {
++            local_c = uVar2;
++            goto LAB_004526f4;
++          }
++          goto LAB_004526a8;
++        }
++        local_c = uVar2;
++      }
++LAB_004526f4:
++      (&DAT_016d8220)[param_1] = 0;
++      *(uint *)(&PTR_DAT_005c92e0)[param_1 * 6] = local_c;
++    }
++  }
++  else if ((iVar3 == 1) || ((iVar3 == 2 && (**(int **)(&DAT_005c92e4 + param_1 * 0x18) != 0)))) {
++    if ((_DAT_0197a1c8 & DAT_01979f14) != 0) {
++      iVar3 = (int)((ulonglong)
++                    ((longlong)(int)((&DAT_005c92f0)[param_1 * 6] - (&DAT_005c92ec)[param_1 * 6]) *
++                    -0x51eb851f) >> 0x20);
++      uVar2 = (iVar3 >> 5) - (iVar3 >> 0x1f);
++    }
++    if ((DAT_0197a1cc & DAT_01979f14) != 0) {
++      uVar2 = (int)((&DAT_005c92f0)[param_1 * 6] - (&DAT_005c92ec)[param_1 * 6]) / 100;
++    }
++    uVar2 = uVar2 * (&DAT_005c92f4)[param_1 * 6];
++    goto LAB_004525cc;
++  }
++  uVar2 = 0;
++  if (*(int *)(&DAT_005c92e8 + param_1 * 0x18) != 2) {
++    return;
++  }
++  if ((DAT_0197a1d4 & DAT_01979f10) != 0) {
++    uVar2 = (&DAT_005c92f4)[param_1 * 6];
++  }
++  if ((_DAT_0197a208 & DAT_01979f10) != 0) {
++    uVar2 = (&DAT_005c92f4)[param_1 * 6];
++  }
++  if (uVar2 == 0) {
++    return;
++  }
++  puVar1 = *(uint **)(&DAT_005c92e4 + param_1 * 0x18);
++  local_c = *puVar1 + uVar2;
++  iVar3 = ((int)uVar2 >> 0x1f) + (uint)CARRY4(*puVar1,uVar2);
++  if (iVar3 < 1) {
++    if (iVar3 < 0) {
++      *puVar1 = 1;
++      return;
++    }
++    if ((iVar3 < 0) || ((iVar3 < 1 && (local_c < 2)))) goto LAB_00452784;
++  }
++  local_c = 0;
++LAB_00452784:
++  *puVar1 = local_c;
++  return;
++}
++
++
++// ===== FUN_00452790 @ 00452790
++
++void FUN_00452790(int param_1,undefined1 param_2)
++
++{
++  (&DAT_016d8d0c)[param_1] = param_2;
++  return;
++}
++
++
++// ===== FUN_004527b0 @ 004527b0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_004527b0(void)
++
++{
++  switch(DAT_016d7880) {
++  case 0:
++    DAT_02ee76b4 = 1;
++    DAT_02ee76bc = 1;
++    DAT_02ee7694 = 3;
++    _DAT_02ee76c0 = 0x80;
++    return;
++  case 1:
++    DAT_02ee7684 = 0x300;
++    DAT_02ee7688 = 0x300;
++    DAT_02ee76d0 = 0;
++    DAT_02ee7690 = 0;
++    return;
++  case 2:
++    DAT_02ee7670 = 0x40;
++    _DAT_02ee766c = 0x40;
++    _DAT_02ee7674 = 0x40;
++    DAT_02ee7678 = 0x40;
++    DAT_02ee767c = 0x1e;
++    _DAT_02ee7680 = 0x40;
++    DAT_02ee768c = 1;
++    DAT_02ee76b0 = 0;
++    return;
++  case 3:
++    _DAT_02ee5538 = _DAT_005ba6c0;
++    _DAT_02ee553c = _UNK_005ba6c4;
++    uRam02ee5540 = _UNK_005ba6c8;
++    uRam02ee5544 = _UNK_005ba6cc;
++    _DAT_02ee769c = 0xffffffff;
++    _DAT_02ee5548 = _DAT_005ba6c0;
++    uRam02ee554c = _UNK_005ba6c4;
++    uRam02ee5550 = _UNK_005ba6c8;
++    uRam02ee5554 = _UNK_005ba6cc;
++    _DAT_02ee5558 = _DAT_005ba6c0;
++    uRam02ee555c = _UNK_005ba6c4;
++    uRam02ee5560 = _UNK_005ba6c8;
++    uRam02ee5564 = _UNK_005ba6cc;
++    _DAT_02ee5568 = _DAT_005ba6c0;
++    uRam02ee556c = _UNK_005ba6c4;
++    uRam02ee5570 = _UNK_005ba6c8;
++    uRam02ee5574 = _UNK_005ba6cc;
++    _DAT_02ee5578 = _DAT_005ba6c0;
++    uRam02ee557c = _UNK_005ba6c4;
++    uRam02ee5580 = _UNK_005ba6c8;
++    uRam02ee5584 = _UNK_005ba6cc;
++    _DAT_02ee5588 = _DAT_005ba6c0;
++    uRam02ee558c = _UNK_005ba6c4;
++    uRam02ee5590 = _UNK_005ba6c8;
++    uRam02ee5594 = _UNK_005ba6cc;
++    _DAT_02ee5598 = _DAT_005ba6c0;
++    uRam02ee559c = _UNK_005ba6c4;
++    uRam02ee55a0 = _UNK_005ba6c8;
++    uRam02ee55a4 = _UNK_005ba6cc;
++    _DAT_02ee55a8 = _DAT_005ba6c0;
++    uRam02ee55ac = _UNK_005ba6c4;
++    uRam02ee55b0 = _UNK_005ba6c8;
++    uRam02ee55b4 = _UNK_005ba6cc;
++    _DAT_02ee55c0 = (undefined4)DAT_005ba6e0;
++    _DAT_02ee55c4 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee55c8 = _UNK_005ba6e8;
++    uRam02ee55cc = _UNK_005ba6ec;
++    _DAT_02ee55d0 = (undefined4)DAT_005ba6e0;
++    uRam02ee55d4 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee55d8 = _UNK_005ba6e8;
++    uRam02ee55dc = _UNK_005ba6ec;
++    _DAT_02ee55e0 = (undefined4)DAT_005ba6e0;
++    uRam02ee55e4 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee55e8 = _UNK_005ba6e8;
++    uRam02ee55ec = _UNK_005ba6ec;
++    _DAT_02ee55f0 = (undefined4)DAT_005ba6e0;
++    uRam02ee55f4 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee55f8 = _UNK_005ba6e8;
++    uRam02ee55fc = _UNK_005ba6ec;
++    _DAT_02ee5600 = (undefined4)DAT_005ba6e0;
++    uRam02ee5604 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee5608 = _UNK_005ba6e8;
++    uRam02ee560c = _UNK_005ba6ec;
++    _DAT_02ee5610 = (undefined4)DAT_005ba6e0;
++    uRam02ee5614 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee5618 = _UNK_005ba6e8;
++    uRam02ee561c = _UNK_005ba6ec;
++    _DAT_02ee5620 = (undefined4)DAT_005ba6e0;
++    uRam02ee5624 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee5628 = _UNK_005ba6e8;
++    uRam02ee562c = _UNK_005ba6ec;
++    _DAT_02ee5630 = (undefined4)DAT_005ba6e0;
++    uRam02ee5634 = (uint32_t)((uint64_t)(DAT_005ba6e0) >> 32);
++    uRam02ee5638 = _UNK_005ba6e8;
++    uRam02ee563c = _UNK_005ba6ec;
++  }
++  return;
++}
++
++
++// ===== FUN_00452910 @ 00452910
++
++void FUN_00452910(void)
++
++{
++  int iVar1;
++  int iVar2;
++  int iVar3;
++  int iVar4;
++  uint uVar5;
++  int iVar6;
++  undefined4 uVar7;
++  
++  iVar2 = *(int *)(DAT_02ee7660 + 0x218c);
++  iVar4 = iVar2 * 8;
++  FUN_0044c0b0(0x99,0x99,0,0,0x44f00000,0x44870000,0,0x4487c000,0,0,0xffffff,0x100,0,iVar4 + 0x10,0)
++  ;
++  if (iVar4 < 0xc1) {
++    iVar2 = 0;
++  }
++  else {
++    iVar2 = iVar2 * 0x20 + -0x300;
++  }
++  iVar6 = 0x20;
++  iVar3 = DAT_016d78b0 * -0x20;
++  iVar1 = DAT_016d78b0;
++  if (-1 < DAT_016d78b0) {
++    iVar1 = -DAT_016d78b0;
++  }
++  iVar2 = (iVar1 + 0x20) * iVar2 * 8;
++  iVar2 = (int)((iVar2 >> 0x1f & 0xffU) + iVar2) >> 8;
++  switch(DAT_016d7880) {
++  case 0:
++    FUN_004533a0(Cv(iVar2),Cv(iVar3));
++    break;
++  case 1:
++    FUN_00452c00(Cv(iVar2));
++    break;
++  case 2:
++    FUN_00452e10(Cv(iVar2));
++    break;
++  case 3:
++    FUN_004530b0(Cv(iVar2));
++  }
++  if (DAT_016d7880 == 3) {
++    uVar7 = 7;
++  }
++  else {
++    uVar7 = 5;
++  }
++  FUN_00456940(Cv(uVar7),Cv(iVar2));
++  FUN_00446f60(0x432c0000,0x42700000,0x43ec0000,0x43110000,0,0);
++  FUN_00446f60(0x432c0000,0x43700000,0x43ec0000,0x43110000,0,1);
++  FUN_00446f60(0x432c0000,0x43d20000,0x43ec0000,0x43110000,0,2);
++  FUN_00446f60(0x432c0000,0x44160000,0x43ec0000,0x43110000,0,3);
++  if (-1 < DAT_005c8db0) {
++    FUN_0044cba0(0x99,0x451c0000,0x4507c000,0x44100000,0x43840000,0x42d80000,
++                 (float)(DAT_005c8db0 * 0xb4) + 0.0,0xffffff,0x100,1);
++  }
++  DAT_005c8db0 = 0xffffffff;
++  if (DAT_016d7880 != DAT_016d7884) {
++    if (DAT_016d78b0 < 0) {
++      iVar6 = -0x20;
++      uVar5 = DAT_016d78b0 * iVar4 * -8;
++    }
++    else {
++      uVar5 = DAT_016d78b0 * iVar4 * 8;
++    }
++    uVar5 = uVar5 >> 8;
++    iVar2 = (iVar6 - DAT_016d78b0) * 0x20;
++    switch(DAT_016d7884) {
++    case 0:
++      FUN_004533a0(Cv(uVar5),Cv(iVar2));
++      break;
++    case 1:
++      FUN_00452c00(Cv(uVar5));
++      break;
++    case 2:
++      FUN_00452e10(Cv(uVar5));
++      break;
++    case 3:
++      FUN_004530b0(Cv(uVar5));
++    }
++    if (DAT_016d7884 == 3) {
++      FUN_00456940(Cv(7),Cv(uVar5));
++      return;
++    }
++    FUN_00456940(Cv(5),Cv(uVar5));
++  }
++  return;
++}
++
++
++// ===== FUN_00452c00 @ 00452c00
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00452c00(undefined4 param_1)
++
++{
++  undefined4 uVar1;
++  
++  FUN_0044cba0(0x99,0x44f0c000,0x43340000,0x43f60000,0x43340000,0x43220000,0x435e0000,0xffffff,
++               param_1,1);
++  FUN_0044cba0(0x99,0x44f0c000,0x444c0000,0x44460000,0x42b40000,0x44310000,0x42a80000,0xffffff,
++               param_1,1);
++  FUN_00453700(Cv(0),Cv(5),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)(DAT_02ee7684 + -0x100) +
++                      (double)(&DAT_005ba790)[-(DAT_02ee7684 + -0x100 >> 0x1f)]) / _DAT_0054a6dc),Cv(0));
++  FUN_00453700(Cv(1),Cv(6),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv(DAT_005ba4d8 -
++               (float)((double)(DAT_02ee7688 + -0x100) +
++                      (double)(&DAT_005ba790)[-(DAT_02ee7688 + -0x100 >> 0x1f)]) / _DAT_0054a6d4),Cv(0));
++  FUN_00453700(Cv(2),Cv(7),Cv(0),Cv(0),Cv(param_1),Cv(DAT_02ee7690),Cv(0),Cv(0));
++  uVar1 = (int)(DAT_016d78a8 > 1.0f ? (DAT_005ba560 - DAT_016d78a8) * (float)(int)param_1 : (float)(int)param_1 * DAT_016d78a8);
++  FUN_0044cba0(0x99,0x45178000,0,0x440b8000,0x42400000,0x44208000,
++               (float)((double)(DAT_016d788c * 0x90) +
++                      (double)(&DAT_005ba790)[-(DAT_016d788c * 0x90 >> 0x1f)]) + _DAT_0054a688,
++               0xffffff,uVar1);
++  return;
++}
++
++
++// ===== FUN_00452e10 @ 00452e10
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00452e10(undefined4 param_1)
++
++{
++  undefined4 uVar1;
++  
++  FUN_0044cba0(0x99,0x44f0c000,0x43b40000,0x43f60000,0x43340000,0x43220000,0x43c90000,0xffffff,
++               param_1,1);
++  FUN_0044cba0(0x99,0x44f0c000,0x44628000,0x44460000,0x42b40000,0x44310000,0x42a80000,0xffffff,
++               param_1,1);
++  FUN_00453700(Cv(0),Cv(9),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)DAT_02ee7670 + (double)(&DAT_005ba790)[-(DAT_02ee7670 >> 0x1f)]) *
++               _DAT_0054944c),Cv(0));
++  FUN_00453700(Cv(1),Cv(10),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)_DAT_02ee7674 + (double)(&DAT_005ba790)[-(_DAT_02ee7674 >> 0x1f)]) *
++               _DAT_0054944c),Cv(0));
++  FUN_00453700(Cv(2),Cv(0xb),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)DAT_02ee7678 + (double)(&DAT_005ba790)[-(DAT_02ee7678 >> 0x1f)]) *
++               _DAT_0054944c),Cv(0));
++  FUN_00453700(Cv(3),Cv(0xc),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)_DAT_02ee7680 + (double)(&DAT_005ba790)[-(_DAT_02ee7680 >> 0x1f)]) *
++               _DAT_0054944c),Cv(0));
++  FUN_00453700(Cv(4),Cv(0xd),Cv(0),Cv(0),Cv(param_1),Cv(1 - DAT_02ee768c),Cv(0),Cv(0));
++  FUN_00453700(Cv(5),Cv(0xe),Cv(0),Cv(0),Cv(param_1),Cv(1 - DAT_02ee76b0),Cv(0),Cv(0));
++  uVar1 = (int)(DAT_016d78a8 > 1.0f ? (DAT_005ba560 - DAT_016d78a8) * (float)(int)param_1 : (float)(int)param_1 * DAT_016d78a8);
++  FUN_0044cba0(0x99,0x45178000,0,0x440b8000,0x42400000,0x44208000,
++               (float)((double)(DAT_016d7890 * 0x72) +
++                      (double)(&DAT_005ba790)[-(DAT_016d7890 * 0x72 >> 0x1f)]) + _DAT_0054a688,
++               0xffffff,uVar1);
++  return;
++}
++
++
++// ===== FUN_004530b0 @ 004530b0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_004530b0(undefined4 param_1)
++
++{
++  undefined4 uVar1;
++  int iVar2;
++  int iVar3;
++  uint uVar4;
++  int *local_c;
++  undefined4 local_8;
++  
++  FUN_0044cba0(0x99,0x45172000,0x43b40000,0x43f60000,0x43340000,0x43220000,0x44118000,0xffffff,
++               param_1,1);
++  FUN_0044cba0(0x99,0x44f0c000,0x44790000,0x44460000,0x42b40000,0x44310000,0x42a80000,0xffffff,
++               param_1,1);
++  iVar3 = DAT_016d7894 - DAT_016d78a4;
++  uVar4 = iVar3 + 1;
++  if (uVar4 != 1) {
++    FUN_0044cba0(0x99,0x45370000,0x42580000,0x42d80000,0x42280000,0x4496c000,0x43400000,0xffffff,
++                 param_1,1);
++    FUN_00446f60(0x4496c000,0x43400000,0x42d80000,0x42280000,4,0);
++  }
++  if (uVar4 < DAT_005c8d9c - 5U) {
++    FUN_0044cba0(0x99,0x45370000,0x42c00000,0x42d80000,0x42280000,0x4496c000,0x445e0000,0xffffff,
++                 param_1,1);
++    FUN_00446f60(0x4496c000,0x445e0000,0x42d80000,0x42280000,4,1);
++  }
++  local_c = (decltype(local_c))(&DAT_005c8db4 + uVar4);
++  iVar2 = 0;
++  do {
++    local_8 = 0;
++    if ((*(int *)(&DAT_02ee5538 + *local_c * 4) == 0) || ((&DAT_016d8d1a)[uVar4 + iVar2] == '\0')) {
++      local_8 = 1;
++    }
++    FUN_00453700(Cv(iVar2),Cv(iVar3 + 0x10 + iVar2),Cv(0),Cv(0),Cv(param_1),Cv(0),Cv((float)((double)*(int *)(&DAT_02ee55c0 + *local_c * 4) +
++                        (double)(&DAT_005ba790)[-(*(int *)(&DAT_02ee55c0 + *local_c * 4) >> 0x1f)])
++                 * _DAT_0054944c),Cv(local_8));
++    iVar2 = iVar2 + 1;
++    local_c = local_c + 1;
++  } while (iVar2 < 6);
++  uVar1 = (int)(DAT_016d78a8 > 1.0f ? (DAT_005ba560 - DAT_016d78a8) * (float)(int)param_1 : (float)(int)param_1 * DAT_016d78a8);
++  FUN_0044cba0(0x99,0x45178000,0,0x440b8000,0x42400000,0x44208000,
++               (float)((double)(DAT_016d78a4 * 0x72) +
++                      (double)(&DAT_005ba790)[-(DAT_016d78a4 * 0x72 >> 0x1f)]) + _DAT_0054a688,
++               0xffffff,uVar1);
++  return;
++}
++
++
++// ===== FUN_004533a0 @ 004533a0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_004533a0(undefined4 param_2,undefined4 param_1)
++
++{
++  undefined4 uVar1;
++  
++  FUN_0044cba0(0x99,0x44f0c000,0,0x43f60000,0x43340000,0x43220000,0x42280000,0xffffff,param_2,1);
++  FUN_0044cba0(0x99,0x44f0c000,0x44358000,0x44460000,0x42b40000,0x44310000,0x42a80000,0xffffff,
++               param_2,1);
++  FUN_00453700(Cv(0),Cv(0),Cv(0),Cv(0),Cv(param_2),Cv(1 - DAT_02ee76bc),Cv(0),Cv(0));
++  FUN_00453700(Cv(1),Cv(1),Cv(0),Cv(0),Cv(param_2),Cv(1 - DAT_02ee76b4),Cv(0),Cv(0));
++  if (DAT_02ee7694 == 2) {
++    param_1 = 0;
++  }
++  else if (DAT_02ee7694 == 1) {
++    param_1 = 1;
++  }
++  else if (DAT_02ee7694 == 3) {
++    param_1 = 2;
++  }
++  else if (DAT_02ee7694 == 0) {
++    param_1 = 3;
++  }
++  FUN_00453700(Cv(2),Cv(2),Cv(0),Cv(0),Cv(param_2),Cv(param_1),Cv(0),Cv(0));
++  FUN_00453700(Cv(3),Cv(3),Cv(0),Cv(0),Cv(param_2),Cv(1 - DAT_02ee76c4),Cv(0),Cv(0));
++  FUN_00453700(Cv(4),Cv(4),Cv(0),Cv(0),Cv(param_2),Cv(DAT_02ee76c8),Cv(0),Cv(0));
++  uVar1 = (int)(DAT_016d78a8 > 1.0f ? (DAT_005ba560 - DAT_016d78a8) * (float)(int)param_2 : (float)(int)param_2 * DAT_016d78a8);
++  FUN_0044cba0(0x99,0x45178000,0,0x440b8000,0x42400000,0x44208000,
++               (float)((double)(DAT_016d7888 * 0x90) +
++                      (double)(&DAT_005ba790)[-(DAT_016d7888 * 0x90 >> 0x1f)]) + _DAT_0054a688,
++               0xffffff,uVar1);
++  return;
++}
++
++
++// ===== FUN_004535e0 @ 004535e0
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++float10 FUN_004535e0(void)
++
++{
++  int iVar1;
++  
++  iVar1 = DAT_032fc7ec + -0x54c;
++  if (iVar1 < 1) {
++    return (float10)0;
++  }
++  if (iVar1 < 0x1da) {
++    return (float10)((float)iVar1 / _DAT_0054a690);
++  }
++  return (float10)1;
++}
++
++
++// ===== FUN_00453620 @ 00453620
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00453620(void)
++
++{
++  int iVar1;
++  uint uVar2;
++  
++  uRam016d8228 = _UNK_0054a7c8;
++  _DAT_016d8220 = _DAT_0054a7c0;
++  DAT_016d78b0 = 0;
++  DAT_016d7880 = DAT_016d7884;
++  _DAT_02ee7698 = 1;
++  _DAT_016d787c = 0;
++  *(undefined4 *)(DAT_02ee7660 + 0x21e8) = DAT_016d7884;
++  _DAT_016d8230 = _DAT_016d8220;
++  uRam016d8238 = uRam016d8228;
++  _DAT_016d8258 = 0x100;
++  uVar2 = 0;
++  _DAT_016d8240 = _DAT_016d8220;
++  uRam016d8248 = uRam016d8228;
++  _DAT_016d8d24 = (std::remove_reference_t<decltype(_DAT_016d8d24)>)0x1010101;
++  _DAT_016d8250 = _DAT_016d8220;
++  _DAT_016d8d0c = _DAT_0054a7d0;
++  uRam016d8d14 = _UNK_0054a7d8;
++  _DAT_016d8d28 = 0x101;
++  _DAT_016d8d1c = _DAT_0054a7d0;
++  do {
++    if ((&DAT_005c9b18)[uVar2] != 0) {
++      iVar1 = FUN_004919d0((&DAT_005c9b18)[uVar2]);
++      if (iVar1 == 0) {
++        (&DAT_016d8d1b)[uVar2] = 0;
++      }
++    }
++    uVar2 = uVar2 + 1;
++  } while (uVar2 < 0xf);
++  DAT_02ee76c4 = DAT_02ee53c4;
++  DAT_005c8ccc = 0xffffffff;
++  DAT_02ee76c8 = DAT_02ee53c8;
++  return;
++}
++
++
++// ===== FUN_00453700 @ 00453700
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00453700(int param_1,intptr_t param_2,int param_3,int param_4,undefined4 param_5,int param_6
++                 ,undefined4 param_7,char param_8)
++
++{
++  ushort uVar1;
++  ushort uVar2;
++  ushort uVar3;
++  int iVar4;
++  uint uVar5;
++  undefined *puVar6;
++  int iVar7;
++  uint uVar8;
++  int iVar9;
++  float fVar10;
++  float fVar11;
++  float fVar12;
++  float fVar13;
++  
++  puVar6 = (std::remove_reference_t<decltype(puVar6)>)0x666666;
++  if (param_8 == '\0') {
++    puVar6 = (undefined *)0xffffff;
++  }
++  iVar7 = (intptr_t)param_2 * 0x28;
++  uVar1 = *(ushort *)(&DAT_005c8e0e + iVar7);
++  uVar5 = (uint)*(ushort *)(&DAT_005c8e10 + iVar7);
++  if (param_2 < 0xf) {
++    uVar8 = (uint)*(ushort *)(&DAT_005c8e12 + iVar7);
++  }
++  else {
++    uVar8 = ((uint)DAT_005c9092 - (uint)DAT_005c906a) * param_1 + (uint)DAT_005c906a;
++  }
++  if (*(short *)(&DAT_005c8e14 + iVar7) == 0) {
++    if ((*(short *)(&DAT_005c8e16 + iVar7) != 0) && (-1 < param_6)) {
++      FUN_0044c0b0(0x99,0x99,0x45178000,0x43400000,0x43280000,0x42f00000,0x45220000,0x43400000,
++                   (float)*(ushort *)(&DAT_005c8e18 + param_6 * 6 + iVar7) + (float)uVar5,
++                   (float)(int)uVar8 - _DAT_0054a668,puVar6,param_5,0,
++                   (&DAT_016d8220)[(intptr_t)param_2] + 0x10,0x10);
++    }
++LAB_004539a7:
++    if (0xe < param_2) {
++      fVar13 = (float)param_4 + (float)(int)uVar8;
++      FUN_0044cba0(0x99,(float)*(ushort *)(&DAT_005c8e08 + iVar7),
++                   (float)*(ushort *)(&DAT_005c8e0a + iVar7),0x42b40000,
++                   (float)*(ushort *)(&DAT_005c8e0e + iVar7),(float)param_3 + (float)uVar5,fVar13,
++                   puVar6,param_5,1);
++      uVar2 = *(ushort *)(&DAT_005c8e0e + iVar7);
++      puVar6 = (undefined *)0xffffff;
++      fVar10 = (float)param_3 + (float)uVar5 + DAT_005495c8;
++      uVar3 = *(ushort *)(&DAT_005c8e0a + iVar7);
++      fVar12 = (float)*(ushort *)(&DAT_005c8e0c + iVar7) - DAT_005495c8;
++      fVar11 = (float)*(ushort *)(&DAT_005c8e08 + iVar7) + DAT_005495c8;
++      goto LAB_00453b53;
++    }
++  }
++  else {
++    if (*(short *)(&DAT_005c8e14 + iVar7) != 1) goto LAB_004539a7;
++    fVar10 = (float)(int)uVar8 + DAT_005ba610;
++    fVar12 = (float)uVar5 + _DAT_0054a6a0;
++    FUN_0044cba0(0x99,0x45178000,0x42580000,0x43f90000,0x42840000,fVar12,fVar10,0xffffff,param_5,1);
++    FUN_0044b390();
++    iVar4 = (int)(Sg0Emu::Fl(param_7) * _DAT_0054a690);
++    FUN_0044cba0(0x99,0x45184000,0x42f00000,(float)iVar4,0x42840000,(float)uVar5 + _DAT_0054a6a4,fVar10,
++                 puVar6,param_5,1);
++    FUN_0044b3b0();
++    if (0xe < param_2) {
++      if (param_8 != '\0') {
++        FUN_0044cba0(0x99,0x45178000,0x439c0000,0x43f90000,0x42200000,fVar12,
++                     (float)(int)uVar8 + _DAT_0054a668,0xffffff,param_5,1);
++      }
++      goto LAB_004539a7;
++    }
++  }
++  uVar2 = *(ushort *)(&DAT_005c8e0e + iVar7);
++  fVar13 = (float)param_4 + (float)(int)uVar8;
++  fVar10 = (float)param_3 + (float)uVar5;
++  uVar3 = *(ushort *)(&DAT_005c8e0a + iVar7);
++  fVar12 = (float)*(ushort *)(&DAT_005c8e0c + iVar7);
++  fVar11 = (float)*(ushort *)(&DAT_005c8e08 + iVar7);
++LAB_00453b53:
++  FUN_0044cba0(0x99,fVar11,(float)uVar3,fVar12,(float)uVar2,fVar10,fVar13,puVar6,param_5,1);
++  if (((0xe < param_2) && (-1 < DAT_005c8db4)) && (param_1 == DAT_005c8db4)) {
++    FUN_0044cba0(0x99,0x452c8000,0x43400000,0x42b40000,0x42b40000,(float)uVar5 - DAT_005ba610,
++                 (float)(int)uVar8 - DAT_005ba610,0xffffff,0x100,1);
++    DAT_005c8db4 = -1;
++  }
++  iVar9 = uVar8 + 6;
++  iVar4 = uVar1 - 0xc;
++  FUN_00446f60((float)uVar5,(float)iVar9,0x448cc000,(float)iVar4,2,param_1);
++  if (0xe < param_2) {
++    FUN_00446f60((float)(uVar5 + 6),(float)iVar9,0x42840000,0x42840000,3,param_1);
++  }
++  if (param_8 == '\0') {
++    if (*(short *)(&DAT_005c8e14 + iVar7) == 0) {
++      int _param_8 = 0;
++      ushort *row;
++      if (*(short *)(&DAT_005c8e16 + iVar7) != 0) {
++        row = (ushort *)(&DAT_005c8e1a + iVar7);
++        do {
++          FUN_00446f60((float)(*row + uVar5),(float)iVar9,(float)row[1],(float)iVar4,
++                       param_1 + 10,_param_8);
++          _param_8 = _param_8 + 1;
++          row = row + 3;
++        } while (_param_8 < (int)(uint)*(ushort *)(&DAT_005c8e16 + iVar7));
++      }
++    }
++    else if (*(short *)(&DAT_005c8e14 + iVar7) == 1) {
++      FUN_00446f60(0x44a80000,(float)iVar9,0x43f90000,(float)iVar4,param_1 + 10,0);
++      return;
++    }
++  }
++  return;
++}
++
++
++// ===== FUN_00453d70 @ 00453d70
++
++/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
++
++void FUN_00453d70(void)
++
++{
++  uint *puVar1;
++  uint uVar2;
++  char cVar3;
++  uint uVar4;
++  int iVar5;
++  int iVar6;
++  bool bVar7;
++  uint uVar8;
++  float fVar9;
++  undefined4 uVar10;
++  float local_8;
++  
++  DAT_016d78a8 = DAT_016d78a8 + _DAT_0054a650;
++  local_8 = 0.0;
++  if (DAT_005ba560 < DAT_016d78a8) {
++    DAT_016d78a8 = 0.0;
++  }
++  uVar4 = 0;
++  if (1 < DAT_02efc1cc) {
++    uVar4 = 8;
++    uVar8 = _DAT_0054a6f0 + DAT_016d8220;
++    uRam016d8224 = _UNK_0054a6f4 + uRam016d8224;
++    uRam016d8228 = _UNK_0054a6f8 + uRam016d8228;
++    uRam016d822c = _UNK_0054a6fc + uRam016d822c;
++    DAT_016d8220 = (uVar8 < _DAT_0054a7c0) * uVar8 | (uVar8 >= _DAT_0054a7c0) * _DAT_0054a7c0;
++    uRam016d8224 = (uRam016d8224 < _UNK_0054a7c4) * uRam016d8224 |
++                   (uRam016d8224 >= _UNK_0054a7c4) * _UNK_0054a7c4;
++    uRam016d8228 = (uRam016d8228 < _UNK_0054a7c8) * uRam016d8228 |
++                   (uRam016d8228 >= _UNK_0054a7c8) * _UNK_0054a7c8;
++    uRam016d822c = (uRam016d822c < _UNK_0054a7cc) * uRam016d822c |
++                   (uRam016d822c >= _UNK_0054a7cc) * _UNK_0054a7cc;
++    _DAT_016d8230 = _DAT_0054a6f0 + _DAT_016d8230;
++    uRam016d8234 = _UNK_0054a6f4 + uRam016d8234;
++    uRam016d8238 = _UNK_0054a6f8 + uRam016d8238;
++    uRam016d823c = _UNK_0054a6fc + uRam016d823c;
++    _DAT_016d8230 =
++         (_DAT_016d8230 < _DAT_0054a7c0) * _DAT_016d8230 |
++         (_DAT_016d8230 >= _DAT_0054a7c0) * _DAT_0054a7c0;
++    uRam016d8234 = (uRam016d8234 < _UNK_0054a7c4) * uRam016d8234 |
++                   (uRam016d8234 >= _UNK_0054a7c4) * _UNK_0054a7c4;
++    uRam016d8238 = (uRam016d8238 < _UNK_0054a7c8) * uRam016d8238 |
++                   (uRam016d8238 >= _UNK_0054a7c8) * _UNK_0054a7c8;
++    uRam016d823c = (uRam016d823c < _UNK_0054a7cc) * uRam016d823c |
++                   (uRam016d823c >= _UNK_0054a7cc) * _UNK_0054a7cc;
++  }
++  do {
++    (&DAT_016d8220)[uVar4] = (&DAT_016d8220)[uVar4] + 0x10;
++    if (0xff < (&DAT_016d8220)[uVar4]) {
++      (&DAT_016d8220)[uVar4] = 0x100;
++    }
++    uVar4 = uVar4 + 1;
++  } while (uVar4 < 0xf);
++  if (DAT_016d78b0 != 0) {
++    if (DAT_016d78b0 < 1) {
++      DAT_016d78b0 = DAT_016d78b0 + -1;
++      bVar7 = DAT_016d78b0 == -0x20;
++    }
++    else {
++      DAT_016d78b0 = DAT_016d78b0 + 1;
++      bVar7 = DAT_016d78b0 == 0x20;
++    }
++    if (bVar7) {
++      DAT_016d7880 = DAT_016d7884;
++      DAT_016d78b0 = 0;
++    }
++    DAT_01979f10 = DAT_01979f10 & 0xffffbfff;
++    DAT_01979f14 = DAT_01979f14 & 0xffffbfff;
++    return;
++  }
++  uVar4 = (&DAT_016d7888)[DAT_016d7880] - *(int *)(&DAT_016d7898 + DAT_016d7880 * 4);
++  uVar8 = 0;
++  do {
++    FUN_00446ef0(0,uVar8,1);
++    uVar8 = uVar8 + 1;
++  } while (uVar8 < 4);
++  uVar8 = 0;
++  if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) != 0) {
++    do {
++      FUN_00446ef0(2,uVar8,1);
++      if (DAT_016d7880 == 3) {
++        FUN_00446ef0(3,uVar8,1);
++      }
++      iVar6 = 0;
++      do {
++        FUN_00446ef0(uVar8 + 10,iVar6,1);
++        iVar6 = iVar6 + 1;
++      } while (iVar6 < 4);
++      uVar8 = uVar8 + 1;
++    } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++  }
++  FUN_00446ef0(4,0,1);
++  FUN_00446ef0(4,1,1);
++  DAT_005c8db4 = 0xffffffff;
++  if (DAT_016d7880 == 3) {
++    uVar8 = 0;
++    if (DAT_005c8d9c != 0) {
++      do {
++        cVar3 = FUN_00446ef0(3,uVar8,1);
++        if (cVar3 != '\0') {
++          DAT_005c8db4 = uVar8;
++          break;
++        }
++        uVar8 = uVar8 + 1;
++      } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++    }
++  }
++  DAT_005c8db0 = 0xffffffff;
++  uVar8 = 0;
++  do {
++    cVar3 = FUN_00446ef0(0,uVar8,1);
++    if (cVar3 != '\0') {
++      DAT_005c8db0 = uVar8;
++      break;
++    }
++    uVar8 = uVar8 + 1;
++  } while (uVar8 < 4);
++  if ((DAT_032fc7a8 & 1) == 0) {
++    DAT_005c8ccc = -1;
++  }
++  else {
++    if (-1 < DAT_005c8ccc) {
++LAB_0045405a:
++      FUN_00454e00(Cv(DAT_005c8ccc));
++      return;
++    }
++    uVar8 = 0;
++    if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) != 0) {
++      do {
++        cVar3 = FUN_00446ef0(uVar8 + 10,0,1);
++        if (cVar3 != '\0') {
++          if (DAT_016d7880 == 1) {
++            if (uVar8 == 0) {
++              DAT_005c8ccc = 5;
++            }
++            else {
++              if (uVar8 != 1) goto switchD_00453fed_default;
++              DAT_005c8ccc = 6;
++            }
++          }
++          else if (DAT_016d7880 == 2) {
++            switch(uVar8) {
++            case 0:
++              DAT_005c8ccc = 9;
++              break;
++            case 1:
++              DAT_005c8ccc = 10;
++              break;
++            case 2:
++              DAT_005c8ccc = 0xb;
++              break;
++            case 3:
++              DAT_005c8ccc = 0xc;
++              break;
++            default:
++              goto switchD_00453fed_default;
++            }
++          }
++          else if (DAT_016d7880 == 3) {
++            DAT_005c8ccc = DAT_016d7894 + 0xf;
++          }
++          else {
++switchD_00453fed_default:
++          }
++          FUN_00454e00(Cv(DAT_005c8ccc));
++        }
++        uVar8 = uVar8 + 1;
++      } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++    }
++    if (-1 < DAT_005c8ccc) goto LAB_0045405a;
++  }
++  if ((DAT_032fc7a0 & 2) != 0) {
++LAB_00454cf7:
++    if (DAT_02ee76c4 != DAT_02ee53c4) {
++      DAT_02ee76c4 = DAT_02ee53c4;
++    }
++    if (DAT_02ee76c8 != DAT_02ee53c8) {
++      DAT_02ee76c8 = DAT_02ee53c8;
++    }
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(3);
++    _DAT_02ee766c = DAT_02ee7670;
++    FUN_00491b90(0x726,1);
++    return;
++  }
++  if ((DAT_032fc7a0 & 3) == 0) {
++    if (DAT_032fc7e0 < 1) {
++      if (DAT_032fc7e0 < 0) {
++        if ((DAT_016d7880 == 3) && (uVar4 < DAT_005c8d9c - 6U)) {
++          DAT_016d7894 = uVar4 + 1 + uVar8;
++          DAT_016d78a4 = uVar8;
++        }
++      }
++      else {
++        uVar8 = 0;
++        if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) != 0) {
++          do {
++            cVar3 = FUN_00446ef0(2,uVar8,1);
++            uVar10 = DAT_02ee767c;
++            uVar2 = DAT_016d7880;
++            if ((cVar3 != '\0') && (*(uint *)(&DAT_016d7898 + DAT_016d7880 * 4) != uVar8)) {
++              *(uint *)(&DAT_016d7898 + DAT_016d7880 * 4) = uVar8;
++              (&DAT_016d7888)[uVar2] = uVar4 + uVar8;
++              FUN_00489c30(uVar10);
++              FUN_00489c20(1);
++            }
++            uVar8 = uVar8 + 1;
++          } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++        }
++      }
++    }
++    else if ((DAT_016d7880 == 3) && (0 < (int)uVar4)) {
++      DAT_016d7894 = (uVar4 - 1) + uVar8;
++      DAT_016d78a4 = uVar8;
++    }
++  }
++  else {
++    uVar8 = 0;
++    do {
++      cVar3 = FUN_00446ef0(0,uVar8,1);
++      if (cVar3 != '\0') {
++        if (DAT_016d7880 != uVar8) {
++          FUN_00489c30(DAT_02ee767c);
++          FUN_00489c20(1);
++        }
++        DAT_016d7884 = uVar8;
++        _DAT_016d787c = 1;
++        DAT_016d78b0 = 1;
++        return;
++      }
++      uVar8 = uVar8 + 1;
++    } while (uVar8 < 4);
++    uVar8 = 0;
++    if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) != 0) {
++      do {
++        iVar6 = 0;
++        do {
++          cVar3 = FUN_00446ef0(uVar8 + 10,iVar6,1);
++          uVar2 = DAT_016d7880;
++          if (cVar3 != '\0') {
++            _DAT_016d787c = 2;
++            *(uint *)(&DAT_016d7898 + DAT_016d7880 * 4) = uVar8;
++            (&DAT_016d7888)[uVar2] = uVar4 + uVar8;
++            switch(uVar2) {
++            case 0:
++              goto switchD_0045419b_switchD;
++            case 1:
++              switch(uVar8) {
++              case 0:
++                iVar6 = DAT_032fc7ec + -0x54c;
++                if (DAT_005c936c < 1) {
++                  if (iVar6 < 1) {
++                    fVar9 = 0.0;
++                  }
++                  else if (iVar6 < 0x1da) {
++                    fVar9 = (float)iVar6 / _DAT_0054a690;
++                  }
++                  else {
++                    fVar9 = DAT_005ba4d8;
++                  }
++                  iVar6 = -(int)((float)(DAT_005c9368 - DAT_005c9364) * (fVar9 - DAT_005ba4d8));
++                }
++                else {
++                  if (0 < iVar6) {
++                    if (iVar6 < 0x1da) {
++                      local_8 = (float)iVar6 / _DAT_0054a690;
++                    }
++                    else {
++                      local_8 = DAT_005ba4d8;
++                    }
++                  }
++                  iVar6 = (int)((float)(DAT_005c9368 - DAT_005c9364) * local_8);
++                }
++                if (PTR_DAT_005c9358 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c9358 = iVar6 + DAT_005c9364;
++                return;
++              case 1:
++                goto switchD_004542b8_caseD_1;
++              case 2:
++                iVar5 = 0;
++                if (DAT_005c939c < 1) {
++                  if (DAT_005c939c < 0) {
++                    iVar5 = DAT_005c9398 - iVar6;
++                  }
++                }
++                else {
++                  iVar5 = DAT_005c9394 + iVar6;
++                }
++                if (PTR_DAT_005c9388 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c9388 = iVar5;
++                return;
++              case 3:
++                iVar5 = 0;
++                if (DAT_005c93b4 < 1) {
++                  if (DAT_005c93b4 < 0) {
++                    iVar5 = DAT_005c93b0 - iVar6;
++                  }
++                }
++                else {
++                  iVar5 = DAT_005c93ac + iVar6;
++                }
++                if (PTR_DAT_005c93a0 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c93a0 = iVar5;
++                return;
++              default:
++                return;
++              }
++            case 2:
++              switch(uVar8) {
++              case 0:
++                iVar6 = DAT_032fc7ec + -0x54c;
++                if (DAT_005c93cc < 1) {
++                  if (iVar6 < 1) {
++                    fVar9 = 0.0;
++                  }
++                  else if (iVar6 < 0x1da) {
++                    fVar9 = (float)iVar6 / _DAT_0054a690;
++                  }
++                  else {
++                    fVar9 = DAT_005ba4d8;
++                  }
++                  iVar6 = -(int)((float)(DAT_005c93c8 - DAT_005c93c4) * (fVar9 - DAT_005ba4d8));
++                }
++                else {
++                  if (0 < iVar6) {
++                    if (iVar6 < 0x1da) {
++                      local_8 = (float)iVar6 / _DAT_0054a690;
++                    }
++                    else {
++                      local_8 = DAT_005ba4d8;
++                    }
++                  }
++                  iVar6 = (int)((float)(DAT_005c93c8 - DAT_005c93c4) * local_8);
++                }
++                if (PTR_DAT_005c93b8 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c93b8 = iVar6 + DAT_005c93c4;
++                return;
++              case 1:
++                iVar6 = DAT_032fc7ec + -0x54c;
++                if (DAT_005c93e4 < 1) {
++                  if (iVar6 < 1) {
++                    fVar9 = 0.0;
++                  }
++                  else if (iVar6 < 0x1da) {
++                    fVar9 = (float)iVar6 / _DAT_0054a690;
++                  }
++                  else {
++                    fVar9 = DAT_005ba4d8;
++                  }
++                  iVar6 = -(int)((float)(DAT_005c93e0 - DAT_005c93dc) * (fVar9 - DAT_005ba4d8));
++                }
++                else {
++                  if (0 < iVar6) {
++                    if (iVar6 < 0x1da) {
++                      local_8 = (float)iVar6 / _DAT_0054a690;
++                    }
++                    else {
++                      local_8 = DAT_005ba4d8;
++                    }
++                  }
++                  iVar6 = (int)((float)(DAT_005c93e0 - DAT_005c93dc) * local_8);
++                }
++                if (PTR_DAT_005c93d0 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c93d0 = iVar6 + DAT_005c93dc;
++                return;
++              case 2:
++                iVar6 = DAT_032fc7ec + -0x54c;
++                if (DAT_005c93fc < 1) {
++                  if (iVar6 < 1) {
++                    fVar9 = 0.0;
++                  }
++                  else if (iVar6 < 0x1da) {
++                    fVar9 = (float)iVar6 / _DAT_0054a690;
++                  }
++                  else {
++                    fVar9 = DAT_005ba4d8;
++                  }
++                  iVar6 = -(int)((float)(DAT_005c93f8 - DAT_005c93f4) * (fVar9 - DAT_005ba4d8));
++                }
++                else {
++                  if (0 < iVar6) {
++                    if (iVar6 < 0x1da) {
++                      local_8 = (float)iVar6 / _DAT_0054a690;
++                    }
++                    else {
++                      local_8 = DAT_005ba4d8;
++                    }
++                  }
++                  iVar6 = (int)((float)(DAT_005c93f8 - DAT_005c93f4) * local_8);
++                }
++                if (PTR_DAT_005c93e8 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c93e8 = iVar6 + DAT_005c93f4;
++                return;
++              case 3:
++                goto switchD_004544b8_caseD_3;
++              case 4:
++                iVar5 = 0;
++                if (DAT_005c942c < 1) {
++                  if (DAT_005c942c < 0) {
++                    iVar5 = DAT_005c9428 - iVar6;
++                  }
++                }
++                else {
++                  iVar5 = DAT_005c9424 + iVar6;
++                }
++                if (PTR_DAT_005c9418 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c9418 = iVar5;
++                return;
++              case 5:
++                iVar5 = 0;
++                if (DAT_005c9444 < 1) {
++                  if (DAT_005c9444 < 0) {
++                    iVar5 = DAT_005c9440 - iVar6;
++                  }
++                }
++                else {
++                  iVar5 = DAT_005c943c + iVar6;
++                }
++                if (PTR_DAT_005c9430 == (undefined *)0x0) {
++                  return;
++                }
++                *(int *)PTR_DAT_005c9430 = iVar5;
++                return;
++              default:
++                return;
++              }
++            case 3:
++              FUN_00454e00(Cv(uVar4 + uVar8 + 0xf));
++              return;
++            default:
++              return;
++            }
++          }
++          iVar6 = iVar6 + 1;
++        } while (iVar6 < 4);
++        uVar8 = uVar8 + 1;
++      } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++    }
++    uVar8 = 0;
++    if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) != 0) {
++      do {
++        cVar3 = FUN_00446ef0(3,uVar8,1);
++        uVar2 = DAT_016d7880;
++        if (cVar3 != '\0') {
++          *(uint *)(&DAT_016d7898 + DAT_016d7880 * 4) = uVar8;
++          (&DAT_016d7888)[uVar2] = uVar4 + uVar8;
++          _DAT_016d787c = 2;
++          if (uVar2 != 3) {
++            _DAT_016d787c = 2;
++            return;
++          }
++          puVar1 = (uint *)(&PTR_DAT_005c944c)[(uVar4 + uVar8) * 6];
++          if (puVar1 == (uint *)0x0) {
++            _DAT_016d787c = 2;
++            return;
++          }
++          *puVar1 = (uint)(*puVar1 == 0);
++          return;
++        }
++        uVar8 = uVar8 + 1;
++      } while (uVar8 < *(uint *)(&DAT_005c8d90 + DAT_016d7880 * 4));
++    }
++    cVar3 = FUN_00446ef0(4,0,1);
++    uVar2 = DAT_016d7880;
++    if (cVar3 != '\0') {
++      if ((int)uVar4 < 1) {
++        return;
++      }
++      *(uint *)(&DAT_016d7898 + DAT_016d7880 * 4) = uVar8;
++      (&DAT_016d7888)[uVar2] = (uVar4 - 1) + uVar8;
++      return;
++    }
++    cVar3 = FUN_00446ef0(4,1,1);
++    if (cVar3 != '\0') {
++      if (DAT_016d7880 != 3) {
++        return;
++      }
++      if (uVar4 < DAT_005c8d9c - 6U) {
++        DAT_016d78a4 = uVar8;
++        DAT_016d7894 = uVar4 + 1 + uVar8;
++        return;
++      }
++      return;
++    }
++  }
++  if ((DAT_0197a1d8 & DAT_01979f10) != 0) goto LAB_00454cf7;
++  if ((DAT_01979f10 & 0xf00) != 0) {
++    if ((DAT_01979f10 & 0xa00) == 0) {
++      if (DAT_016d7884 == 0) {
++        DAT_016d7884 = 3;
++        DAT_016d78b0 = 0xffffffff;
++        return;
++      }
++      DAT_016d78b0 = 0xffffffff;
++      DAT_016d7884 = DAT_016d7884 - 1;
++      return;
++    }
++    if (DAT_016d7884 == 3) {
++      DAT_016d7884 = 0;
++      DAT_016d78b0 = 1;
++      return;
++    }
++    DAT_016d78b0 = 1;
++    DAT_016d7884 = DAT_016d7884 + 1;
++    return;
++  }
++  if ((_DAT_0197a1c0 & DAT_01979f18) != 0) {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(1);
++    uVar4 = DAT_016d7880;
++    if ((&DAT_016d7888)[DAT_016d7880] == 0) {
++      if (DAT_016d7880 == 3) {
++        return;
++      }
++      (&DAT_016d7888)[DAT_016d7880] = *(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) + -1;
++      *(int *)(&DAT_016d7898 + uVar4 * 4) = *(int *)(&DAT_005c8da0 + uVar4 * 4) + -1;
++      return;
++    }
++    (&DAT_016d7888)[DAT_016d7880] = (&DAT_016d7888)[DAT_016d7880] + -1;
++    if (*(int *)(&DAT_016d7898 + uVar4 * 4) == 0) {
++      return;
++    }
++    *(int *)(&DAT_016d7898 + uVar4 * 4) = *(int *)(&DAT_016d7898 + uVar4 * 4) + -1;
++    return;
++  }
++  if ((_DAT_0197a1c4 & DAT_01979f18) != 0) {
++    FUN_00489c30(DAT_02ee767c);
++    FUN_00489c20(1);
++    uVar4 = DAT_016d7880;
++    if (*(int *)(&DAT_005c8d90 + DAT_016d7880 * 4) - 1U <= (uint)(&DAT_016d7888)[DAT_016d7880]) {
++      if (DAT_016d7880 == 3) {
++        return;
++      }
++      (&DAT_016d7888)[DAT_016d7880] = 0;
++      *(undefined4 *)(&DAT_016d7898 + uVar4 * 4) = 0;
++      return;
++    }
++    uVar8 = *(uint *)(&DAT_016d7898 + DAT_016d7880 * 4);
++    (&DAT_016d7888)[DAT_016d7880] = (&DAT_016d7888)[DAT_016d7880] + 1;
++    if (uVar8 < *(int *)(&DAT_005c8da0 + uVar4 * 4) - 1U) {
++      *(uint *)(&DAT_016d7898 + uVar4 * 4) = uVar8 + 1;
++      return;
++    }
++    return;
++  }
++  if (DAT_016d7880 == 0) {
++    switch(DAT_016d7888) {
++    case 0:
++      uVar10 = 0;
++      break;
++    case 1:
++      uVar10 = 1;
++      break;
++    case 2:
++      uVar10 = 2;
++      break;
++    case 3:
++      uVar10 = 3;
++      break;
++    case 4:
++      uVar10 = 4;
++      break;
++    default:
++      goto switchD_00454ba6_default;
++    }
++    FUN_00452500(Cv(uVar10));
++switchD_00454ba6_default:
++    if ((((&DAT_016d7888)[DAT_016d7880] == 3) || ((&DAT_016d7888)[DAT_016d7880] == 4)) &&
++       ((DAT_0197a1d4 & DAT_01979f10) != 0)) goto LAB_00454bf2;
++  }
++  else if (DAT_016d7880 == 1) {
++    switch(DAT_016d788c) {
++    case 0:
++      iVar6 = 5;
++      break;
++    case 1:
++      iVar6 = 6;
++      break;
++    case 2:
++      iVar6 = 7;
++      break;
++    case 3:
++      iVar6 = 8;
++      break;
++    default:
++      goto switchD_00454c33_default;
++    }
++LAB_00454c8e:
++    FUN_00452500(Cv(iVar6));
++  }
++  else {
++    if (DAT_016d7880 == 2) {
++      switch(DAT_016d7890) {
++      case 0:
++        iVar6 = 9;
++        break;
++      case 1:
++        iVar6 = 10;
++        break;
++      case 2:
++        iVar6 = 0xb;
++        break;
++      case 3:
++        iVar6 = 0xc;
++        break;
++      case 4:
++        iVar6 = 0xd;
++        break;
++      case 5:
++        iVar6 = 0xe;
++        break;
++      default:
++        goto switchD_00454c33_default;
++      }
++      goto LAB_00454c8e;
++    }
++    if (DAT_016d7880 == 3) {
++      iVar6 = DAT_016d7894 + 0xf;
++      goto LAB_00454c8e;
++    }
++  }
++  if ((DAT_016d7880 != 0) || (DAT_016d7888 != 3)) {
++switchD_00454c33_default:
++    if (DAT_02ee76c4 != DAT_02ee53c4) {
++      DAT_02ee76c4 = DAT_02ee53c4;
++    }
++    if (DAT_016d7880 != 0) goto LAB_00454cd7;
++  }
++  if (DAT_016d7888 == 4) {
++    return;
++  }
++LAB_00454cd7:
++  if (DAT_02ee76c8 != DAT_02ee53c8) {
++    DAT_02ee76c8 = DAT_02ee53c8;
++  }
++  return;
++switchD_004544b8_caseD_3:
++  iVar6 = DAT_032fc7ec + -0x54c;
++  if (DAT_005c9414 < 1) {
++    if (iVar6 < 1) {
++      fVar9 = 0.0;
++    }
++    else if (iVar6 < 0x1da) {
++      fVar9 = (float)iVar6 / _DAT_0054a690;
++    }
++    else {
++      fVar9 = DAT_005ba4d8;
++    }
++    iVar6 = -(int)((float)(DAT_005c9410 - DAT_005c940c) * (fVar9 - DAT_005ba4d8));
++  }
++  else {
++    if (0 < iVar6) {
++      if (iVar6 < 0x1da) {
++        local_8 = (float)iVar6 / _DAT_0054a690;
++      }
++      else {
++        local_8 = DAT_005ba4d8;
++      }
++    }
++    iVar6 = (int)((float)(DAT_005c9410 - DAT_005c940c) * local_8);
++  }
++  if (PTR_DAT_005c9400 == (undefined *)0x0) {
++    return;
++  }
++  *(int *)PTR_DAT_005c9400 = iVar6 + DAT_005c940c;
++  return;
++switchD_004542b8_caseD_1:
++  iVar6 = DAT_032fc7ec + -0x54c;
++  if (DAT_005c9384 < 1) {
++    if (iVar6 < 1) {
++      fVar9 = 0.0;
++    }
++    else if (iVar6 < 0x1da) {
++      fVar9 = (float)iVar6 / _DAT_0054a690;
++    }
++    else {
++      fVar9 = DAT_005ba4d8;
++    }
++    iVar6 = -(int)((float)(DAT_005c9380 - DAT_005c937c) * (fVar9 - DAT_005ba4d8));
++  }
++  else {
++    if (0 < iVar6) {
++      if (iVar6 < 0x1da) {
++        local_8 = (float)iVar6 / _DAT_0054a690;
++      }
++      else {
++        local_8 = DAT_005ba4d8;
++      }
++    }
++    iVar6 = (int)((float)(DAT_005c9380 - DAT_005c937c) * local_8);
++  }
++  if (PTR_DAT_005c9370 == (undefined *)0x0) {
++    return;
++  }
++  *(int *)PTR_DAT_005c9370 = iVar6 + DAT_005c937c;
++  return;
++switchD_0045419b_switchD:
++  switch(uVar8) {
++  case 0:
++    iVar5 = 0;
++    if (DAT_005c92f4 < 1) {
++      if (DAT_005c92f4 < 0) {
++        iVar5 = DAT_005c92f0 - iVar6;
++      }
++    }
++    else {
++      iVar5 = DAT_005c92ec + iVar6;
++    }
++    if (PTR_DAT_005c92e0 != (undefined *)0x0) {
++      *(int *)PTR_DAT_005c92e0 = iVar5;
++      return;
++    }
++    break;
++  case 1:
++    iVar5 = 0;
++    if (DAT_005c930c < 1) {
++      if (DAT_005c930c < 0) {
++        iVar5 = DAT_005c9308 - iVar6;
++      }
++    }
++    else {
++      iVar5 = DAT_005c9304 + iVar6;
++    }
++    if (PTR_DAT_005c92f8 != (undefined *)0x0) {
++      *(int *)PTR_DAT_005c92f8 = iVar5;
++      return;
++    }
++    break;
++  case 2:
++    uVar10 = 0;
++    if (iVar6 == 0) {
++      uVar10 = 2;
++    }
++    else if (iVar6 == 1) {
++      uVar10 = 1;
++    }
++    else if (iVar6 == 2) {
++      uVar10 = 3;
++    }
++    else if (iVar6 == 3) {
++      uVar10 = 0;
++    }
++    if (PTR_DAT_005c9310 != (undefined *)0x0) {
++      *(undefined4 *)PTR_DAT_005c9310 = uVar10;
++      return;
++    }
++    break;
++  case 3:
++    iVar5 = 0;
++    if (DAT_005c933c < 1) {
++      if (DAT_005c933c < 0) {
++        iVar5 = DAT_005c9338 - iVar6;
++      }
++    }
++    else {
++      iVar5 = DAT_005c9334 + iVar6;
++    }
++    if (PTR_DAT_005c9328 != (undefined *)0x0) {
++      *(int *)PTR_DAT_005c9328 = iVar5;
++    }
++    goto LAB_00454bf2;
++  case 4:
++    iVar5 = 0;
++    if (DAT_005c9354 < 1) {
++      if (DAT_005c9354 < 0) {
++        iVar5 = DAT_005c9350 - iVar6;
++      }
++    }
++    else {
++      iVar5 = DAT_005c934c + iVar6;
++    }
++    if (PTR_DAT_005c9340 != (undefined *)0x0) {
++      *(int *)PTR_DAT_005c9340 = iVar5;
++    }
++LAB_00454bf2:
++    DAT_02ee5384 = DAT_02ee76c4 != 0;
++    DAT_02ee53c4 = DAT_02ee76c4;
++    DAT_02ee53c8 = DAT_02ee76c8;
++    DAT_02ee5388 = DAT_02ee76c8;
++    FUN_004906f0();
++    return;
++  }
++  return;
++}
++
++
+ // ===== FUN_00454e00 @ 00454e00
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+@@ -548,13 +2245,13 @@ void FUN_00454f80(void)
+     local_274 = local_274 + -1;
+   } while (local_274 != 0);
+   if (DAT_016d7768 == 0) {
+-    local_268 = (decltype(local_268))0xca0000;
++    local_268 = (std::remove_reference_t<decltype(local_268)>)0xca0000;
+   }
+   else if (DAT_016d7768 == 1) {
+     local_268 = (undefined *)0xa1ec;
+   }
+   else if (DAT_016d7768 == 2) {
+-    local_268 = (decltype(local_268))0xff8a00;
++    local_268 = (std::remove_reference_t<decltype(local_268)>)0xff8a00;
+   }
+   else {
+     local_268 = puVar9;
+@@ -1184,14 +2881,14 @@ LAB_004575f8:
+           puVar9 = (undefined *)0xffffff;
+           iVar7 = 8 - (&DAT_016d8cdc)[uVar11];
+           if ((iVar4 != 0 || iVar5 != 0) && (uVar11 == 0)) {
+-            puVar9 = (decltype(puVar9))0x888888;
++            puVar9 = (std::remove_reference_t<decltype(puVar9)>)0x888888;
+           }
+           if ((iVar3 == 0) && (uVar11 == 1)) {
+-            puVar9 = (decltype(puVar9))0x888888;
++            puVar9 = (std::remove_reference_t<decltype(puVar9)>)0x888888;
+           }
+           iVar8 = FUN_004919d0(0x4de);
+           if ((iVar8 != 0) && (uVar11 == 1)) {
+-            puVar9 = (decltype(puVar9))0x888888;
++            puVar9 = (std::remove_reference_t<decltype(puVar9)>)0x888888;
+           }
+           fVar20 = (float)((double)(int)(&DAT_005c978c)[uVar11 * 6] +
+                           (double)(&DAT_005ba790)[-((int)(&DAT_005c978c)[uVar11 * 6] >> 0x1f)]);
+@@ -1271,7 +2968,7 @@ void FUN_004579e0(void)
+         FUN_00458d30(*(undefined4 *)(DAT_02ee7660 + 0x2194));
+         return;
+       case 5:
+-        FUN_00452910(0x100);
++        FUN_00452910();
+         return;
+       case 7:
+         FUN_004504c0(*(undefined4 *)(DAT_02ee7660 + 0x2194));
+@@ -2632,7 +4329,7 @@ void FUN_0046e040(void)
+                  DAT_0198a35c);
+     puVar5 = (undefined *)0xffffff;
+     if (iVar3 != 0) {
+-      puVar5 = (decltype(puVar5))0x5ade1f;
++      puVar5 = (std::remove_reference_t<decltype(puVar5)>)0x5ade1f;
+     }
+     FUN_00462f30(0x4e,((DAT_0198a374 + iVar9) * 2 + 0x27c) / 3,iVar7,0xdc,uVar2,0,puVar5,0x14,
+                  DAT_0198a35c);
+@@ -2653,7 +4350,7 @@ void FUN_0046e040(void)
+                  DAT_0198a35c);
+     puVar5 = (undefined *)0xffffff;
+     if (iVar3 != 0) {
+-      puVar5 = (decltype(puVar5))0x5ade1f;
++      puVar5 = (std::remove_reference_t<decltype(puVar5)>)0x5ade1f;
+     }
+     FUN_00462f30(0x4e,((DAT_0198a374 + iVar9) * 2 + 0xe4) / 3,iVar4,0xdc,uVar2,0,puVar5,0x14,
+                  DAT_0198a35c);
+@@ -2674,7 +4371,7 @@ void FUN_0046e040(void)
+                  DAT_0198a35c);
+     puVar5 = (undefined *)0xffffff;
+     if (iVar3 != 1) {
+-      puVar5 = (decltype(puVar5))0xe41616;
++      puVar5 = (std::remove_reference_t<decltype(puVar5)>)0xe41616;
+     }
+     FUN_00462f30(0x4e,((DAT_0198a374 + iVar9) * 2 + 0x27c) / 3,iVar4,0xdc,uVar2,0,puVar5,0x14,
+                  DAT_0198a35c);
+diff --git a/src/games/sg0/phoneemu.cpp b/src/games/sg0/phoneemu.cpp
+index e588f157a14fff8ff8f85ec49438618bce34cd7c..1a80f5f35df6e814b9162e97e523818949deddf2 100755
+--- a/src/games/sg0/phoneemu.cpp
++++ b/src/games/sg0/phoneemu.cpp
+@@ -25,6 +25,7 @@ Region Regions[] = {
+     {0x016d0000, 0x016e0000, {}},
+     {0x01970000, 0x019b0000, {}},
+     {0x02ed0000, 0x02ef0000, {}},
++    {0x02efc000, 0x02efd000, {}},  // 0x2efc1cc: SIMD level of the CPU check (0: the plain loops)
+     {0x032f0000, 0x03300000, {}},
+ };
+ uint8_t Fallback[16];
+diff --git a/src/games/sg0/phoneemu.h b/src/games/sg0/phoneemu.h
+index 259854194600e29ec248b874628d327fcd8bca1d..8df423c90837a8ee2dbd56017318bc9094645874 100755
+--- a/src/games/sg0/phoneemu.h
++++ b/src/games/sg0/phoneemu.h
+@@ -23,6 +23,10 @@ typedef uint8_t byte;
+ typedef uint16_t ushort;
+ typedef uint32_t uint;
+ typedef long double float10;
++typedef uint64_t ulonglong;
++typedef int64_t longlong;
++// Ghidra's carry of a 32 bit addition
++inline bool CARRY4(uint32_t a, uint32_t b) { return (uint64_t)a + b > 0xffffffffu; }
+ }  // namespace Types
+ 
+ struct RdataChunk {
+@@ -38,8 +42,26 @@ const uint8_t* LabelPtr(uint32_t buffer, uint32_t label);
+ const uint8_t* StrPtr(uint32_t buffer, uint32_t strNo);
+ void Reset();
+ 
++// A pointer stored in the original's tables (PTR_DAT_...): a 32 bit address of emulated memory
++struct EmuPtr {
++  uint32_t A;
++  template <typename T>
++  explicit operator T*() const {
++    return A ? reinterpret_cast<T*>(At(A)) : nullptr;
++  }
++  bool operator==(const void* p) const { return p == nullptr ? A == 0 : (const void*)At(A) == p; }
++  bool operator!=(const void* p) const { return !(*this == p); }
++};
++
+ // A call argument of the original: integer, float or pointer. Ghidra prints float immediates as their bit pattern,
+ // so an integer passed where the original takes a float is read as float bits.
++// float bits of a 32 bit value (Ghidra types float parameters undefined4)
++inline float Fl(uint32_t bits) {
++  float f;
++  std::memcpy(&f, &bits, 4);
++  return f;
++}
++
+ struct Arg {
+   uint64_t Raw = 0;
+   double F = 0;
+@@ -94,9 +116,16 @@ struct Cv {
+   operator T*() const {
+     return reinterpret_cast<T*>(V);
+   }
++  // a float into an integer parameter: the callee typed it undefined4 and reads the float bits
+   template <typename T>
+     requires std::is_integral_v<T>
+   operator T() const {
++    if (IsFloat && sizeof(T) == 4) {
++      const float f = (float)F;
++      uint32_t bits;
++      std::memcpy(&bits, &f, 4);
++      return (T)bits;
++    }
+     return (T)V;
+   }
+   operator float() const { return (float)F; }
+@@ -133,7 +162,7 @@ void FUN_00448d40(Arg x, Arg y, Arg w, Arg h, Arg color, Arg alpha, Arg = 0);
+ void FUN_0044b5a0(Arg target);  // render target (8: the screen)
+ void FUN_0044c0b0(Arg slot, Arg maskSlot, Arg sx, Arg sy, Arg w, Arg h, Arg mx, Arg my, Arg dx, Arg dy, Arg color,
+                   Arg alpha, Arg mode, Arg progress, Arg range);
+-void FUN_0044cba0(Arg slot, Arg sx, Arg sy, Arg w, Arg h, Arg dx, Arg dy, Arg color, Arg alpha, Arg mode);
++void FUN_0044cba0(Arg slot, Arg sx, Arg sy, Arg w, Arg h, Arg dx, Arg dy, Arg color, Arg alpha, Arg mode = 1);
+ void FUN_0044f270(Arg slot, Arg sx, Arg sy, Arg w, Arg h, Arg x0, Arg y0, Arg x1, Arg y1, Arg color, Arg alpha,
+                   Arg mode);
+ int FUN_0045d840(Arg maxWidth, Arg str, Arg size);   // line count
+@@ -165,7 +194,7 @@ void FUN_0042d770(Arg);
+ void FUN_004504c0(Arg);
+ void FUN_00451810(Arg);
+ void FUN_00451fe0(Arg);
+-void FUN_00452910(Arg);
++void FUN_004906f0();  // config.cpp
+ void FUN_00458d30(Arg);
+ void FUN_0045c1b0();
+ void FUN_00456f70();
+diff --git a/src/games/sg0/phoneglobals.h b/src/games/sg0/phoneglobals.h
+index 0964d50f387481f5c436fa532e9ea4bb4aaa4301..a9899fedc01f89009a8c232fb4967e6b109ffecd 100755
+--- a/src/games/sg0/phoneglobals.h
++++ b/src/games/sg0/phoneglobals.h
+@@ -14,14 +14,78 @@
+ #define DAT_0054a7f4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a7f4)))
+ #define DAT_0054a804 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a804)))
+ #define DAT_005ba4d8 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba4d8)))
++#define DAT_005ba560 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba560)))
++#define DAT_005ba610 (*reinterpret_cast<float*>(Sg0Emu::At(0x005ba610)))
++#define DAT_005ba6e0 (*reinterpret_cast<uint64_t*>(Sg0Emu::At(0x005ba6e0)))
+ #define DAT_005ba790 (*reinterpret_cast<double*>(Sg0Emu::At(0x005ba790)))
++#define DAT_005c6290 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6290)))
++#define DAT_005c6294 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c6294)))
++#define DAT_005c629c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c629c)))
+ #define DAT_005c8cc0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc0)))
+ #define DAT_005c8cc4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc4)))
+ #define DAT_005c8cc8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8cc8)))
++#define DAT_005c8ccc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8ccc)))
++#define DAT_005c8d90 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8d90)))
++#define DAT_005c8d9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8d9c)))
++#define DAT_005c8da0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8da0)))
++#define DAT_005c8db0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8db0)))
++#define DAT_005c8db4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c8db4)))
++#define DAT_005c8e08 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e08)))
++#define DAT_005c8e0a (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e0a)))
++#define DAT_005c8e0c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e0c)))
++#define DAT_005c8e0e (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e0e)))
++#define DAT_005c8e10 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e10)))
++#define DAT_005c8e12 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e12)))
++#define DAT_005c8e14 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e14)))
++#define DAT_005c8e16 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e16)))
++#define DAT_005c8e18 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e18)))
++#define DAT_005c8e1a (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c8e1a)))
++#define DAT_005c906a (*reinterpret_cast<uint16_t*>(Sg0Emu::At(0x005c906a)))
++#define DAT_005c9092 (*reinterpret_cast<uint16_t*>(Sg0Emu::At(0x005c9092)))
+ #define DAT_005c92e4 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c92e4)))
++#define DAT_005c92e8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c92e8)))
+ #define DAT_005c92ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c92ec)))
+ #define DAT_005c92f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c92f0)))
+ #define DAT_005c92f4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c92f4)))
++#define DAT_005c9304 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9304)))
++#define DAT_005c9308 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9308)))
++#define DAT_005c930c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c930c)))
++#define DAT_005c9334 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9334)))
++#define DAT_005c9338 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9338)))
++#define DAT_005c933c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c933c)))
++#define DAT_005c934c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c934c)))
++#define DAT_005c9350 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9350)))
++#define DAT_005c9354 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9354)))
++#define DAT_005c9364 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9364)))
++#define DAT_005c9368 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9368)))
++#define DAT_005c936c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c936c)))
++#define DAT_005c937c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c937c)))
++#define DAT_005c9380 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9380)))
++#define DAT_005c9384 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9384)))
++#define DAT_005c9394 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9394)))
++#define DAT_005c9398 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9398)))
++#define DAT_005c939c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c939c)))
++#define DAT_005c93ac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93ac)))
++#define DAT_005c93b0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93b0)))
++#define DAT_005c93b4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93b4)))
++#define DAT_005c93c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93c4)))
++#define DAT_005c93c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93c8)))
++#define DAT_005c93cc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93cc)))
++#define DAT_005c93dc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93dc)))
++#define DAT_005c93e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93e0)))
++#define DAT_005c93e4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93e4)))
++#define DAT_005c93f4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93f4)))
++#define DAT_005c93f8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93f8)))
++#define DAT_005c93fc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c93fc)))
++#define DAT_005c940c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c940c)))
++#define DAT_005c9410 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9410)))
++#define DAT_005c9414 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9414)))
++#define DAT_005c9424 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9424)))
++#define DAT_005c9428 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9428)))
++#define DAT_005c942c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c942c)))
++#define DAT_005c943c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c943c)))
++#define DAT_005c9440 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9440)))
++#define DAT_005c9444 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9444)))
+ #define DAT_005c95f0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c95f0)))
+ #define DAT_005c95f4 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c95f4)))
+ #define DAT_005c95f8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c95f8)))
+@@ -53,6 +117,7 @@
+ #define DAT_005c9a58 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9a58)))
+ #define DAT_005c9ab8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9ab8)))
+ #define DAT_005c9ae8 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9ae8)))
++#define DAT_005c9b18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9b18)))
+ #define DAT_005c9b58 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9b58)))
+ #define DAT_005c9b59 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9b59)))
+ #define DAT_005cb158 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005cb158)))
+@@ -88,6 +153,8 @@
+ #define DAT_005cbae0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005cbae0)))
+ #define DAT_00dde0f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde0f0)))
+ #define DAT_00dde17c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00dde17c)))
++#define DAT_00de5ec4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ec4)))
++#define DAT_00de5ed0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ed0)))
+ #define DAT_016d7764 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7764)))
+ #define DAT_016d7768 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7768)))
+ #define DAT_016d776c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d776c)))
+@@ -95,8 +162,22 @@
+ #define DAT_016d7774 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7774)))
+ #define DAT_016d777c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d777c)))
+ #define DAT_016d785c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d785c)))
++#define DAT_016d7880 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7880)))
++#define DAT_016d7884 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7884)))
++#define DAT_016d7888 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7888)))
++#define DAT_016d788c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d788c)))
++#define DAT_016d7890 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7890)))
++#define DAT_016d7894 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7894)))
++#define DAT_016d7898 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d7898)))
++#define DAT_016d78a4 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d78a4)))
++#define DAT_016d78a8 (*reinterpret_cast<float*>(Sg0Emu::At(0x016d78a8)))
++#define DAT_016d78b0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d78b0)))
++#define DAT_016d8220 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8220)))
+ #define DAT_016d8cdc (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8cdc)))
+ #define DAT_016d8ce0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8ce0)))
++#define DAT_016d8d0c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d0c)))
++#define DAT_016d8d1a (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d1a)))
++#define DAT_016d8d1b (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d1b)))
+ #define DAT_016d8f70 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f70)))
+ #define DAT_016d8f7c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f7c)))
+ #define DAT_016d8f84 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8f84)))
+@@ -229,28 +310,87 @@
+ #define DAT_02ed16e8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16e8)))
+ #define DAT_02ed16ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ed16ec)))
+ #define DAT_02edac92 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02edac92)))
++#define DAT_02ee5384 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5384)))
+ #define DAT_02ee5386 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5386)))
++#define DAT_02ee5388 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5388)))
++#define DAT_02ee53c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee53c4)))
++#define DAT_02ee53c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee53c8)))
++#define DAT_02ee5538 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee5538)))
++#define DAT_02ee55c0 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x02ee55c0)))
+ #define DAT_02ee565c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee565c)))
++#define DAT_02ee7670 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7670)))
++#define DAT_02ee7678 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7678)))
+ #define DAT_02ee767c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee767c)))
++#define DAT_02ee7684 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7684)))
++#define DAT_02ee7688 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7688)))
++#define DAT_02ee768c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee768c)))
++#define DAT_02ee7690 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7690)))
++#define DAT_02ee7694 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7694)))
++#define DAT_02ee76b0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76b0)))
++#define DAT_02ee76b4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76b4)))
++#define DAT_02ee76bc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76bc)))
++#define DAT_02ee76c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76c4)))
++#define DAT_02ee76c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76c8)))
++#define DAT_02ee76d0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76d0)))
++#define DAT_02efc1cc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02efc1cc)))
+ #define DAT_032fc7a0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7a0)))
++#define DAT_032fc7a8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7a8)))
+ #define DAT_032fc7e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7e0)))
+ #define DAT_032fc7ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7ec)))
+-#define PTR_DAT_005c92e0 (*reinterpret_cast<uint32_t*>(Sg0Emu::At(0x005c92e0)))
++#define PTR_DAT_005c92e0 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92e0)))
++#define PTR_DAT_005c92f8 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c92f8)))
++#define PTR_DAT_005c9310 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9310)))
++#define PTR_DAT_005c9328 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9328)))
++#define PTR_DAT_005c9340 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9340)))
++#define PTR_DAT_005c9358 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9358)))
++#define PTR_DAT_005c9370 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9370)))
++#define PTR_DAT_005c9388 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9388)))
++#define PTR_DAT_005c93a0 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c93a0)))
++#define PTR_DAT_005c93b8 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c93b8)))
++#define PTR_DAT_005c93d0 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c93d0)))
++#define PTR_DAT_005c93e8 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c93e8)))
++#define PTR_DAT_005c9400 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9400)))
++#define PTR_DAT_005c9418 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9418)))
++#define PTR_DAT_005c9430 (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c9430)))
++#define PTR_DAT_005c944c (*reinterpret_cast<Sg0Emu::EmuPtr*>(Sg0Emu::At(0x005c944c)))
++#define _DAT_0054944c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054944c)))
++#define _DAT_0054a650 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a650)))
+ #define _DAT_0054a658 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a658)))
++#define _DAT_0054a668 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a668)))
+ #define _DAT_0054a678 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a678)))
+ #define _DAT_0054a67c (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a67c)))
++#define _DAT_0054a688 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a688)))
+ #define _DAT_0054a690 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a690)))
+ #define _DAT_0054a698 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a698)))
++#define _DAT_0054a6a0 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6a0)))
++#define _DAT_0054a6a4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6a4)))
++#define _DAT_0054a6d4 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6d4)))
+ #define _DAT_0054a6d8 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6d8)))
++#define _DAT_0054a6dc (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a6dc)))
++#define _DAT_0054a6f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a6f0)))
++#define _DAT_0054a7c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7c0)))
++#define _DAT_0054a7d0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7d0)))
+ #define _DAT_0054a7f8 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a7f8)))
+ #define _DAT_0054a7fc (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a7fc)))
+ #define _DAT_0054a800 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a800)))
+ #define _DAT_0054a808 (*reinterpret_cast<float*>(Sg0Emu::At(0x0054a808)))
++#define _DAT_005ba6c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6c0)))
++#define _DAT_00de5ed4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5ed4)))
++#define _DAT_00de5f18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f18)))
++#define _DAT_00de5f1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f1c)))
++#define _DAT_00de5f20 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x00de5f20)))
+ #define _DAT_016d7748 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7748)))
+ #define _DAT_016d774c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d774c)))
+ #define _DAT_016d7778 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7778)))
+ #define _DAT_016d7780 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7780)))
+ #define _DAT_016d7784 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d7784)))
++#define _DAT_016d787c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d787c)))
++#define _DAT_016d78ac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d78ac)))
++#define _DAT_016d8220 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8220)))
++#define _DAT_016d8230 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8230)))
++#define _DAT_016d8240 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8240)))
++#define _DAT_016d8250 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8250)))
++#define _DAT_016d8258 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8258)))
+ #define _DAT_016d8ce4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ce4)))
+ #define _DAT_016d8ce8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ce8)))
+ #define _DAT_016d8cec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8cec)))
+@@ -258,6 +398,10 @@
+ #define _DAT_016d8cf4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8cf4)))
+ #define _DAT_016d8cf8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8cf8)))
+ #define _DAT_016d8cfc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8cfc)))
++#define _DAT_016d8d0c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d0c)))
++#define _DAT_016d8d1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d1c)))
++#define _DAT_016d8d24 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d24)))
++#define _DAT_016d8d28 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d28)))
+ #define _DAT_0197a1c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c0)))
+ #define _DAT_0197a1c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c4)))
+ #define _DAT_0197a1c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0197a1c8)))
+@@ -293,15 +437,121 @@
+ #define _DAT_0198a360 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0198a360)))
+ #define _DAT_0198a364 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0198a364)))
+ #define _DAT_0198a368 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0198a368)))
++#define _DAT_02ee5538 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5538)))
++#define _DAT_02ee553c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee553c)))
++#define _DAT_02ee5548 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5548)))
++#define _DAT_02ee5558 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5558)))
++#define _DAT_02ee5568 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5568)))
++#define _DAT_02ee5578 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5578)))
++#define _DAT_02ee5588 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5588)))
++#define _DAT_02ee5598 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5598)))
++#define _DAT_02ee55a8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55a8)))
++#define _DAT_02ee55c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55c0)))
++#define _DAT_02ee55c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55c4)))
++#define _DAT_02ee55d0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55d0)))
++#define _DAT_02ee55e0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55e0)))
++#define _DAT_02ee55f0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55f0)))
++#define _DAT_02ee5600 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5600)))
++#define _DAT_02ee5610 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5610)))
++#define _DAT_02ee5620 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5620)))
++#define _DAT_02ee5630 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5630)))
++#define _DAT_02ee766c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee766c)))
++#define _DAT_02ee7674 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7674)))
++#define _DAT_02ee7680 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7680)))
++#define _DAT_02ee7698 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee7698)))
++#define _DAT_02ee769c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee769c)))
++#define _DAT_02ee76c0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee76c0)))
+ #define _DAT_032fc7a0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7a0)))
+-#define uRam016d8d00 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d00)))
+-#define uRam016d8d04 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d04)))
+-#define uRam016d8d08 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x016d8d08)))
++#define _UNK_0054a6f4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a6f4)))
++#define _UNK_0054a6f8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a6f8)))
++#define _UNK_0054a6fc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a6fc)))
++#define _UNK_0054a7c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7c4)))
++#define _UNK_0054a7c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7c8)))
++#define _UNK_0054a7cc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7cc)))
++#define _UNK_0054a7d8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x0054a7d8)))
++#define _UNK_005ba6c4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6c4)))
++#define _UNK_005ba6c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6c8)))
++#define _UNK_005ba6cc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6cc)))
++#define _UNK_005ba6e8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6e8)))
++#define _UNK_005ba6ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005ba6ec)))
++#define uRam016d8224 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8224)))
++#define uRam016d8228 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8228)))
++#define uRam016d822c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d822c)))
++#define uRam016d8234 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8234)))
++#define uRam016d8238 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8238)))
++#define uRam016d823c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d823c)))
++#define uRam016d8248 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8248)))
++#define uRam016d8d00 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d00)))
++#define uRam016d8d04 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d04)))
++#define uRam016d8d08 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d08)))
++#define uRam016d8d14 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8d14)))
++#define uRam02ee5540 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5540)))
++#define uRam02ee5544 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5544)))
++#define uRam02ee554c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee554c)))
++#define uRam02ee5550 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5550)))
++#define uRam02ee5554 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5554)))
++#define uRam02ee555c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee555c)))
++#define uRam02ee5560 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5560)))
++#define uRam02ee5564 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5564)))
++#define uRam02ee556c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee556c)))
++#define uRam02ee5570 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5570)))
++#define uRam02ee5574 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5574)))
++#define uRam02ee557c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee557c)))
++#define uRam02ee5580 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5580)))
++#define uRam02ee5584 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5584)))
++#define uRam02ee558c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee558c)))
++#define uRam02ee5590 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5590)))
++#define uRam02ee5594 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5594)))
++#define uRam02ee559c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee559c)))
++#define uRam02ee55a0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55a0)))
++#define uRam02ee55a4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55a4)))
++#define uRam02ee55ac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55ac)))
++#define uRam02ee55b0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55b0)))
++#define uRam02ee55b4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55b4)))
++#define uRam02ee55c8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55c8)))
++#define uRam02ee55cc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55cc)))
++#define uRam02ee55d4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55d4)))
++#define uRam02ee55d8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55d8)))
++#define uRam02ee55dc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55dc)))
++#define uRam02ee55e4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55e4)))
++#define uRam02ee55e8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55e8)))
++#define uRam02ee55ec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55ec)))
++#define uRam02ee55f4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55f4)))
++#define uRam02ee55f8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55f8)))
++#define uRam02ee55fc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee55fc)))
++#define uRam02ee5604 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5604)))
++#define uRam02ee5608 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5608)))
++#define uRam02ee560c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee560c)))
++#define uRam02ee5614 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5614)))
++#define uRam02ee5618 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5618)))
++#define uRam02ee561c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee561c)))
++#define uRam02ee5624 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5624)))
++#define uRam02ee5628 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5628)))
++#define uRam02ee562c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee562c)))
++#define uRam02ee5634 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5634)))
++#define uRam02ee5638 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee5638)))
++#define uRam02ee563c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x02ee563c)))
+ 
+ namespace Impacto {
+ namespace SG0 {
+ namespace PhoneCode {
+ using namespace Sg0Emu::Types;
++void FUN_0042e750(void);
++void FUN_004524a0(void);
++void FUN_004524f0(void);
++void FUN_00452500(int param_1);
++void FUN_00452790(int param_1,undefined1 param_2);
++void FUN_004527b0(void);
++void FUN_00452910(void);
++void FUN_00452c00(undefined4 param_1);
++void FUN_00452e10(undefined4 param_1);
++void FUN_004530b0(undefined4 param_1);
++void FUN_004533a0(undefined4 param_2,undefined4 param_1);
++float10 FUN_004535e0(void);
++void FUN_00453620(void);
++void FUN_00453700(int param_1,intptr_t param_2,int param_3,int param_4,undefined4 param_5,int param_6
++                 ,undefined4 param_7,char param_8);
++void FUN_00453d70(void);
+ void FUN_00454e00(int param_1);
+ void FUN_00454ee0(int param_1,int param_2);
+ void FUN_00454f50(int param_1);
+diff --git a/src/games/sg0/phoneshim.cpp b/src/games/sg0/phoneshim.cpp
+index f8b058825c752e7c8daab9b8a9858099430e8619..3549a07bd7bdba6b384f5bc415ae7b0404349ddf 100755
+--- a/src/games/sg0/phoneshim.cpp
++++ b/src/games/sg0/phoneshim.cpp
+@@ -245,6 +245,12 @@ void BridgeInput() {
+     *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x0197a1c0 + (uint32_t)i * 4)) = PADcustom[i];
+   *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x032fc7a0)) = FrameMouse;
+   *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7e0)) = FrameWheel;
++  // buttons held (1 left, 2 right; a finger on the screen is the left button) and the position (screen pixels)
++  *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x032fc7a8)) =
++      (Input::MouseButtonIsDown[SDL_BUTTON_LEFT] || Input::TouchHeldDown ? 1u : 0u) |
++      (Input::MouseButtonIsDown[SDL_BUTTON_RIGHT] ? 2u : 0u);
++  *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7ec)) = (int32_t)Input::CurMousePos.x;
++  *reinterpret_cast<int32_t*>(Sg0Emu::At(0x032fc7f0)) = (int32_t)Input::CurMousePos.y;
+ }
+ 
+ // The mouse of this frame, taken before the scripts run (UpdateInput): while the phone is open the scene does not
+diff --git a/src/games/sg0/sysmenu.cpp b/src/games/sg0/sysmenu.cpp
+index 8cff5acc50d5379fe89bed42892b29ff1be04c4c..b92eee00bd986df3aa13eed233181750a8054015 100755
+--- a/src/games/sg0/sysmenu.cpp
++++ b/src/games/sg0/sysmenu.cpp
+@@ -43,7 +43,6 @@ void FUN_0042d770(Arg) {}
+ void FUN_004504c0(Arg) {}
+ void FUN_00451810(Arg) {}
+ void FUN_00451fe0(Arg) {}
+-void FUN_00452910(Arg) {}
+ void FUN_00458d30(Arg) {}
+ void FUN_0045c1b0() {}
+ 
+diff --git a/src/vm/inst_sg0.h b/src/vm/inst_sg0.h
+index 9308d4acb8afe2ab36ea66766e874fedf7cec007..ab6c1bea0c5141109a093148626bc573d9e6a2d5 100644
+--- a/src/vm/inst_sg0.h
++++ b/src/vm/inst_sg0.h
+@@ -172,6 +172,9 @@ inline void InstSg0SystemMenu(Sc3VmThread* thread, float dt) { SG0::Phone::Syste
+ // 10:23 (0x485f10): the save / load menu of S;G0 (games/sg0/savemenu.cpp)
+ inline void InstSg0SaveMenu(Sc3VmThread* thread, float dt) { SG0::Phone::SaveMenuInstruction(thread); }
+ 
++// 10:13 (0x4858c0): the CONFIG screen of S;G0 (games/sg0/config.cpp)
++inline void InstSg0Config(Sc3VmThread* thread, float dt) { SG0::Phone::ConfigInstruction(thread); }
++
+ // 10:37 (0x482df0): the phone and the RINE messenger (games/sg0/phone.h).
+ inline void InstSg0Group1037(Sc3VmThread* thread, float dt) { SG0::Phone::Instruction(thread); }
+ 
+diff --git a/src/vm/opcodetables_sg0.h b/src/vm/opcodetables_sg0.h
+index c230e1c0a465d80287e1dff237e9d499ad192e53..a9cf6de0cbc57ba133a1748d39e0439baf962892 100644
+--- a/src/vm/opcodetables_sg0.h
++++ b/src/vm/opcodetables_sg0.h
+@@ -30,6 +30,7 @@ inline void Configure_SG0() {
+   OpcodeTableSystem_SG0[0x59] = InstSg0KeyboardOnJump;
+   OpcodeTableSystem_SG0[0x44] = InstSg0SystemMenu;  // the S;G0 system menu (not the S;G one)
+   OpcodeTableGraph_SG0[0x0d] = InstSg0MesMain;  // MesMain, plus the phone flag 1611
++  OpcodeTableUser1_SG0[0x13] = InstSg0Config;  // the S;G0 CONFIG screen
+   OpcodeTableUser1_SG0[0x23] = InstSg0SaveMenu;  // the S;G0 save / load menu
+   OpcodeTableUser1_SG0[0x37] = InstSg0Group1037;  // RINE / phone group (SGHD: the S;G phone)
+   OpcodeTableUser1_SG0[0x38] = InstSg0Group1038;  // same operands as SGHD, not the S;G phone attachments

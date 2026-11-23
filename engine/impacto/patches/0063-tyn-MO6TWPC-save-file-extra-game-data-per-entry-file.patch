@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 19:32:07 -0800
+Subject: [PATCH] tyn: MO6TWPC save file: extra game data per entry (file
+ version 3)
+
+The save entries keep 500 bytes of game data (the STEINS;GATE phone). The
+STEINS;GATE 0 phone keeps 0x3ee0 bytes (Game.exe 0x475ed0 / 0x470620).
+Entries get an optional ExtraGameData blob; a file with such an entry is
+written as version 3 (each entry ends with u32 size + the bytes). Files
+without extra data are still written as version 2, byte for byte as before,
+and versions 1 / 2 are read as before, so sg-pc and mo6tw-pc saves are not
+touched. S;G0 stores its phone state there and restores it on load.
+
+Generic (the save format change), the S;G0 hook only for InstructionSet::SG0.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+saved while a RINE reply was pending, restarted, loaded from the title: the
+RINE conversation is back and goes on.
+
+diff --git a/src/games/mo6twpc/savesystem.cpp b/src/games/mo6twpc/savesystem.cpp
+index 0ff646a10f608f3c5a0f194b3c02562fa0fdc7c7..ea8aedebf449b3c459371fce26aade6347112a18 100644
+--- a/src/games/mo6twpc/savesystem.cpp
++++ b/src/games/mo6twpc/savesystem.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include "../../mem.h"
+ #include "../sghd/phone.h"
++#include "../sg0/phone.h"
+ #include "../../util.h"
+ #include "../../vm/vm.h"
+ #include "../../profile/data/savesystem.h"
+@@ -53,7 +54,8 @@
+ //
+ // File format (little endian, own format, written atomically via temp file +
+ // rename):
+-//   "MO6S" u32 version(2; version 1 files are read too, their entries have no game data)
++//   "MO6S" u32 version(2; version 1 files are read too, their entries have no game data; 3 when an entry has
++//   extra game data: then every entry ends with u32 size + the bytes)
+ //   u32 systemSize, system blob (see SaveSystemData)
+ //   u32 fullCount (48), u32 quickCount (48)
+ //   per slot (full then quick, physical order): u8 status; if status != 0 the
+@@ -72,6 +74,7 @@ namespace Cfg = Impacto::Profile::ConfigSystem;
+ namespace {
+ 
+ constexpr uint32_t FileVersion = 2;
++constexpr uint32_t FileVersionExtra = 3;
+ constexpr char FileMagic[4] = {'M', 'O', '6', 'S'};
+ 
+ uint32_t Crc32(const uint8_t* data, size_t size) {
+@@ -132,7 +135,7 @@ class Reader {
+   size_t Pos = 0;
+ };
+ 
+-void WriteEntry(Writer& w, const SaveFileEntry& e) {
++void WriteEntry(Writer& w, const SaveFileEntry& e, uint32_t version) {
+   w.Put<uint8_t>(e.Status);
+   w.Put<uint8_t>(e.Flags);
+   w.Put<uint32_t>(e.SaveType);
+@@ -161,6 +164,10 @@ void WriteEntry(Writer& w, const SaveFileEntry& e) {
+   w.Put<uint32_t>(e.MainThreadDialoguePageId);
+   w.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
+   w.Raw(e.GameData.data(), e.GameData.size());
++  if (version >= FileVersionExtra) {
++    w.Put<uint32_t>(static_cast<uint32_t>(e.ExtraGameData.size()));
++    w.Raw(e.ExtraGameData.data(), e.ExtraGameData.size());
++  }
+ }
+ 
+ void ReadEntry(Reader& r, SaveFileEntry& e, uint32_t version) {
+@@ -194,6 +201,15 @@ void ReadEntry(Reader& r, SaveFileEntry& e, uint32_t version) {
+   r.Raw(e.ThumbnailData.data(), e.ThumbnailData.size());
+   e.HasThumbnailData = true;
+   if (version >= 2) r.Raw(e.GameData.data(), e.GameData.size());
++  if (version >= FileVersionExtra) {
++    const uint32_t size = r.Get<uint32_t>();
++    if (size > r.Remaining()) {
++      r.Ok = false;
++      return;
++    }
++    e.ExtraGameData.resize(size);
++    r.Raw(e.ExtraGameData.data(), size);
++  }
+ }
+ 
+ // SaveFilePath is UTF-8 (it comes from the profile). Building the path from
+@@ -461,7 +477,7 @@ SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
+   char magic[4];
+   r.Raw(magic, 4);
+   const uint32_t version = r.Get<uint32_t>();
+-  if (version != 1 && version != FileVersion) return SaveError::Corrupted;
++  if (version != 1 && version != FileVersion && version != FileVersionExtra) return SaveError::Corrupted;
+   const uint32_t systemSize = r.Get<uint32_t>();
+   if (systemSize > r.Remaining()) return SaveError::Corrupted;
+   std::vector<uint8_t> system(systemSize);
+@@ -516,9 +532,15 @@ SaveError SaveSystem::MountSaveFile(std::vector<QueuedTexture>& textures) {
+ // are serialised here so that the worker thread never reads them while the
+ // game keeps flushing entries into them.
+ void SaveSystem::PrepareSaveFileWrite() {
++  uint32_t version = FileVersion;
++  for (auto* arr : {FullSaveEntries, QuickSaveEntries})
++    for (int i = 0; i < MaxSaveEntries; i++) {
++      const auto* e = static_cast<const SaveFileEntry*>(arr[i]);
++      if (e != nullptr && e->Status != 0 && !e->ExtraGameData.empty()) version = FileVersionExtra;
++    }
+   Writer w;
+   w.Raw(FileMagic, 4);
+-  w.Put<uint32_t>(FileVersion);
++  w.Put<uint32_t>(version);
+   w.Put<uint32_t>(static_cast<uint32_t>(SystemData.size()));
+   w.Raw(SystemData.data(), SystemData.size());
+   w.Put<uint32_t>(MaxSaveEntries);
+@@ -529,7 +551,7 @@ void SaveSystem::PrepareSaveFileWrite() {
+       if (e == nullptr || e->Status == 0) {
+         w.Put<uint8_t>(0);
+       } else {
+-        WriteEntry(w, *e);
++        WriteEntry(w, *e, version);
+       }
+     }
+   }
+@@ -606,6 +628,10 @@ void SaveSystem::SaveMemory() {
+               WorkingSaveEntry->ScrWorkScript2.begin());
+   if (GameInstructionSet == InstructionSet::SGHD)
+     std::copy_n(SGHD::Phone::SaveData(), SGHD::Phone::SaveDataSize, WorkingSaveEntry->GameData.begin());
++  if (GameInstructionSet == InstructionSet::SG0) {
++    WorkingSaveEntry->ExtraGameData.resize(SG0::Phone::SaveDataSize);
++    SG0::Phone::Save(WorkingSaveEntry->ExtraGameData.data());
++  }
+ 
+   const int threadId = ScrWork[SW_MAINTHDP];
+   Sc3VmThread* thd = &ThreadPool[threadId & 0x7FFFFFFF];
+@@ -675,6 +701,9 @@ void SaveSystem::LoadMemoryNew(LoadProcess load) {
+                       ScrWork.begin() + ScrWorkScript1Src);
+     std::ranges::copy(WorkingSaveEntry->ScrWorkScript2,
+                       ScrWork.begin() + ScrWorkScript2Src);
++    if (GameInstructionSet == InstructionSet::SG0 &&
++        WorkingSaveEntry->ExtraGameData.size() == SG0::Phone::SaveDataSize)
++      SG0::Phone::Load(WorkingSaveEntry->ExtraGameData.data());
+     if (GameInstructionSet == InstructionSet::SGHD) {
+       std::copy_n(WorkingSaveEntry->GameData.begin(), SGHD::Phone::SaveDataSize, SGHD::Phone::SaveData());
+       SGHD::Phone::AfterLoad();
+diff --git a/src/games/mo6twpc/savesystem.h b/src/games/mo6twpc/savesystem.h
+index 0d22ce8b32fd75c49a67d230f7af6e048108ab76..eb70f22dd524a650efb90a0b49a169dffa191afd 100644
+--- a/src/games/mo6twpc/savesystem.h
++++ b/src/games/mo6twpc/savesystem.h
+@@ -53,6 +53,8 @@ struct SaveFileEntry : SaveFileEntryBase {
+   bool HasThumbnailData = false;
+   // Game specific data saved with the entry (file version 2): the STEINS;GATE phone bit field (SGHD::Phone).
+   std::array<uint8_t, 500> GameData{};
++  // More game data (file version 3, only written by games that have some): the STEINS;GATE 0 phone (0x3ee0 bytes).
++  std::vector<uint8_t> ExtraGameData;
+ };
+ 
+ class SaveSystem final : public SaveSystemBase {

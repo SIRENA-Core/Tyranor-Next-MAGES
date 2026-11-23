@@ -1,0 +1,449 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 21:48:14 -0800
+Subject: [PATCH] tyn: STEINS;GATE 0 system message box
+
+Instruction 00:43 and its draw translated from Game.exe (the box over the
+system menu, save and load screens: exit / title / load confirmations); a
+surface the engine loads itself (DATA01) resolves to its profile sheet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/games/sg0/phone.h b/src/games/sg0/phone.h
+index 3783025a34dc5f9d11618f072ed62808ca55671e..83e7d82a3eaead82cf7a23cba666d5696d97e77e 100755
+--- a/src/games/sg0/phone.h
++++ b/src/games/sg0/phone.h
+@@ -54,6 +54,10 @@ void Reset();
+ 
+ // The system menu (sysmenu.cpp): instruction 00:44 and its layer (draw component SystemMenu).
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread);
++// The system message box (instruction 00:43, 0x4824d0): true when the thread waits (the instruction runs again)
++bool SystemMesInstruction(Vm::Sc3VmThread* thread);
++// its draw (draw component 0xb of the original: 0x458200 at the alpha ScrWork 0x3430)
++void RenderSystemMessage();
+ void RenderSystemMenuLayer(bool afterMenus);
+ // The save / load menu (savemenu.cpp): instruction 10:23; drawn on the system menu layer.
+ void SaveMenuInstruction(Vm::Sc3VmThread* thread);
+diff --git a/src/games/sg0/phonecode.cpp b/src/games/sg0/phonecode.cpp
+index d88a00de794abd92764a1d766604cc691de90f64..54db4cdaf15beb92c37860d2c4417369f866795d 100755
+--- a/src/games/sg0/phonecode.cpp
++++ b/src/games/sg0/phonecode.cpp
+@@ -3235,6 +3235,121 @@ LAB_00457ca0:
+ }
+ 
+ 
++// ===== FUN_00457dc0 @ 00457dc0
++
++int FUN_00457dc0(int param_1)
++
++{
++  if (param_1 == 0) {
++    *(int *)(DAT_02ee7660 + 0x3430) = DAT_005c9730;
++    DAT_016d8e00 = DAT_016d8ec4;
++    DAT_016d8e04 = DAT_016d8ec8;
++    DAT_016d8e08 = DAT_016d8ecc;
++    DAT_016d8e0c = DAT_016d8ed0;
++    DAT_016d8e34 = DAT_016d8ef8;
++    DAT_016d8e5c = DAT_016d8f20;
++    DAT_016d8e84 = DAT_016d8f48;
++    DAT_016d8e10 = DAT_016d8ed4;
++    DAT_016d8e38 = DAT_016d8efc;
++    DAT_016d8e60 = DAT_016d8f24;
++    DAT_016d8e88 = DAT_016d8f4c;
++    DAT_016d8e14 = DAT_016d8ed8;
++    DAT_016d8e3c = DAT_016d8f00;
++    DAT_016d8e64 = DAT_016d8f28;
++    DAT_016d8e8c = DAT_016d8f50;
++    DAT_016d8e18 = DAT_016d8edc;
++    DAT_016d8e40 = DAT_016d8f04;
++    DAT_016d8e68 = DAT_016d8f2c;
++    DAT_016d8e90 = DAT_016d8f54;
++    DAT_016d8e1c = DAT_016d8ee0;
++    DAT_016d8e44 = DAT_016d8f08;
++    DAT_016d8e6c = DAT_016d8f30;
++    DAT_016d8e94 = DAT_016d8f58;
++    DAT_016d8e20 = DAT_016d8ee4;
++    DAT_016d8e48 = DAT_016d8f0c;
++    DAT_016d8e70 = DAT_016d8f34;
++    DAT_016d8e98 = DAT_016d8f5c;
++    DAT_016d8e24 = DAT_016d8ee8;
++    DAT_016d8e4c = DAT_016d8f10;
++    DAT_016d8e74 = DAT_016d8f38;
++    DAT_016d8e9c = DAT_016d8f60;
++    DAT_016d8e28 = DAT_016d8eec;
++    DAT_016d8e50 = DAT_016d8f14;
++    DAT_016d8e78 = DAT_016d8f3c;
++    DAT_016d8ea0 = DAT_016d8f64;
++    DAT_016d8e2c = DAT_016d8ef0;
++    DAT_016d8e54 = DAT_016d8f18;
++    DAT_016d8e7c = DAT_016d8f40;
++    DAT_005c9730 = 0xffff;
++    DAT_016d8ea4 = DAT_016d8f68;
++    DAT_016d8e30 = DAT_016d8ef4;
++    DAT_016d8eb0 = DAT_016d8f78;
++    DAT_016d8e58 = DAT_016d8f1c;
++    DAT_016d8eb4 = DAT_016d8f80;
++    DAT_016d8e80 = DAT_016d8f44;
++    DAT_016d8eb8 = DAT_016d8f88;
++    DAT_016d8ea8 = DAT_016d8f6c;
++    DAT_016d8ebc = DAT_016d8f90;
++    DAT_016d8eac = DAT_016d8f74;
++    DAT_016d8ec0 = DAT_016d8f94;
++    return 0xffff;
++  }
++  if (DAT_005c9730 == 0xffff) {
++    DAT_005c9730 = *(int *)(DAT_02ee7660 + 0x3430);
++  }
++  DAT_016d8ec4 = DAT_016d8e00;
++  DAT_016d8ec8 = DAT_016d8e04;
++  DAT_016d8ecc = DAT_016d8e08;
++  DAT_016d8ed0 = DAT_016d8e0c;
++  DAT_016d8ef8 = DAT_016d8e34;
++  DAT_016d8f20 = DAT_016d8e5c;
++  DAT_016d8f48 = DAT_016d8e84;
++  DAT_016d8ed4 = DAT_016d8e10;
++  DAT_016d8efc = DAT_016d8e38;
++  DAT_016d8f24 = DAT_016d8e60;
++  DAT_016d8f4c = DAT_016d8e88;
++  DAT_016d8ed8 = DAT_016d8e14;
++  DAT_016d8f00 = DAT_016d8e3c;
++  DAT_016d8f28 = DAT_016d8e64;
++  DAT_016d8f50 = DAT_016d8e8c;
++  DAT_016d8edc = DAT_016d8e18;
++  DAT_016d8f04 = DAT_016d8e40;
++  DAT_016d8f2c = DAT_016d8e68;
++  DAT_016d8f54 = DAT_016d8e90;
++  DAT_016d8ee0 = DAT_016d8e1c;
++  DAT_016d8f08 = DAT_016d8e44;
++  DAT_016d8f30 = DAT_016d8e6c;
++  DAT_016d8f58 = DAT_016d8e94;
++  DAT_016d8ee4 = DAT_016d8e20;
++  DAT_016d8f0c = DAT_016d8e48;
++  DAT_016d8f34 = DAT_016d8e70;
++  DAT_016d8f5c = DAT_016d8e98;
++  DAT_016d8ee8 = DAT_016d8e24;
++  DAT_016d8f10 = DAT_016d8e4c;
++  DAT_016d8f38 = DAT_016d8e74;
++  DAT_016d8f60 = DAT_016d8e9c;
++  DAT_016d8eec = DAT_016d8e28;
++  DAT_016d8f14 = DAT_016d8e50;
++  DAT_016d8f3c = DAT_016d8e78;
++  DAT_016d8f64 = DAT_016d8ea0;
++  DAT_016d8ef0 = DAT_016d8e2c;
++  DAT_016d8f18 = DAT_016d8e54;
++  DAT_016d8f40 = DAT_016d8e7c;
++  DAT_016d8f68 = DAT_016d8ea4;
++  DAT_016d8ef4 = DAT_016d8e30;
++  DAT_016d8f78 = DAT_016d8eb0;
++  DAT_016d8f1c = DAT_016d8e58;
++  DAT_016d8f80 = DAT_016d8eb4;
++  DAT_016d8f44 = DAT_016d8e80;
++  DAT_016d8f88 = DAT_016d8eb8;
++  DAT_016d8f6c = DAT_016d8ea8;
++  DAT_016d8f90 = DAT_016d8ebc;
++  DAT_016d8f74 = DAT_016d8eac;
++  DAT_016d8f94 = DAT_016d8ec0;
++  return DAT_005c9730;
++}
++
++
+ // ===== FUN_00458200 @ 00458200
+ 
+ /* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+diff --git a/src/games/sg0/phoneglobals.h b/src/games/sg0/phoneglobals.h
+index 5638b859fb9ccfa52205e49efc2aebdbe2ca54d7..a1f8cb56fc66c3034ee381ed66a03134daedcbe8 100755
+--- a/src/games/sg0/phoneglobals.h
++++ b/src/games/sg0/phoneglobals.h
+@@ -105,6 +105,7 @@
+ #define DAT_005c960c (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c960c)))
+ #define DAT_005c9610 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9610)))
+ #define DAT_005c9710 (*reinterpret_cast<uint8_t*>(Sg0Emu::At(0x005c9710)))
++#define DAT_005c9730 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9730)))
+ #define DAT_005c9734 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9734)))
+ #define DAT_005c9738 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9738)))
+ #define DAT_005c9788 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x005c9788)))
+@@ -202,8 +203,25 @@
+ #define DAT_016d8e04 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e04)))
+ #define DAT_016d8e08 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e08)))
+ #define DAT_016d8e0c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e0c)))
++#define DAT_016d8e10 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e10)))
++#define DAT_016d8e14 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e14)))
++#define DAT_016d8e18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e18)))
++#define DAT_016d8e1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e1c)))
++#define DAT_016d8e20 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e20)))
++#define DAT_016d8e24 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e24)))
++#define DAT_016d8e28 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e28)))
++#define DAT_016d8e2c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e2c)))
++#define DAT_016d8e30 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e30)))
+ #define DAT_016d8e34 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e34)))
+ #define DAT_016d8e38 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e38)))
++#define DAT_016d8e3c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e3c)))
++#define DAT_016d8e40 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e40)))
++#define DAT_016d8e44 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e44)))
++#define DAT_016d8e48 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e48)))
++#define DAT_016d8e4c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e4c)))
++#define DAT_016d8e50 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e50)))
++#define DAT_016d8e54 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e54)))
++#define DAT_016d8e58 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e58)))
+ #define DAT_016d8e5c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e5c)))
+ #define DAT_016d8e60 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e60)))
+ #define DAT_016d8e64 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e64)))
+@@ -212,18 +230,77 @@
+ #define DAT_016d8e70 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e70)))
+ #define DAT_016d8e74 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e74)))
+ #define DAT_016d8e78 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e78)))
++#define DAT_016d8e7c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e7c)))
++#define DAT_016d8e80 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e80)))
+ #define DAT_016d8e84 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e84)))
+ #define DAT_016d8e88 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e88)))
++#define DAT_016d8e8c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e8c)))
++#define DAT_016d8e90 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e90)))
++#define DAT_016d8e94 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e94)))
++#define DAT_016d8e98 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e98)))
++#define DAT_016d8e9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8e9c)))
++#define DAT_016d8ea0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ea0)))
++#define DAT_016d8ea4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ea4)))
++#define DAT_016d8ea8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ea8)))
+ #define DAT_016d8eac (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8eac)))
+ #define DAT_016d8eb0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8eb0)))
+ #define DAT_016d8eb4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8eb4)))
+ #define DAT_016d8eb8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8eb8)))
+ #define DAT_016d8ebc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ebc)))
+ #define DAT_016d8ec0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ec0)))
++#define DAT_016d8ec4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ec4)))
++#define DAT_016d8ec8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ec8)))
++#define DAT_016d8ecc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ecc)))
++#define DAT_016d8ed0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ed0)))
++#define DAT_016d8ed4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ed4)))
++#define DAT_016d8ed8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ed8)))
++#define DAT_016d8edc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8edc)))
++#define DAT_016d8ee0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ee0)))
++#define DAT_016d8ee4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ee4)))
++#define DAT_016d8ee8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ee8)))
++#define DAT_016d8eec (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8eec)))
++#define DAT_016d8ef0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ef0)))
++#define DAT_016d8ef4 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ef4)))
++#define DAT_016d8ef8 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8ef8)))
++#define DAT_016d8efc (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8efc)))
++#define DAT_016d8f00 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f00)))
++#define DAT_016d8f04 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f04)))
++#define DAT_016d8f08 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f08)))
++#define DAT_016d8f0c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f0c)))
++#define DAT_016d8f10 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f10)))
++#define DAT_016d8f14 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f14)))
++#define DAT_016d8f18 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f18)))
++#define DAT_016d8f1c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f1c)))
++#define DAT_016d8f20 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f20)))
++#define DAT_016d8f24 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f24)))
++#define DAT_016d8f28 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f28)))
++#define DAT_016d8f2c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f2c)))
++#define DAT_016d8f30 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f30)))
++#define DAT_016d8f34 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f34)))
++#define DAT_016d8f38 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f38)))
++#define DAT_016d8f3c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f3c)))
++#define DAT_016d8f40 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f40)))
++#define DAT_016d8f44 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f44)))
++#define DAT_016d8f48 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f48)))
++#define DAT_016d8f4c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f4c)))
++#define DAT_016d8f50 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f50)))
++#define DAT_016d8f54 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f54)))
++#define DAT_016d8f58 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f58)))
++#define DAT_016d8f5c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f5c)))
++#define DAT_016d8f60 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f60)))
++#define DAT_016d8f64 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f64)))
++#define DAT_016d8f68 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f68)))
++#define DAT_016d8f6c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f6c)))
+ #define DAT_016d8f70 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f70)))
++#define DAT_016d8f74 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f74)))
++#define DAT_016d8f78 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f78)))
+ #define DAT_016d8f7c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f7c)))
++#define DAT_016d8f80 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f80)))
+ #define DAT_016d8f84 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f84)))
++#define DAT_016d8f88 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f88)))
+ #define DAT_016d8f8c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f8c)))
++#define DAT_016d8f90 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f90)))
++#define DAT_016d8f94 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f94)))
+ #define DAT_016d8f98 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f98)))
+ #define DAT_016d8f9c (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8f9c)))
+ #define DAT_016d8fa0 (*reinterpret_cast<int32_t*>(Sg0Emu::At(0x016d8fa0)))
+@@ -770,6 +847,7 @@ void FUN_004571d0(void);
+ void FUN_004579e0(void);
+ void FUN_00457b80(void);
+ void FUN_00457bc0(void);
++int FUN_00457dc0(int param_1);
+ void FUN_00458200(uint param_1);
+ void FUN_00458670(undefined4 param_1);
+ void FUN_00458780(undefined4 param_1);
+diff --git a/src/games/sg0/phoneshim.cpp b/src/games/sg0/phoneshim.cpp
+index ebd35a9ab71a9d7f6cce54f765142a951f51af69..0d82d6fc5fe48bf6050e5866da802279d1daaef9 100755
+--- a/src/games/sg0/phoneshim.cpp
++++ b/src/games/sg0/phoneshim.cpp
+@@ -17,6 +17,7 @@
+ #include "../../profile/game.h"
+ #include "../../profile/sprites.h"
+ #include "../../renderer/renderer.h"
++#include "../../spritesheet.h"
+ #include "../../vm/expression.h"
+ #include "../../vm/interface/input.h"
+ #include "../../vm/thread.h"
+@@ -68,6 +69,15 @@ constexpr float Scale = 1.5f;  // 1280x720 units of the text routines -> 1920x10
+ const SpriteSheet* SurfaceSheet(int surf) {
+   auto surfIt = Renderer->SurfToId.find(surf);
+   if (surfIt == Renderer->SurfToId.end()) {
++    // a file the engine keeps loaded itself (not a script handled sheet, e.g. DATA01 in surface 80): the script's
++    // load named it
++    auto loaderIt = SpriteLoader::Sprites.find(surf);
++    if (loaderIt != SpriteLoader::Sprites.end() && loaderIt->second->ArchiveId >= 0) {
++      const Io::AssetPath want = Io::AssetPathKey::KeyToAssetPath(
++          {.MountId = (uint32_t)loaderIt->second->ArchiveId, .Id = (uint32_t)loaderIt->second->FileId});
++      for (auto const& [name, sheet] : Profile::SpriteSheets)
++        if (!sheet.ScriptHandled && sheet.Path.Mount == want.Mount && sheet.Path.Id == want.Id) return &sheet;
++    }
+     static bool empty[256] = {};
+     if (surf >= 0 && surf < 256 && !empty[surf]) {
+       empty[surf] = true;
+diff --git a/src/games/sg0/sysmenu.cpp b/src/games/sg0/sysmenu.cpp
+index d719dfe99cecf14b495400ed8b78df800a9e21b8..b02aa03721575d9844734519d2c30961c3458f4f 100755
+--- a/src/games/sg0/sysmenu.cpp
++++ b/src/games/sg0/sysmenu.cpp
+@@ -12,6 +12,7 @@
+ #include "../../renderer/renderer.h"
+ #include "../../vm/interface/input.h"
+ #include "../../vm/thread.h"
++#include "../../vm/expression.h"
+ 
+ namespace Impacto {
+ namespace SG0 {
+@@ -68,6 +69,104 @@ namespace Phone {
+ 
+ using namespace PhoneCode;
+ 
++// 00:43 (0x4824d0): the system message box ("Overwrite this data?", "Exit the game?" with Yes / No). Type 0 / 1
++// clear it, 2 sets the title, 3 adds a line, 4 a choice, 5 waits for the choice (ScrWork 0x2140), 6 / 7 fade it in
++// / out (alpha ScrWork 0x3430). Mode 1 opens a message over another one (0x457dc0 keeps and restores the first).
++// The original repeats the instruction (0x2ed13a0) while it waits or fades.
++bool SystemMesInstruction(Vm::Sc3VmThread* thread) {
++  auto I32 = [](uint32_t a) -> int32_t& { return *reinterpret_cast<int32_t*>(Sg0Emu::At(a)); };
++  int32_t& active = I32(0x02ee6fc0);
++  int32_t& closing = I32(0x02ee6fc4);
++  int32_t& state = I32(0x02ee6fc8);
++  int& alpha = *reinterpret_cast<int*>(DAT_02ee7660 + 0x3430);
++  const uint32_t start = thread->IpOffset;
++  const uint8_t* ip = thread->GetIp();
++  uint8_t type = ip[2];
++  const uint8_t mode = ip[3];
++  thread->IpOffset += 4;
++  auto again = [&] {
++    thread->IpOffset = start;
++    return true;
++  };
++  if (mode == 0) {
++    active = 1;
++    if (type > 7) return false;
++  } else if (mode != 1 || active == 0) {
++    if (type > 7) return false;
++  } else {
++    const int kept = FUN_00457dc0(1);
++    state = kept == 0x100 ? 5 : 0;
++    type = 7;
++  }
++  switch (type) {
++    case 0:
++    case 1:
++      FUN_00458780(type);
++      return false;
++    case 2:
++      FUN_00458670(Vm::ExpressionEval(thread));
++      return false;
++    case 3:
++    case 4: {
++      const uint8_t* p = thread->GetIp();
++      const uint32_t str = FUN_0047f1f0(thread->ScriptBufferId, (uint32_t)(p[0] | (p[1] << 8)));
++      thread->IpOffset += 2;
++      if (type == 3)
++        FUN_004589b0(str);
++      else
++        FUN_004589f0(str);
++      return false;
++    }
++    case 5: {
++      I32(0x02ee6fbc) = 1;
++      BridgeInput();
++      const bool chosen = FUN_004587c0() != 0;
++      Vm::Interface::PADinputButtonWentDown = *reinterpret_cast<uint32_t*>(Sg0Emu::At(0x01979f10));
++      ClearMouse();
++      if (chosen || FUN_004919d0(0x70d) == 1) return false;
++      return again();
++    }
++    case 6:
++      if ((uint32_t)alpha > 0xff) return false;
++      alpha += 0x10;
++      break;
++    case 7:
++      if (alpha != 0 && state != 4) {
++        alpha -= 0x10;
++        return again();
++      }
++      if (closing == 0) {
++        if (mode != 1 || active == 0) return false;
++        active = 0;
++        closing = 1;
++        return again();
++      }
++      if (state != 4) FUN_00457dc0(0);
++      if (state == 5) {
++        alpha = 0;
++        state = 4;
++      } else if (state != 4) {
++        closing = 0;
++        state = 0;
++        return false;
++      }
++      if ((uint32_t)alpha > 0xff) {
++        closing = 0;
++        state = 0;
++        return false;
++      }
++      alpha += 0x10;
++      break;
++  }
++  if (alpha > 0x100) alpha = 0x100;
++  return again();
++}
++
++void RenderSystemMessage() {
++  const int alpha = *reinterpret_cast<int*>(DAT_02ee7660 + 0x3430);
++  if (alpha != 0) FUN_00458200(alpha);
++}
++
+ // 00:44 (0x482760)
+ void SystemMenuInstruction(Vm::Sc3VmThread* thread) {
+   thread->IpOffset += 2;
+diff --git a/src/vm/inst_sg0.h b/src/vm/inst_sg0.h
+index 228cc288addeec6a1f3269eb05d833d57c702bd5..08a68eede7bdcc824e392d5d762d3fe4529934e0 100644
+--- a/src/vm/inst_sg0.h
++++ b/src/vm/inst_sg0.h
+@@ -175,6 +175,11 @@ inline void InstSg0SaveMenu(Sc3VmThread* thread, float dt) { SG0::Phone::SaveMen
+ // 10:13 (0x4858c0): the CONFIG screen of S;G0 (games/sg0/config.cpp)
+ inline void InstSg0Config(Sc3VmThread* thread, float dt) { SG0::Phone::ConfigInstruction(thread); }
+ 
++// 00:43 (0x4824d0): the system message box of S;G0 (games/sg0/sysmenu.cpp)
++inline void InstSg0SystemMes(Sc3VmThread* thread, float dt) {
++  if (SG0::Phone::SystemMesInstruction(thread)) BlockCurrentScriptThread = true;
++}
++
+ // 01:0E (0x47ce10): SetMesModeFormat, and its table for the original text layout of the S;G0 TIPS text
+ inline void InstSg0SetMesModeFormat(Sc3VmThread* thread, float dt) {
+   SG0::Phone::MesModeFormat(thread);
+diff --git a/src/vm/opcodetables_sg0.h b/src/vm/opcodetables_sg0.h
+index ef7741f18fac0fd2853acfe8fff01cd0cf59d079..f84e40e5aacc83377bab1a8505e1186161891215 100644
+--- a/src/vm/opcodetables_sg0.h
++++ b/src/vm/opcodetables_sg0.h
+@@ -28,6 +28,7 @@ inline void Configure_SG0() {
+   OpcodeTableSystem_SG0[0x57] = InstReturnIfFlag;  // (0x47f700) same operands and effect as the upstream one
+   OpcodeTableSystem_SG0[0x58] = InstSg0MouseOnJump;
+   OpcodeTableSystem_SG0[0x59] = InstSg0KeyboardOnJump;
++  OpcodeTableSystem_SG0[0x43] = InstSg0SystemMes;  // the S;G0 system message box
+   OpcodeTableSystem_SG0[0x44] = InstSg0SystemMenu;  // the S;G0 system menu (not the S;G one)
+   OpcodeTableGraph_SG0[0x0d] = InstSg0MesMain;
+   OpcodeTableGraph_SG0[0x0e] = InstSg0SetMesModeFormat;  // also kept for the original text layout  // MesMain, plus the phone flag 1611

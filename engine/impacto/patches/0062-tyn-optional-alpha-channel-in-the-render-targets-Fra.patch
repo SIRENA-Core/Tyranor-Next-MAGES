@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 19:32:07 -0800
+Subject: [PATCH] tyn: optional alpha channel in the render targets
+ (FramebufferAlpha)
+
+The render targets other than the screen are RGB. A game that composes
+sprites in one and draws it over the scene (the STEINS;GATE 0 phone zoom,
+system menu and save screen use render targets 6 / 9 of the original this
+way) needs the alpha of what it drew there, or the target covers the scene
+with black.
+
+New optional profile field Game.FramebufferAlpha (default false): the
+framebuffers 1.. are made RGBA. The screen (0) stays RGB. Profiles that do
+not set it behave as before (their snapshots do not change).
+
+Generic; can go upstream.
+
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+the save screen drawn over the scene and over the title menu.
+
+diff --git a/src/profile/game.cpp b/src/profile/game.cpp
+index 86965b2b70d47432bf6ac1ef8e1b0e041ff5cc23..df2bad3e1f96f3d11522686e62a977c4163e648a 100644
+--- a/src/profile/game.cpp
++++ b/src/profile/game.cpp
+@@ -31,6 +31,7 @@ void Configure() {
+   ScreenCaptureCount = TryGetMember<size_t>("ScreenCaptureCount").value_or(0);
+   TryGetMember<bool>("UseMoviePriority", UseMoviePriority);
+   TryGetMember<bool>("UseWaveEffects", UseWaveEffects);
++  TryGetMember<bool>("FramebufferAlpha", FramebufferAlpha);
+ 
+   TryGetMember<int>("PlatformId", PlatformId);
+ 
+diff --git a/src/profile/game.h b/src/profile/game.h
+index 5479bbb331f2cf5c190b4c7ccf763e18d44c6006..99d34f189fa31c7768a9fcef1d9621ff96e8575e 100644
+--- a/src/profile/game.h
++++ b/src/profile/game.h
+@@ -20,6 +20,9 @@ inline std::optional<std::string> CursorPointerPath;
+ inline bool LayFileBigEndian;
+ inline bool CharaIsMvl;
+ inline bool VoiceTableLittleEndian = false;
++// the render targets other than the screen keep an alpha channel (games that compose sprites in them and draw
++// them over the scene, like the STEINS;GATE 0 menus); off: RGB as before
++inline bool FramebufferAlpha = false;
+ 
+ inline size_t ScreenCaptureCount = 0;
+ inline bool UseMoviePriority = false;
+diff --git a/src/renderer/opengl/glc.cpp b/src/renderer/opengl/glc.cpp
+index a495ffa887ede47b7d7b46a44f5c44a7a05754df..6501a98419446dda6b268b4aedd6318db4603f73 100644
+--- a/src/renderer/opengl/glc.cpp
++++ b/src/renderer/opengl/glc.cpp
+@@ -22,8 +22,10 @@ void InitializeFramebuffers() {
+ 
+     glBindFramebuffer(GL_FRAMEBUFFER, framebufferId);
+     glBindTexture(GL_TEXTURE_2D, textureId);
+-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, (GLsizei)viewport.Width,
+-                 (GLsizei)viewport.Height, 0, GL_RGB, GL_UNSIGNED_BYTE,
++    const GLint format =
++        Profile::Game::FramebufferAlpha && buffer != 0 ? GL_RGBA : GL_RGB;
++    glTexImage2D(GL_TEXTURE_2D, 0, format, (GLsizei)viewport.Width,
++                 (GLsizei)viewport.Height, 0, (GLenum)format, GL_UNSIGNED_BYTE,
+                  nullptr);
+ 
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

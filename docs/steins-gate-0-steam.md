@@ -1,6 +1,6 @@
 # STEINS;GATE 0（Steam 版）适配记录（`sg0-pc`，进行中）
 
-`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。**目前还在适配中**：能从标题开始新游戏，一直玩到第 1 章之后的 β 世界线前几章；手机和 RINE 已经能用；存读档、设置、回想等画面还没做。启动器里是隐藏的。
+`sg0-pc` 是 Steam 版 STEINS;GATE 0 的 profile。它和 Steam 版 STEINS;GATE（`sg-pc`，见 [`steins-gate-steam-sghd.md`](steins-gate-steam-sghd.md)）是同一代引擎，大部分适配直接沿用前作。**目前还在适配中**：能从标题开始新游戏，一直玩到第 1 章之后的 β 世界线前几章；手机和 RINE、右键系统菜单、存读档、CONFIG、BACKLOG、TIPS、系统消息框、EXTRA（CLEAR LIST、CG／SOUND／MOVIE 鉴赏）都已按原版移植。启动器里是隐藏的。
 
 ## 游戏目录
 
@@ -29,7 +29,9 @@ USRDIR/movie/1920x1080/*.bk2
 - 短的 EXTRA 列表（标志 860 之前）在原版里两个点击区都登记在 y 519（0x45bcad、0x45bd7d），鼠标点不到 CLEAR LIST；这里用 CLEAR LIST 实际画出的位置 471。
 - 标题模式 3 里按键说明例程（0x456940 类型 6）画的旋转装饰件没有移植。
 - 标题和菜单的系统音效（`sysse` 挂载点）还没找到来源，`sg-pc` 同样没有。
-- 存读档、CONFIG、BACKLOG、TIPS、EXTRA 各画面，以及右键打开的系统菜单：profile 里暂时沿用 `sg-pc` 的布局，只是为了让 HUD 能加载，没有检查过，不能当作已适配。
+- SOUND 鉴赏的曲目在引擎 BGM 通道上只播一遍，循环和“下一首”由鉴赏自己的逻辑处理（原版音频线程按循环点计数，这里没有移植）。
+- MOVIE 鉴赏在触屏上第一次点击只选中条目，再点一次才播放。
+- TIPS 画面的键盘 Enter／Esc 不起作用（触屏正常）。
 - 标题子菜单在触屏上用返回键或双指轻点关不掉（`sg-pc` 同样，原来就有的问题）。
 - 标题"按下开始"在模式 1 之前（剧本最多等 420 帧）不接受点击，和 `sg-pc` 一样要等提示稳定后再点。
 
@@ -48,5 +50,21 @@ MuMu 模拟器（Android 15 x86_64，**不是真机**），Steam 原版数据加
 - 打开：消息窗左上角的手机按钮（点击或鼠标中键），对应原版的 PADcustom[22]。原版只在文字等待玩家时才允许打开（旗标 1611，由 MesMain 置位），这里也一样。
 - 操作：点击等于鼠标左键，双指点击等于右键（返回／关闭），滚轮或拖动滚动聊天记录。
 - RINE 回复：在 RINE 里点左右箭头切换候选句，点其他地方发送；之后每点一下显示下一条消息。
-- 手机状态（0x3ee0 字节）跟着调试快照保存；正式存档要等存读档画面一起做。
-- 已在 MuMu 模拟器上验证（不是真机）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面，序章真由理的 RINE 从回复到对话结束、关闭手机后剧情继续。Amadeus 来电（CONNECT／CANCEL）还没在剧情里走到。
+- 手机状态（0x3ee0 字节）跟着调试快照和正式存档保存（存档文件版本 3 的额外数据）。
+- 已在 MuMu 模拟器上验证（不是真机）：主屏、RINE、设定、壁纸、剧情中的 Amadeus 画面，序章真由理的 RINE 从回复到对话结束、关闭手机后剧情继续。Amadeus 来电（CONNECT）在剧情里接通，手机里显示红莉栖。
+
+## 系统画面
+
+右键系统菜单、SAVE／LOAD、CONFIG、BACKLOG、TIPS、系统消息框和 EXTRA 各画面与手机一样，从 Ghidra 反编译机械翻译（`EXTRA_FUNCS` 列出入口），引擎侧的入口和桥接在 `sysmenu.cpp`、`savemenu.cpp`、`config.cpp`、`tips.cpp`：
+
+| 指令 | 原版 | 说明 |
+| --- | --- | --- |
+| `00:44` | 0x482760 | 系统菜单（画面缩进显示器、12 个按钮） |
+| `10:23` | 0x485f10 | SAVE／LOAD／QUICK LOAD，存档头取自引擎存档系统 |
+| `10:13` | 0x4858c0 | CONFIG，设置在打开时从引擎读入、每帧写回 |
+| `10:33` | 0x486540 | TIPS（`01:0E` 另存原版文字模式表给排版用） |
+| `00:43` | 0x4824d0 | 系统消息框（确认框） |
+| `10:21` | 0x485b80 | CLEAR LIST |
+| `10:1F`／`10:1D`／`10:20` | 0x485b00／0x485aa0／0x485b40 | CG／SOUND／MOVIE 鉴赏；SOUND 通过原版 BGM 通道请求（0x2ed16e0）桥接到引擎 BGM 通道，MOVIE 画引擎的视频播放器 |
+
+CG、BGM、TIPS 的解锁状态直接读写引擎 MO6TWPC 存档系统里的数据（`EvBytes`／`BgmBytes`／`TipsBits`），不另存一份。
