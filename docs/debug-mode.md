@@ -4,7 +4,7 @@
 
 ## 打开
 
-- 宿主设置 `debugMode: true`（写入该游戏 `userconfig.toml` 的 `[CommonSettings] DebugMode = true`），或直接改这个键。profile 带 `GameFeature::DebugMenu` 时也会打开。
+- 宿主设置 `debugMode: true`（写入该游戏 `userconfig.toml` 的 `[CommonSettings] DebugMode = true`），或直接改这个键。只看这个开关；profile 带 `GameFeature::DebugMenu`（`cclcc`、`chlcc`、`mo6tw-pc` 等上游 profile）只保留上游原有的调试菜单，不会打开调试模式。
 - 进游戏后画面左上角有一行状态：运行／暂停、速度、是否强制快进、主线程所在剧本与对白行号（最近的检查点）、可回退的句数。
 - **三根手指同时按屏幕**打开调试菜单（键盘 Alt+D、手柄 RB+Y 仍可用）。三指手势本身不会被游戏当成点击；手指落在调试窗口上时游戏也收不到。
 - 菜单里的「适配工具」标签页（停靠模式下是单独的「适配工具」窗口）就是本工具；顶部可切换中文／English，下面一行显示上一次操作的结果。窗口不会超过屏幕高度，内容多时拖右侧滚动条。

@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 03:50:46 -0800
+Subject: [PATCH] tyn: debug mode only from the user setting
+
+The porting tools (the status line at the top left, speed, skip, rewind,
+debug-cmd.txt) were on whenever the profile has the DebugMenu game feature,
+which several upstream profiles set (cclcc, chlcc, mo6tw-pc, mo6tw ...): on
+those games the status line showed with the debug mode turned off in the
+app. Only CommonSettings.DebugMode turns them on now; the DebugMenu feature
+keeps the upstream debug menu as before.
+
+Generic (fixes patch 0053).
+Verified on MuMu (Android 15 x86_64 emulator, not a real device), sg0-pc:
+DebugMode false in userconfig.toml, no status line; true, the status line.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/debugtools.cpp b/src/debugtools.cpp
+index dab6cde709be2179328767d1fa1a7d575c5b288c..ace5eecae220f37a5e59c5903999b66e812848d0 100644
+--- a/src/debugtools.cpp
++++ b/src/debugtools.cpp
+@@ -334,7 +334,7 @@ void UnlockAll() {
+ }  // namespace
+ 
+ bool Enabled() {
+-  return UserConfig::CommonSettings.DebugMode || (+Profile::Game::GameFeatures & +GameFeature::DebugMenu);
++  return UserConfig::CommonSettings.DebugMode;
+ }
+ 
+ bool OpenRequested() {
+diff --git a/src/debugtools.h b/src/debugtools.h
+index 07bd389c0c1e516dbfa28802adcf5425f1c7c9e7..4d54ed1cba44c0fc2dab992ac3afe41f3a07a3de 100644
+--- a/src/debugtools.h
++++ b/src/debugtools.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+-// Porting tools of the debug mode (UserConfig CommonSettings.DebugMode, or the DebugMenu game feature): game speed,
++// Porting tools of the debug mode (UserConfig CommonSettings.DebugMode only; the DebugMenu game feature of some
++// upstream profiles keeps just the upstream debug menu): game speed,
+ // pause and single steps, automatic snapshots for rewinding, saved states, jumps of a script thread to any label of
+ // any script, skip of everything, unlocks. Shown as the "Porting" tab of the debug menu; on touch screens three
+ // fingers at once open the menu.

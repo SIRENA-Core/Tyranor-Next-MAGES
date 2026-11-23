@@ -1,5 +1,9 @@
 # Changelog
 
+## 未发布
+
+- 修复（补丁 0081，通用）：调试模式只由设置里的开关打开。之前 profile 带 `GameFeature::DebugMenu` 的游戏（`cclcc`、`chlcc`、`mo6tw-pc`、`mo6tw` 等上游 profile）在设置里关掉调试模式后，左上角仍显示调试状态栏，速度、快进、`debug-cmd.txt` 等调试功能也仍然生效。MuMu 模拟器（不是真机）上验证：`DebugMode = false` 时不显示，`true` 时显示。
+
 ## 0.4.4（versionCode 11）
 
 - STEINS;GATE 0 Steam 版（`sg0-pc`）标记为已适配：主应用从宿主 versionCode 11 起识别并启动它。
