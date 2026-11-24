@@ -2,7 +2,7 @@
 
 [Tyranor Next](https://github.com/Weiss-UltimateSavior/Tyranor-Next) 的 **MAGES. 引擎外置宿主**：独立的 Android APK，由 Tyranor Next 通过 Intent 启动，运行 MAGES.（前 5pb.）的视觉小说。
 
-引擎是开源项目 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（MAGES. 引擎的重新实现，ISC 许可）。构建输入 = 固定的上游提交 + 本仓库的补丁系列（[`engine/impacto/patches/`](engine/impacto/patches/README.md)）。**impacto 是项目名，不是引擎名。**
+引擎是开源项目 [CommitteeOfZero/impacto](https://github.com/CommitteeOfZero/impacto)（MAGES. 引擎的重新实现，ISC 许可）。构建输入 = 固定的上游提交 + 本仓库的补丁系列（[`engine/impacto/patches/`](engine/impacto/patches/README.md)）。
 
 | | |
 | --- | --- |
