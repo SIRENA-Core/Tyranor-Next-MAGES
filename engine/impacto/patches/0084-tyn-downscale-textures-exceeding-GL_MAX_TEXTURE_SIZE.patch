@@ -1,0 +1,239 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 04:18:59 -0800
+Subject: [PATCH] tyn: downscale textures exceeding GL_MAX_TEXTURE_SIZE
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+可向上游提交。
+
+Mobile GPUs with GL_MAX_TEXTURE_SIZE == 4096 reject textures such as
+3072x6000 FONT.PNG and 3072x4224 ALBUM_THUM.DDS with GL_INVALID_VALUE in
+glTexImage2D, causing missing or corrupted rendering.
+
+Query GL_MAX_TEXTURE_SIZE in Renderer::Init() (falling back to 4096 if <= 0)
+and log GL_RENDERER, GL_VERSION and GL_MAX_TEXTURE_SIZE. In SubmitTexture(),
+keep the zero-overhead path when width <= MaxTextureSize and
+height <= MaxTextureSize; otherwise downscale only the exceeding axes with
+area averaging across TexFmt_RGBA/RGB/UA8/U8 to preserve thin glyph strokes,
+log a warning, and check glGetError() after glTexImage2D and glGenerateMipmap.
+
+SpriteSheet::DesignWidth/DesignHeight and GetSpriteSheetImage are unaffected
+because sprites and SingleSheetFont sample via NormalizedBounds() in [0, 1].
+
+Verified on MuMu emulator (Android 15, not a real device) with both native
+limit and simulated 4096 clamp on steins;gate (sg-pc, Steam + 2018 CN patch).
+
+diff --git a/src/renderer/opengl/renderer.cpp b/src/renderer/opengl/renderer.cpp
+index 6facf51015adef23b35f1d3a96e9ca9a4ad8453c..2e3932313da1ae7223e5a5d317a30b0ed667ace8 100644
+--- a/src/renderer/opengl/renderer.cpp
++++ b/src/renderer/opengl/renderer.cpp
+@@ -1,7 +1,11 @@
+ #include "renderer.h"
+ 
++#include <algorithm>
+ #include <array>
++#include <cmath>
+ #include <numeric>
++#include <tuple>
++#include <vector>
+ #include "shader.h"
+ #include "../../profile/game.h"
+ #include "../../game.h"
+@@ -146,6 +150,19 @@ void Renderer::Init() {
+   ImpLog(LogLevel::Info, LogChannel::Render,
+          "Initializing Renderer2D system\n");
+ 
++  GLint maxTexSize = 0;
++  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
++  MaxTextureSize = (maxTexSize > 0) ? static_cast<int>(maxTexSize) : 4096;
++  const char* glRenderer =
++      reinterpret_cast<const char*>(glGetString(GL_RENDERER));
++  const char* glVersion =
++      reinterpret_cast<const char*>(glGetString(GL_VERSION));
++  ImpLog(LogLevel::Info, LogChannel::Render,
++         "OpenGL renderer: \"{:s}\", version: \"{:s}\", "
++         "GL_MAX_TEXTURE_SIZE: {:d}\n",
++         glRenderer ? glRenderer : "(unknown)",
++         glVersion ? glVersion : "(unknown)", MaxTextureSize);
++
+   if (+Profile::Game::GameFeatures & +GameFeature::Scene3D) {
+     Scene = new Scene3D(OpenGLWindow, Shaders);
+     Scene->Init();
+@@ -265,6 +282,82 @@ void Renderer::UnloadSurf(int surfId) {
+   SurfToId.erase(surfId);
+ }
+ 
++static std::vector<uint8_t> DownscaleTextureArea(const uint8_t* src, int srcW,
++                                                 int srcH, int dstW, int dstH,
++                                                 int channels) {
++  std::vector<uint8_t> dst(static_cast<size_t>(dstW) *
++                           static_cast<size_t>(dstH) *
++                           static_cast<size_t>(channels));
++  const double scaleX = static_cast<double>(srcW) / static_cast<double>(dstW);
++  const double scaleY = static_cast<double>(srcH) / static_cast<double>(dstH);
++
++  struct XSpan {
++    double x0;
++    double x1;
++    int start;
++    int end;
++  };
++  std::vector<XSpan> xSpans(static_cast<size_t>(dstW));
++  for (int dx = 0; dx < dstW; ++dx) {
++    const double x0 = dx * scaleX;
++    const double x1 = (dx + 1) * scaleX;
++    const int sx0 = std::clamp(static_cast<int>(std::floor(x0)), 0, srcW - 1);
++    const int sx1 =
++        std::clamp(static_cast<int>(std::ceil(x1)) - 1, sx0, srcW - 1);
++    xSpans[static_cast<size_t>(dx)] = {x0, x1, sx0, sx1};
++  }
++
++  for (int dy = 0; dy < dstH; ++dy) {
++    const double y0 = dy * scaleY;
++    const double y1 = (dy + 1) * scaleY;
++    const int sy0 = std::clamp(static_cast<int>(std::floor(y0)), 0, srcH - 1);
++    const int sy1 =
++        std::clamp(static_cast<int>(std::ceil(y1)) - 1, sy0, srcH - 1);
++    uint8_t* dstRow = dst.data() + static_cast<size_t>(dy) * dstW * channels;
++
++    for (int dx = 0; dx < dstW; ++dx) {
++      const XSpan& xs = xSpans[static_cast<size_t>(dx)];
++      double accum[4] = {0.0, 0.0, 0.0, 0.0};
++      double weightSum = 0.0;
++
++      for (int sy = sy0; sy <= sy1; ++sy) {
++        const double wy = std::min(y1, static_cast<double>(sy + 1)) -
++                          std::max(y0, static_cast<double>(sy));
++        if (wy <= 0.0) continue;
++        const uint8_t* srcRow = src + static_cast<size_t>(sy) * srcW * channels;
++
++        for (int sx = xs.start; sx <= xs.end; ++sx) {
++          const double wx = std::min(xs.x1, static_cast<double>(sx + 1)) -
++                            std::max(xs.x0, static_cast<double>(sx));
++          if (wx <= 0.0) continue;
++          const double w = wx * wy;
++          const uint8_t* p = srcRow + static_cast<size_t>(sx) * channels;
++          for (int c = 0; c < channels; ++c) {
++            accum[c] += static_cast<double>(p[c]) * w;
++          }
++          weightSum += w;
++        }
++      }
++
++      uint8_t* out = dstRow + static_cast<size_t>(dx) * channels;
++      if (weightSum > 0.0) {
++        for (int c = 0; c < channels; ++c) {
++          out[c] = static_cast<uint8_t>(
++              std::clamp(std::lround(accum[c] / weightSum), 0L, 255L));
++        }
++      } else {
++        const uint8_t* p =
++            src + (static_cast<size_t>(sy0) * srcW + xs.start) * channels;
++        for (int c = 0; c < channels; ++c) {
++          out[c] = p[c];
++        }
++      }
++    }
++  }
++
++  return dst;
++}
++
+ uint32_t Renderer::SubmitTexture(TexFmt format, uint8_t* buffer, int width,
+                                  int height) {
+   GLint prevBound;
+@@ -280,40 +373,72 @@ uint32_t Renderer::SubmitTexture(TexFmt format, uint8_t* buffer, int width,
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 16);
+ 
+   // Load in data
+-  const auto [internalFormat,
+-              texFormat] = [format]() -> std::pair<GLint, GLenum> {
++  const auto [internalFormat, texFormat, channels] =
++      [format]() -> std::tuple<GLint, GLenum, int> {
+     switch (format) {
+       case TexFmt_RGBA:
+         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+-        return {GL_RGBA, GL_RGBA};
++        return {GL_RGBA, GL_RGBA, 4};
+ 
+       case TexFmt_RGB:
+         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-        return {GL_RGB, GL_RGB};
++        return {GL_RGB, GL_RGB, 3};
+ 
+       case TexFmt_U8:
+         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-        return {GL_R8, GL_RED};
++        return {GL_R8, GL_RED, 1};
+       case TexFmt_UA8:
+         glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_GREEN);
+-        return {GL_RG8, GL_RG};
++        return {GL_RG8, GL_RG, 2};
+ 
+       default:
+         throw std::invalid_argument(
+             fmt::format("Unimplemented texture format {}", (int)format));
+     }
+   }();
+-  glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, texFormat,
+-               GL_UNSIGNED_BYTE, buffer);
++
++  int uploadWidth = width;
++  int uploadHeight = height;
++  const uint8_t* uploadData = buffer;
++  std::vector<uint8_t> downscaled;
++  if (buffer != nullptr && width > 0 && height > 0 &&
++      (width > MaxTextureSize || height > MaxTextureSize)) {
++    const int dstW = std::min(width, MaxTextureSize);
++    const int dstH = std::min(height, MaxTextureSize);
++    ImpLog(LogLevel::Warning, LogChannel::Render,
++           "Downscaling texture from {:d}x{:d} to {:d}x{:d} "
++           "(exceeds GL_MAX_TEXTURE_SIZE {:d})\n",
++           width, height, dstW, dstH, MaxTextureSize);
++    downscaled =
++        DownscaleTextureArea(buffer, width, height, dstW, dstH, channels);
++    uploadWidth = dstW;
++    uploadHeight = dstH;
++    uploadData = downscaled.data();
++  }
++
++  for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
++  }
++  glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, uploadWidth, uploadHeight, 0,
++               texFormat, GL_UNSIGNED_BYTE, uploadData);
++  if (GLenum err = glGetError(); err != GL_NO_ERROR) {
++    ImpLog(LogLevel::Error, LogChannel::Render,
++           "glTexImage2D failed (0x{:x}) for {:d}x{:d} texture\n", err,
++           uploadWidth, uploadHeight);
++  }
+ 
+   // Build mip chain
+   // TODO do this ourselves outside of Submit(), this can easily cause a
+   // framedrop
+   glGenerateMipmap(GL_TEXTURE_2D);
++  if (GLenum err = glGetError(); err != GL_NO_ERROR) {
++    ImpLog(LogLevel::Error, LogChannel::Render,
++           "glGenerateMipmap failed (0x{:x}) for {:d}x{:d} texture\n", err,
++           uploadWidth, uploadHeight);
++  }
+   glBindTexture(GL_TEXTURE_2D, prevBound);
+   return result;
+ }
+diff --git a/src/renderer/opengl/renderer.h b/src/renderer/opengl/renderer.h
+index 55549d499bb56e08a6239565a815ef21029381e2..96e4bebda0b5e8d87bde7c1f7f1755da404862de 100644
+--- a/src/renderer/opengl/renderer.h
++++ b/src/renderer/opengl/renderer.h
+@@ -241,6 +241,7 @@ class Renderer : public BaseRenderer {
+   ShaderCompiler Shaders;
+ 
+   bool ScissorEnabled = false;
++  int MaxTextureSize = 4096;
+ };
+ 
+ }  // namespace OpenGL

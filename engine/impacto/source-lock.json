@@ -334,6 +334,14 @@
       {
         "file": "0082-tyn-libbink2-decode-KB2-audio-as-Bink-1-audio.patch",
         "sha256": "25246b98020b05376530d51330fef53018ed7014546a58161e21ea6774f9d939"
+      },
+      {
+        "file": "0083-tyn-use-highp-float-in-GLES-fragment-shaders-when-su.patch",
+        "sha256": "c843cc185467711b067859b5c96fe87af38b8929ac08c0f62415c99fda2116fc"
+      },
+      {
+        "file": "0084-tyn-downscale-textures-exceeding-GL_MAX_TEXTURE_SIZE.patch",
+        "sha256": "3b1d20e7f14bfc758d03dd7075854daf6e618465f8ae975ee3677e0b52681242"
       }
     ]
   },

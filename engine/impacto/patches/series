@@ -82,3 +82,5 @@
 0080-tyn-sg0-pc-writes-its-system-data-when-going-to-the-.patch
 0081-tyn-debug-mode-only-from-the-user-setting.patch
 0082-tyn-libbink2-decode-KB2-audio-as-Bink-1-audio.patch
+0083-tyn-use-highp-float-in-GLES-fragment-shaders-when-su.patch
+0084-tyn-downscale-textures-exceeding-GL_MAX_TEXTURE_SIZE.patch

@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tyn-patches <tyn-patches@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 04:18:59 -0800
+Subject: [PATCH] tyn: use highp float in GLES fragment shaders when supported
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+可向上游提交。
+
+Previously ShaderHeaderFrag hardcoded `precision mediump float;` on all GL_ES
+targets. On strict FP16 fragment drivers, sampling large texture atlases such
+as 3072x6000 FONT.PNG introduces up to ~3 px UV quantization error, clipping
+glyph edges and bleeding adjacent cells.
+
+Prefer `precision highp float;` when GL_FRAGMENT_PRECISION_HIGH is defined,
+falling back to `precision mediump float;` otherwise. Audited all shaders
+under src/shaders/opengl/*_{vert,frag}.glsl: only the Renderable3D_* pairs
+share uniforms between vertex and fragment stages, and all shared uniforms
+already use UNIFORM_PRECISION, so keeping UNIFORM_PRECISION as mediump in
+ShaderHeaderES introduces no precision mismatch.
+
+Verified on MuMu emulator (Android 15, not a real device) with steins;gate
+(sg-pc, Steam + 2018 CN patch).
+
+diff --git a/src/renderer/opengl/shader.cpp b/src/renderer/opengl/shader.cpp
+index 91a0460b720b229509aa61b180716bb1e45865e8..7795af10ea08b1bae7ab6f8a4a357c3b6ac2613a 100644
+--- a/src/renderer/opengl/shader.cpp
++++ b/src/renderer/opengl/shader.cpp
+@@ -30,8 +30,8 @@ static char const ShaderHeaderVert[] =
+     "#define VERTEX_SHADER\n#ifdef GL_ES\nprecision highp float;\n#endif\n\n";
+ static GLint const ShaderHeaderVertLength = sizeof(ShaderHeaderVert) - 1;
+ static char const ShaderHeaderFrag[] =
+-    "#define FRAGMENT_SHADER\n#ifdef GL_ES\nprecision mediump "
+-    "float;\n#endif\n\n";
++    "#define FRAGMENT_SHADER\n#ifdef GL_ES\n#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
++    "precision highp float;\n#else\nprecision mediump float;\n#endif\n#endif\n\n";
+ static GLint const ShaderHeaderFragLength = sizeof(ShaderHeaderFrag) - 1;
+ 
+ int ShaderCompiler::PrintParameter(char* dest, int destSz, char const* name,
