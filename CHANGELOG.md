@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6（versionCode 13）
+
+- 修复（补丁 0083，通用，可向上游提交）：OpenGL ES 片段着色器默认精度改为优先使用 `highp float`（检测 `GL_FRAGMENT_PRECISION_HIGH`，不支持时回退 `mediump float`）。此前 `ShaderHeaderFrag` 对所有 GLES 设备写死 `precision mediump float;`，在严格按 FP16 执行片段采样的移动 GPU 上，对 `3072×6000` 字库图集（如 `sg-pc` 的 `FONT.PNG`）在下半区（`v > 0.5`）UV 量化步长可达约 3 像素，导致字形裁边与邻格串扰。已核对全部 `src/shaders/opengl/*_{vert,frag}.glsl`，无 uniform 精度冲突。
+- 修复（补丁 0084，通用，可向上游提交）：OpenGL 纹理上传适配 `GL_MAX_TEXTURE_SIZE` 并补充诊断日志。`Renderer::Init()` 查询并缓存 `GL_MAX_TEXTURE_SIZE`（`<= 0` 回退 4096）并记录 `GL_RENDERER`、`GL_VERSION` 与 `GL_MAX_TEXTURE_SIZE`；`SubmitTexture()` 在尺寸未超限时走零开销原路径，超限时仅对超限轴做区域加权平均降采样（支持 `RGBA`/`RGB`/`UA8`/`U8`），避免 `3072×6000`（`FONT.PNG`）、`3648×7128`（`FontLBOutline`）、`3072×4224`（`ALBUM_THUM.DDS`）在上限 4096 的移动 GPU 上因 `glTexImage2D` 报 `GL_INVALID_VALUE` 导致渲染缺失或异常；同时在 `glTexImage2D` 与 `glGenerateMipmap` 后检查 `glGetError()`。
+- 验证：MuMu 模拟器（Android 15，Adreno 640，**不是真机**），`sg-pc`（Steam 版 + 2018 汉化补丁），在原生上限（`32768`）与模拟 `4096` 上限（实测触发 `3072×6000 → 3072×4096`、`3648×7128 → 3648×4096` 降采样）双路径下验证标题、`SG00_01` 秋叶原站对话框、`BACKLOG` 与正常流程，零着色器及 GL 报错。真机未测。
+
 ## 0.4.5（versionCode 12）
 
 - 修复（补丁 0081，通用）：调试模式只由设置里的开关打开。之前 profile 带 `GameFeature::DebugMenu` 的游戏（`cclcc`、`chlcc`、`mo6tw-pc`、`mo6tw` 等上游 profile）在设置里关掉调试模式后，左上角仍显示调试状态栏，速度、快进、`debug-cmd.txt` 等调试功能也仍然生效。MuMu 模拟器（不是真机）上验证：`DebugMode = false` 时不显示，`true` 时显示。
